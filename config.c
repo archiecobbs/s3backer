@@ -409,17 +409,21 @@ validate_config(void)
     /* If no accessId specified, default to first in accessFile */
     if (config.accessId == NULL && config.accessFile != NULL)
         search_access_for(config.accessFile, NULL, &config.accessId, NULL);
-    if (config.accessId == NULL) {
-        warnx("no accessId specified");
-        return -1;
-    }
+    if (config.accessId == NULL)
+        warnx("warning: no accessId specified");
 
     /* Find key in file if not specified explicitly */
-    if (config.accessKey == NULL && config.accessFile != NULL)
-        search_access_for(config.accessFile, config.accessId, NULL, &config.accessKey);
-    if (config.accessKey == NULL) {
-        warnx("no accessKey specified");
+    if (config.accessId == NULL && config.accessKey != NULL) {
+        warnx("an `accessKey' was specified but no `accessId' was specified");
         return -1;
+    }
+    if (config.accessId != NULL) {
+        if (config.accessKey == NULL && config.accessFile != NULL)
+            search_access_for(config.accessFile, config.accessId, NULL, &config.accessKey);
+        if (config.accessKey == NULL) {
+            warnx("no accessKey specified");
+            return -1;
+        }
     }
 
     /* Check bucket */
@@ -523,8 +527,8 @@ dump_config(void)
     int i;
 
     (*config.log)(LOG_DEBUG, "s3backer config:");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.accessId);
-    (*config.log)(LOG_DEBUG, "%16s: ****", "accessKey");
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.accessId != NULL ? config.accessId : "");
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.access);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.baseURL);

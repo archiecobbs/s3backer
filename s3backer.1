@@ -108,6 +108,9 @@ Default value is
 .Pa $HOME/.s3backer_passwd .
 .It Fl \-accessId=ID
 Specify Amazon S3 access ID.
+If no access ID is specified (and none is found in the access file) then
+.Nm
+will still function, but only reads of publicly available filesystems will work.
 .It Fl \-accessKey=KEY
 Specify Amazon S3 access key. To avoid publicizing this secret via the command line, use
 .Fl \-accessFile
