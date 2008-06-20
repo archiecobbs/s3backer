@@ -324,7 +324,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
-            fprintf(stderr, "%s version %s (r%s)\n", PACKAGE, VERSION, SVNREVISION);
+            fprintf(stderr, "%s version %s (r%d)\n", PACKAGE, VERSION, s3backer_svnrev);
             fprintf(stderr, "Copyright (C) 2008 Archie L. Cobbs.\n");
             fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
             fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
