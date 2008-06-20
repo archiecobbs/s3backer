@@ -1,7 +1,5 @@
 TODO
 
-- store filesystem size zero block meta-data, so we can verify/auto-detect both
-  the file size and block size when starting
 - compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
 - interrupt active write when new write happens (instead of waiting)
 - exponential backoff on HTTP 5xx errors

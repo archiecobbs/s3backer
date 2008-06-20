@@ -26,7 +26,11 @@ bin_PROGRAMS=	    s3backer
 
 noinst_PROGRAMS=	tester
 
-noinst_HEADERS=     s3backer.h
+$(bin_PROGRAMS):    svnrev.h
+
+$(noinst_PROGRAMS):	svnrev.h
+
+noinst_HEADERS=     s3backer.h svnrev.h
 
 man_MANS=           s3backer.1
 
@@ -39,4 +43,7 @@ tester_SOURCES=	    tester.c s3backer.c config.c
 AM_CFLAGS=	        $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
 
 AM_LDFLAGS=	        $(FUSE_LIBS) $(GLIB2_LIBS)
+
+svnrev.h:
+					printf '#define SVNREVISION "%u"\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.h
 

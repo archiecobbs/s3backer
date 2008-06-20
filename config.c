@@ -88,7 +88,7 @@ static struct s3backer_conf config = {
     .prefix=            S3BACKER_DEFAULT_PREFIX,
     .access=            S3BACKER_DEFAULT_ACCESS,
     .filename=          S3BACKER_DEFAULT_FILENAME,
-    .block_size=        S3BACKER_DEFAULT_BLOCKSIZE,
+    .block_size=        0,
     .file_size=         0,
     .file_mode=         S3BACKER_DEFAULT_FILE_MODE,
     .connect_timeout=   S3BACKER_DEFAULT_CONNECT_TIMEOUT,
@@ -181,6 +181,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--cacheSize=%u",
         .offset=    offsetof(struct s3backer_conf, cache_size),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--force",
+        .offset=    offsetof(struct s3backer_conf, force),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     FUSE_OPT_END
@@ -319,7 +324,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
-            fprintf(stderr, "%s version %s\n", PACKAGE, VERSION);
+            fprintf(stderr, "%s version %s (r%s)\n", PACKAGE, VERSION, SVNREVISION);
             fprintf(stderr, "Copyright (C) 2008 Archie L. Cobbs.\n");
             fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
             fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
@@ -390,10 +395,14 @@ search_access_for(const char *file, const char *accessId, const char **idptr, co
 static int
 validate_config(void)
 {
+    struct s3backer_store *s3b;
+    off_t auto_file_size;
+    u_int auto_block_size;
     uintmax_t value;
     const char *s;
     char buf[1024];
     int i;
+    int r;
 
     /* Default to $HOME/.s3backer for accessFile */
     if (config.accessFile == NULL) {
@@ -471,7 +480,21 @@ validate_config(void)
         return -1;
     }
 
-    /* Check block and file sizes */
+    /* Check time/cache values */
+    if (config.cache_size == 0 && config.cache_time > 0) {
+        warnx("`cacheTime' must zero when cache is disabled");
+        return -1;
+    }
+    if (config.cache_size == 0 && config.min_write_delay > 0) {
+        warnx("`minWriteDelay' must zero when cache is disabled");
+        return -1;
+    }
+    if (config.cache_time < config.min_write_delay) {
+        warnx("`cacheTime' must be at least `minWriteDelay'");
+        return -1;
+    }
+
+    /* Parse block and file sizes */
     if (config.block_size_str != NULL) {
         if (parse_size_string(config.block_size_str, &value) == -1 || value == 0) {
             warnx("invalid block size `%s'", config.block_size_str);
@@ -479,15 +502,62 @@ validate_config(void)
         }
         config.block_size = value;
     }
-    if (config.file_size_str == NULL) {
-        warnx("no file size specified (use `--size' flag)");
-        return -1;
+    if (config.file_size_str != NULL) {
+        if (parse_size_string(config.file_size_str, &value) == -1 || value == 0) {
+            warnx("invalid file size `%s'", config.block_size_str);
+            return -1;
+        }
+        config.file_size = value;
     }
-    if (parse_size_string(config.file_size_str, &value) == -1 || value == 0) {
-        warnx("invalid file size `%s'", config.block_size_str);
-        return -1;
+
+    /*
+     * Read the first block (if any) to determine existing file and block size,
+     * and compare with configured sizes (if given).
+     */
+    if ((s3b = s3backer_create(&config)) == NULL)
+        err(1, "s3backer_create");
+    warnx("auto-detecting block size and total size...");
+    switch ((r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size))) {
+    case 0:
+        warnx("auto-detected block size=%u and total size=%ju", auto_block_size, (uintmax_t)auto_file_size);
+        if (config.block_size == 0)
+            config.block_size = auto_block_size;
+        else if (auto_block_size != config.block_size) {
+            if (config.force) {
+                warnx("warning: configured block size %u != filesystem block size %u,"
+                  " but you said `--force' so I'll proceed anyway even though"
+                  " your data will probably not read back correctly.", config.block_size, auto_block_size);
+            } else
+                errx(1, "error: configured block size %u != filesystem block size %u", config.block_size, auto_block_size);
+        }
+        if (config.file_size == 0)
+            config.file_size = auto_file_size;
+        else if (auto_file_size != config.file_size) {
+            if (config.force) {
+                warnx("warning: configured file size %ju != filesystem file size %ju,"
+                  " but you said `--force' so I'll proceed anyway even though"
+                  " your data will probably not read back correctly.", (uintmax_t)config.file_size, (uintmax_t)auto_file_size);
+            } else
+                errx(1, "error: configured file size %ju != filesystem file size %ju", (uintmax_t)config.file_size, (uintmax_t)auto_file_size);
+        }
+        break;
+    case ENOENT:
+    case ENXIO:
+        if (config.file_size == 0)
+            errx(1, "error: auto-detection of filesystem size failed; please specify `--size'");
+        if (config.block_size == 0) {
+            config.block_size = S3BACKER_DEFAULT_BLOCKSIZE;
+            warnx("assuming default block size of %u", config.block_size);
+        }
+        break;
+    default:
+        errno = r;
+        err(1, "can't read block zero meta-data");
+        break;
     }
-    config.file_size = value;
+    (*s3b->destroy)(s3b);
+
+    /* Check computed block and file sizes */
     config.block_bits = ffs(config.block_size) - 1;
     if (config.block_size != (1 << config.block_bits)) {
         warnx("block size must be a power of 2");
@@ -500,20 +570,6 @@ validate_config(void)
     config.num_blocks = config.file_size / config.block_size;
     if (config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {    // cf. struct defer_info.block_num
         warnx("more than 2^%d blocks: decrease file size or increase block size", sizeof(s3b_block_t) * 8);
-        return -1;
-    }
-
-    /* Check time/cache values */
-    if (config.cache_size == 0 && config.cache_time > 0) {
-        warnx("`cacheTime' must zero when cache is disabled");
-        return -1;
-    }
-    if (config.cache_size == 0 && config.min_write_delay > 0) {
-        warnx("`minWriteDelay' must zero when cache is disabled");
-        return -1;
-    }
-    if (config.cache_time < config.min_write_delay) {
-        warnx("`cacheTime' must be at least `minWriteDelay'");
         return -1;
     }
 
@@ -605,13 +661,13 @@ usage(void)
 {
     int i;
 
-    fprintf(stderr, "Usage: s3backer --size=SIZE [options] bucket /mount/point\n");
+    fprintf(stderr, "Usage: s3backer [options] bucket /mount/point\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t--%-22s %s\n", "accessId=ID", "S3 access key ID");
     fprintf(stderr, "\t--%-22s %s\n", "accessKey=KEY", "S3 secret access key");
     fprintf(stderr, "\t--%-22s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-22s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-22s %s\n", "blockSize=BS", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-22s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-22s %s\n", "accessType=TYPE", "ACL used when creating items; one of:");
     fprintf(stderr, "\t  %-22s ", "");
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
@@ -627,6 +683,7 @@ usage(void)
     fprintf(stderr, "\t--%-22s %s\n", "minWriteDelay=MILLIS", "Min time between same block writes");
     fprintf(stderr, "\t--%-22s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-22s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
+    fprintf(stderr, "\t--%-22s %s\n", "force", "Apply block and file sizes even if they disagree");
     fprintf(stderr, "\t--%-22s %s\n", "version", "Show version information and exit");
     fprintf(stderr, "\t--%-22s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "Default values:\n");
