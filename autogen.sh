@@ -10,11 +10,7 @@
 
 set -e
 
-echo "cleaning up"
-find . -name 'Makefile.in' -print | xargs rm -f
-rm -rf autom4te*.cache scripts aclocal.m4 configure
-rm -f include/config.h.in include/config.h
-mkdir scripts
+. cleanup.sh
 
 ACLOCAL="aclocal"
 AUTOHEADER="autoheader"
