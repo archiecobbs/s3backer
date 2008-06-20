@@ -54,7 +54,7 @@
 #define S3BACKER_DEFAULT_CACHE_SIZE         10000
 
 /* SVN revision */
-#define SVN_REVISION                        "$Revision$"
+#define SVN_REVISION                        "$Rev$"
 
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
