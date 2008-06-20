@@ -23,7 +23,6 @@
  */
 
 #include "config.h"
-#include "svnrev.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -149,4 +148,7 @@ const struct fuse_operations *s3backer_get_fuse_ops(struct s3backer_conf *config
 
 /* config.c */
 struct s3backer_conf *s3backer_get_config(int argc, char **argv);
+
+/* svnrev.c */
+extern const int s3backer_svnrev;
 
