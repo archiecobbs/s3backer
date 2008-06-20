@@ -1,0 +1,15 @@
+
+Version 1.0.1 released 20 June 2008
+
+    - Store filesystem size in meta-data associated with the first block and
+      use it to auto-detect filesystem block and file sizes if not specified.
+      As a result, `--size' flag is now optional.
+    - Log a warning and zero remaining bytes when we encounter a short read.
+    - Add User-Agent HTTP header to all HTTP requests.
+    - Include SVN revision in version string.
+    - Don't log every HTTP operation unless `-d' is passed.
+    - Added `--force' flag.
+
+Version 1.0.0 released 19 June 2008
+
+$Id$
