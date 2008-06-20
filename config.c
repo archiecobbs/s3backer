@@ -53,9 +53,6 @@
 #define S3BACKER_DEFAULT_CACHE_TIME         10000           // 10s
 #define S3BACKER_DEFAULT_CACHE_SIZE         10000
 
-/* SVN revision */
-#define SVN_REVISION                        "$Rev$"
-
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
@@ -322,7 +319,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
-            fprintf(stderr, "%s version %s (r%s)\n", PACKAGE, VERSION, SVN_REVISION);
+            fprintf(stderr, "%s version %s\n", PACKAGE, VERSION);
             fprintf(stderr, "Copyright (C) 2008 Archie L. Cobbs.\n");
             fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
             fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
