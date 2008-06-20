@@ -11,6 +11,7 @@
 set -e
 
 . cleanup.sh
+mkdir -p scripts
 
 ACLOCAL="aclocal"
 AUTOHEADER="autoheader"
