@@ -1,0 +1,16 @@
+#summary How to mount the demo filesystem
+
+A demonstration filesystem has been created that you can mount read-only using *s3backer*. No Amazon S3 account is required.
+
+To see the demo, first build and install *s3backer*.
+
+Then, run these commands _as root_:
+
+{{{
+$ mkdir -p /mnt/s3b-fs /mnt/s3b-demo
+$ s3backer --size=20m -o allow_root s3backer-demo /mnt/s3b-fs
+$ mount -o ro,loop /mnt/s3b-fs/file /mnt/s3b-demo
+$ cd /mnt/s3b-demo
+}}}
+
+You will then be able to see the files in the demo filesystem.
