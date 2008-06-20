@@ -1,0 +1,9 @@
+#summary Other S3 filesystems
+
+Here is a list of other projects that use Amazon S3 to create a Linux filesystem:
+
+ * [http://code.google.com/p/s3fs/ s3fs]: file-oriented filesystem backed by S3 written in C++
+ * [http://www.elasticdrive.com/ ElasticDrive]: a commercial "distributed remove storage application" capable of using S3
+ * [http://www.persistentfs.com/ PersistentFS]: an S3-backed filesystem, seems to be non open-source.
+ * [https://fedorahosted.org/s3fs/ s3fs]: another "s3fs", but this one is written in python
+ * [http://code.google.com/p/s3fs-fuse/ s3fs-fuse]: another S3 filesystem written in python
