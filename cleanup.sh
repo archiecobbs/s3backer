@@ -13,4 +13,5 @@ rm -f config.h.in config.h
 rm -f scripts
 rm -f Makefile Makefile.in
 rm -f svnrev.c
+rm -f *.o s3backer tester
 
