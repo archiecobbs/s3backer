@@ -9,6 +9,7 @@ Then, run these commands _as root_:
 {{{
 $ mkdir -p /mnt/s3b-fs /mnt/s3b-demo
 $ s3backer --size=20m -o allow_root s3backer-demo /mnt/s3b-fs
+s3backer: warning: no accessId specified
 $ mount -o ro,loop /mnt/s3b-fs/file /mnt/s3b-demo
 $ cd /mnt/s3b-demo
 }}}
