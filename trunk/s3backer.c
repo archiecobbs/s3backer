@@ -529,9 +529,11 @@ s3backer_do_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     }
 
     /* Add Authorization header */
-    s3backer_get_auth(authbuf, sizeof(authbuf), config->accessKey,
-      HTTP_GET, NULL, NULL, datebuf, headers, resource);
-    headers = s3backer_add_header(headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+    if (config->accessId != NULL) {
+        s3backer_get_auth(authbuf, sizeof(authbuf), config->accessKey,
+          HTTP_GET, NULL, NULL, datebuf, headers, resource);
+        headers = s3backer_add_header(headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+    }
 
     /* Set headers */
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -622,9 +624,11 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     }
 
     /* Add Authorization header */
-    s3backer_get_auth(authbuf, sizeof(authbuf), config->accessKey,
-      method, src != NULL ? CONTENT_TYPE : NULL, src != NULL ? md5buf : NULL, datebuf, headers, resource);
-    headers = s3backer_add_header(headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+    if (config->accessId != NULL) {
+        s3backer_get_auth(authbuf, sizeof(authbuf), config->accessKey,
+          method, src != NULL ? CONTENT_TYPE : NULL, src != NULL ? md5buf : NULL, datebuf, headers, resource);
+        headers = s3backer_add_header(headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+    }
 
     /* Set headers */
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
