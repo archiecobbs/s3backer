@@ -129,7 +129,16 @@ Proper alignment of the
 .Nm
 block size with the intended use (e.g., the block size of the `upper' filesystem) will minimize or
 eliminate the extra reads.
-Default value is 4K (4096).
+.Nm
+will attempt to auto-detect the block size by reading block number zero.
+If this option is not specified, the auto-detected value will be used.
+If this option is specified but disagrees with the auto-detected value,
+.Nm
+will exit with an error unless
+.Fl \-force
+is also given.
+If auto-detection fails because block number zero does not exist, and this option is not specified,
+then the default value of 4K (4096) is used.
 .It Fl \-cacheSize=SIZE
 Specify the size of the MD5 checksum cache (in blocks).
 If the cache is full when a new block is written, the write will block until there is room.
@@ -163,6 +172,14 @@ Specify the name of the single file that appears in the
 .Nm
 filesystem.
 Default is `file'.
+.It Fl \-force
+Proceed even if the value specified by
+.Fl \-blockSize
+or
+.Fl \-size
+disagrees with the auto-detected value.
+This is will certainly lead to reading garbled data and should only be used when you
+intend to write over an existing filesystem with a new one.
 .It Fl h Fl \-help
 Print a help message and exit.
 .It Fl \-ioTimeout=SECONDS
@@ -189,8 +206,15 @@ Specify a prefix to prepend to the resource names within bucket that identify ea
 Default is the empty string.
 .It Fl \-size=SIZE
 Specify the size (in bytes) of the single file to be exported by the filesystem.
-The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
-This option is required.
+The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, or 'T' for terabytes.
+.Nm
+will attempt to auto-detect the block size by reading block number zero.
+If this option is not specified, the auto-detected value will be used.
+If this option is specified but disagrees with the auto-detected value,
+.Nm
+will exit with an error unless
+.Fl \-force
+is also given.
 .It Fl \-version
 Output version and exit.
 .El

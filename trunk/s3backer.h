@@ -23,6 +23,7 @@
  */
 
 #include "config.h"
+#include "svnrev.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -75,6 +76,7 @@ struct s3backer_conf {
     const char          *filename;
     const char          *mount;
     int                 debug;
+    int                 force;
     uid_t               uid;
     gid_t               gid;
     time_t              start_time;
@@ -115,6 +117,18 @@ struct s3backer_store {
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src);
+
+    /*
+     * Auto-detect block size and total size based on the first block.
+     *
+     * Returns:
+     *
+     *  0       Success
+     *  ENOENT  Block not found
+     *  ENXIO   Response was missing one of the two required headers
+     *  Other   Other error
+     */
+    int         (*detect_sizes)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 
     /*
      * Destroy this instance.
