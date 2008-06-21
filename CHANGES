@@ -1,4 +1,9 @@
 
+Version 1.0.2 released 20 June 2008
+
+    - Fix bug in setting User-Agent HTTP header.
+    - Fix glitch in man page.
+
 Version 1.0.1 released 20 June 2008
 
     - Store filesystem size in meta-data associated with the first block and
