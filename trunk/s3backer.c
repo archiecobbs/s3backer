@@ -1062,7 +1062,6 @@ s3backer_acquire_curl(struct s3backer_private *priv, CURL **curlp)
 {
     struct s3backer_conf *const config = priv->config;
     struct s3backer_curl_holder *holder;
-    char versbuf[64];
     CURL *curl;
 
     pthread_mutex_lock(&priv->curls_mutex);
@@ -1084,8 +1083,7 @@ s3backer_acquire_curl(struct s3backer_private *priv, CURL **curlp)
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)config->connect_timeout);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->io_timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-    snprintf(versbuf, sizeof(versbuf), "%s/%s/r%d", PACKAGE, VERSION, s3backer_svnrev);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, versbuf);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
     //curl_easy_setopt(curl, CURLOPT_VERBOSE);
     *curlp = curl;
     return 0;
