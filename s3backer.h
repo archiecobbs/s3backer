@@ -74,6 +74,7 @@ struct s3backer_conf {
     const char          *prefix;
     const char          *filename;
     const char          *mount;
+    const char          *user_agent;
     int                 debug;
     int                 force;
     uid_t               uid;

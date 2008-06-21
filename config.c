@@ -79,6 +79,7 @@ static const char *const s3_acls[] = {
 };
 
 /* Configuration structure */
+static char user_agent_buf[64];
 static struct s3backer_conf config = {
     .accessId=          NULL,
     .accessKey=         NULL,
@@ -88,6 +89,7 @@ static struct s3backer_conf config = {
     .prefix=            S3BACKER_DEFAULT_PREFIX,
     .access=            S3BACKER_DEFAULT_ACCESS,
     .filename=          S3BACKER_DEFAULT_FILENAME,
+    .user_agent=        user_agent_buf,
     .block_size=        0,
     .file_size=         0,
     .file_mode=         S3BACKER_DEFAULT_FILE_MODE,
@@ -249,6 +251,9 @@ s3backer_get_config(int argc, char **argv)
     config.uid = getuid();
     config.gid = getgid();
     config.start_time = time(NULL);
+
+    /* Set user-agent */
+    snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/r%d", PACKAGE, VERSION, s3backer_svnrev);
 
     /* Copy passed args */
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
