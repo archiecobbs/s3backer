@@ -33,8 +33,8 @@ DESCRIPTION
          very important for performance reasons.  By making the s3backer
          filesystem block size equal to (or a multiple of) the kernel's native
          block size, all of the filesystem caching can be done where it should
-         be: in the kernel via the kernel's page cache.  itself does not cache
-         any file data.
+         be: in the kernel via the kernel's page cache. s3backer itself does not
+         cache any file data.
 
      o   The user benefits from the ability to create a multi-terabyte
          filesystem stored in the `cloud' and available from anywhere on the
