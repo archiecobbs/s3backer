@@ -68,7 +68,7 @@ struct s3backer_conf {
     const char          *accessId;
     const char          *accessKey;
     const char          *accessFile;
-    const char          *access;
+    const char          *accessType;
     const char          *baseURL;
     const char          *bucket;
     const char          *prefix;

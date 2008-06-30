@@ -38,7 +38,7 @@
 #define S3_ACCESS_AUTHENTICATED_READ            "authenticated-read"
 
 /* Default values for some configuration parameters */
-#define S3BACKER_DEFAULT_ACCESS                 S3_ACCESS_PRIVATE
+#define S3BACKER_DEFAULT_ACCESS_TYPE            S3_ACCESS_PRIVATE
 #define S3BACKER_DEFAULT_BASE_URL               S3_BASE_URL
 #define S3BACKER_DEFAULT_PWD_FILE               ".s3backer_passwd"
 #define S3BACKER_DEFAULT_PREFIX                 ""
@@ -88,7 +88,7 @@ static struct s3backer_conf config = {
     .baseURL=               S3BACKER_DEFAULT_BASE_URL,
     .bucket=                NULL,
     .prefix=                S3BACKER_DEFAULT_PREFIX,
-    .access=                S3BACKER_DEFAULT_ACCESS,
+    .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
     .filename=              S3BACKER_DEFAULT_FILENAME,
     .user_agent=            user_agent_buf,
     .block_size=            0,
@@ -107,6 +107,11 @@ static struct s3backer_conf config = {
 /* Command line flags */
 static const struct fuse_opt option_list[] = {
     {
+        .templ=     "--accessFile=%s",
+        .offset=    offsetof(struct s3backer_conf, accessFile),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--accessId=%s",
         .offset=    offsetof(struct s3backer_conf, accessId),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -117,13 +122,8 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--accessFile=%s",
-        .offset=    offsetof(struct s3backer_conf, accessFile),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
-        .templ=     "--access=%s",
-        .offset=    offsetof(struct s3backer_conf, access),
+        .templ=     "--accessType=%s",
+        .offset=    offsetof(struct s3backer_conf, accessType),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -132,23 +132,18 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--prefix=%s",
-        .offset=    offsetof(struct s3backer_conf, prefix),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
-        .templ=     "--filename=%s",
-        .offset=    offsetof(struct s3backer_conf, filename),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
-        .templ=     "--size=%s",
-        .offset=    offsetof(struct s3backer_conf, file_size_str),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3backer_conf, block_size_str),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--cacheSize=%u",
+        .offset=    offsetof(struct s3backer_conf, cache_size),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--cacheTime=%u",
+        .offset=    offsetof(struct s3backer_conf, cache_time),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -157,13 +152,23 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--ioTimeout=%u",
-        .offset=    offsetof(struct s3backer_conf, io_timeout),
+        .templ=     "--filename=%s",
+        .offset=    offsetof(struct s3backer_conf, filename),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--force",
+        .offset=    offsetof(struct s3backer_conf, force),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--initialRetryPause=%u",
         .offset=    offsetof(struct s3backer_conf, initial_retry_pause),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--ioTimeout=%u",
+        .offset=    offsetof(struct s3backer_conf, io_timeout),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -177,18 +182,13 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--cacheTime=%u",
-        .offset=    offsetof(struct s3backer_conf, cache_time),
+        .templ=     "--prefix=%s",
+        .offset=    offsetof(struct s3backer_conf, prefix),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--cacheSize=%u",
-        .offset=    offsetof(struct s3backer_conf, cache_size),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
-        .templ=     "--force",
-        .offset=    offsetof(struct s3backer_conf, force),
+        .templ=     "--size=%s",
+        .offset=    offsetof(struct s3backer_conf, file_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     FUSE_OPT_END
@@ -492,11 +492,11 @@ validate_config(void)
 
     /* Check S3 access privilege */
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++) {
-        if (strcmp(config.access, s3_acls[i]) == 0)
+        if (strcmp(config.accessType, s3_acls[i]) == 0)
             break;
     }
     if (i == sizeof(s3_acls) / sizeof(*s3_acls)) {
-        warnx("illegal access type `%s'", config.access);
+        warnx("illegal access type `%s'", config.accessType);
         return -1;
     }
 
@@ -546,7 +546,7 @@ validate_config(void)
      */
     if ((s3b = s3backer_create(&config)) == NULL)
         err(1, "s3backer_create");
-    warnx("auto-detecting block size and total size...");
+    warnx("auto-detecting block size and total file size...");
     switch ((r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size))) {
     case 0:
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)auto_block_size);
@@ -618,7 +618,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.accessId != NULL ? config.accessId : "");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessFile", config.accessFile);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.access);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.accessType);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.baseURL);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "bucket", config.bucket);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.prefix);
@@ -721,7 +721,7 @@ usage(void)
     fprintf(stderr, "Default values:\n");
     fprintf(stderr, "\t--%-24s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
     fprintf(stderr, "\t--%-24s %s\n", "accessId", "The first one listed in `accessFile'");
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
     fprintf(stderr, "\t--%-24s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
     fprintf(stderr, "\t--%-24s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);

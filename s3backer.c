@@ -698,7 +698,7 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
         headers = s3backer_add_header(headers, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
 
         /* Add ACL header */
-        headers = s3backer_add_header(headers, "%s: %s", ACL_HEADER, config->access);
+        headers = s3backer_add_header(headers, "%s: %s", ACL_HEADER, config->accessType);
 
         /* Add Content-MD5 header (if provided) */
         if (md5 != NULL) {
