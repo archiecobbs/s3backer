@@ -218,46 +218,66 @@ static const u_char zero_md5[MD5_DIGEST_LENGTH];
 
 /*
  * Constructor
+ *
+ * On error, returns NULL and sets `errno'.
  */
 struct s3backer_store *
 s3backer_create(struct s3backer_conf *config)
 {
-    struct s3backer_store *s3b = NULL;
-    struct s3backer_private *priv = NULL;
-    int i;
+    struct s3backer_store *s3b;
+    struct s3backer_private *priv;
+    int nlocks;
+    int r;
 
     /* Sanity check: we can really only handle one instance */
     if (openssl_locks != NULL) {
         (*config->log)(LOG_ERR, "s3backer_create() called twice?");
-        errno = EALREADY;
-        return NULL;
+        r = EALREADY;
+        goto fail0;
     }
 
     /* Initialize structures */
-    if ((s3b = calloc(1, sizeof(*s3b))) == NULL)
-        goto fail;
+    if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
+        r = errno;
+        goto fail0;
+    }
     s3b->read_block = s3backer_read_block;
     s3b->write_block = s3backer_write_block;
     s3b->detect_sizes = s3backer_detect_sizes;
     s3b->destroy = s3backer_destroy;
-    if ((priv = calloc(1, sizeof(*priv))) == NULL)
-        goto fail;
+    if ((priv = calloc(1, sizeof(*priv))) == NULL) {
+        r = errno;
+        goto fail1;
+    }
     priv->config = config;
-    pthread_mutex_init(&priv->curls_mutex, NULL);       // XXX check return value
-    pthread_mutex_init(&priv->mutex, NULL);             // XXX check return value
-    pthread_cond_init(&priv->space_cond, NULL);         // XXX check return value
-    pthread_cond_init(&priv->never_cond, NULL);         // XXX check return value
+    if ((r = pthread_mutex_init(&priv->curls_mutex, NULL)) != 0)
+        goto fail2;
+    if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
+        goto fail3;
+    if ((r = pthread_cond_init(&priv->space_cond, NULL)) != 0)
+        goto fail4;
+    if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
+        goto fail5;
     priv->list.tail = &priv->list.head;
-    if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL)
-        goto fail;
+    if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
+        r = errno;
+        goto fail6;
+    }
     s3b->data = priv;
 
     /* Initialize openssl */
     num_openssl_locks = CRYPTO_num_locks();
-    if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL)
-        goto fail;
-    for (i = 0; i < num_openssl_locks; i++)
-        pthread_mutex_init(&openssl_locks[i], NULL);
+    if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
+        r = errno;
+        goto fail7;
+    }
+    for (nlocks = 0; nlocks < num_openssl_locks; nlocks++) {
+        if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0) {
+            while (nlocks > 0)
+                pthread_mutex_destroy(&openssl_locks[--nlocks]);
+            goto fail8;
+        }
+    }
     CRYPTO_set_locking_callback(s3backer_openssl_locker);
     CRYPTO_set_id_callback(s3backer_openssl_ider);
 
@@ -269,18 +289,27 @@ s3backer_create(struct s3backer_conf *config)
     (*config->log)(LOG_INFO, "created s3backer using %s%s", config->baseURL, config->bucket);
     return s3b;
 
-fail:
-    (*config->log)(LOG_ERR, "s3backer creation failed");
-    if (priv != NULL) {
-        pthread_mutex_destroy(&priv->curls_mutex);
-        if (priv->hashtable != NULL)
-            g_hash_table_destroy(priv->hashtable);
-    }
-    free(priv);
-    free(s3b);
+fail8:
     free(openssl_locks);
     openssl_locks = NULL;
     num_openssl_locks = 0;
+fail7:
+    g_hash_table_destroy(priv->hashtable);
+fail6:
+    pthread_cond_destroy(&priv->never_cond);
+fail5:
+    pthread_cond_destroy(&priv->space_cond);
+fail4:
+    pthread_mutex_destroy(&priv->mutex);
+fail3:
+    pthread_mutex_destroy(&priv->curls_mutex);
+fail2:
+    free(priv);
+fail1:
+    free(s3b);
+fail0:
+    (*config->log)(LOG_ERR, "s3backer creation failed");
+    errno = r;
     return NULL;
 }
 
