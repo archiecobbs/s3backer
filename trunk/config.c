@@ -341,8 +341,10 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         /* Debug flags */
         if (strcmp(arg, "-d") == 0)
             config.debug = 1;
-        if (strcmp(arg, "-d") == 0 || strcmp(arg, "-f") == 0)
+        if (strcmp(arg, "-d") == 0 || strcmp(arg, "-f") == 0) {
             config.log = stderr_logger;
+            config.debug = 1;
+        }
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
