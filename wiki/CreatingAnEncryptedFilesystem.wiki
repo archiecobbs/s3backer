@@ -1,0 +1,63 @@
+#summary How to create an encrypted filesystem
+
+This page describes how to create a simple encrypted filesystem.
+
+You should read the `losetup(8)` man page for details, especially how to create an encrypted filesystem that uses multiple keys instead of a single key.
+
+To create an encrypted filesystem, edit the configuration settings at the top of the following script and then run it; you will be asked for a password (type carefully, you only get one chance):
+
+{{{
+#!/bin/sh
+
+#
+# This script creates an encrypted ext2 filesystem backed by Amazon S3 using s3backer.
+# Note: this will destroy any existing filesystem using the same BUCKET and PREFIX!
+#
+
+# Bail on errors
+set -e
+
+# Configure me here
+BUCKET='myfavoritebucket'
+PREFIX='crypted'
+SIZE="100g"
+ENCRYPTION="serpent128"
+S3B_MOUNT_DIR="s3b.mnt"
+
+# Install kernel modules
+sudo modprobe cryptoloop >/dev/null 2>&1 || true
+sudo modprobe `echo "${ENCRYPTION}" | sed -r 's/[0-9]//g'` >/dev/null 2>&1 || true
+
+# Mount s3backer filesystem
+mkdir -p "${S3B_MOUNT_DIR}"
+echo 'starting s3backer...' 1>&2
+s3backer -o allow_other --size="${SIZE}" --prefix="${PREFIX}" "${BUCKET}" "${S3B_MOUNT_DIR}"
+
+# Find a free loopback device
+LOOP_DEVICE=''
+for i in 0 1 2 3 4 5 6 7; do
+    if ! sudo losetup -a | fgrep -qw loop${i}; then
+        LOOP_DEVICE="/dev/loop${i}"
+        break;
+    fi
+done
+if [ "${LOOP_DEVICE}" = "" ]; then
+    echo "error: can't find a free loopback device" 1>&2
+    exit 1
+fi
+echo "Using ${LOOP_DEVICE}..." 1>&2
+
+# Configure loopback for encryption
+echo 'setting up loopback device...' 1>&2
+sudo losetup -e "${ENCRYPTION}" "${LOOP_DEVICE}" "${S3B_MOUNT_DIR}"/file
+
+# Create filesystem
+echo 'initializing filesystem...' 1>&2
+sudo mke2fs -b 4096 "${LOOP_DEVICE}"
+
+# Done
+sudo losetup -d "${LOOP_DEVICE}"
+echo "done... to mount your encrypoted filesystem, run this command as root:"
+echo "  mount -o loop,encryption=${ENCRYPTION} ${S3B_MOUNT_DIR}/file /mnt"
+
+}}}
