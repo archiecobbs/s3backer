@@ -354,7 +354,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         }
 
         /* Help */
-        if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+        if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0 || strcmp(arg, "-?") == 0) {
             usage();
             exit(0);
         }
@@ -695,43 +695,44 @@ usage(void)
 
     fprintf(stderr, "Usage: s3backer [options] bucket /mount/point\n");
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "\t--%-22s %s\n", "accessId=ID", "S3 access key ID");
-    fprintf(stderr, "\t--%-22s %s\n", "accessKey=KEY", "S3 secret access key");
-    fprintf(stderr, "\t--%-22s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
-    fprintf(stderr, "\t--%-22s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-22s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-22s %s\n", "accessType=TYPE", "ACL used when creating items; one of:");
-    fprintf(stderr, "\t  %-22s ", "");
+    fprintf(stderr, "\t--%-24s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
+    fprintf(stderr, "\t--%-24s %s\n", "accessId=ID", "S3 access key ID");
+    fprintf(stderr, "\t--%-24s %s\n", "accessKey=KEY", "S3 secret access key");
+    fprintf(stderr, "\t--%-24s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
+    fprintf(stderr, "\t  %-24s ", "");
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "", s3_acls[i]);
     fprintf(stderr, "\n");
-    fprintf(stderr, "\t--%-22s %s\n", "baseURL=URL", "Base URL for all requests");
-    fprintf(stderr, "\t--%-22s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
-    fprintf(stderr, "\t--%-22s %s\n", "filename=NAME", "Name of backed file in filesystem");
-    fprintf(stderr, "\t--%-22s %s\n", "connectTimeout=SECONDS", "Timeout for initial HTTP connection");
-    fprintf(stderr, "\t--%-22s %s\n", "ioTimeout=SECONDS", "Timeout for completion of HTTP operation");
-    fprintf(stderr, "\t--%-22s %s\n", "initialRetryPause=MILLIS", "inital retry pause after stale data or server error");
-    fprintf(stderr, "\t--%-22s %s\n", "maxRetryPause=MILLIS", "max total pause after stale data or server error");
-    fprintf(stderr, "\t--%-22s %s\n", "minWriteDelay=MILLIS", "Min time between same block writes");
-    fprintf(stderr, "\t--%-22s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
-    fprintf(stderr, "\t--%-22s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
-    fprintf(stderr, "\t--%-22s %s\n", "force", "Apply block and file sizes even if they disagree");
-    fprintf(stderr, "\t--%-22s %s\n", "version", "Show version information and exit");
-    fprintf(stderr, "\t--%-22s %s\n", "help", "Show this information and exit");
+    fprintf(stderr, "\t--%-24s %s\n", "baseURL=URL", "Base URL for all requests");
+    fprintf(stderr, "\t--%-24s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-24s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
+    fprintf(stderr, "\t--%-24s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
+    fprintf(stderr, "\t--%-24s %s\n", "connectTimeout=SECONDS", "Timeout for initial HTTP connection");
+    fprintf(stderr, "\t--%-24s %s\n", "filename=NAME", "Name of backed file in filesystem");
+    fprintf(stderr, "\t--%-24s %s\n", "force", "Ignore different auto-detected block and file sizes");
+    fprintf(stderr, "\t--%-24s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
+    fprintf(stderr, "\t--%-24s %s\n", "ioTimeout=SECONDS", "Timeout for completion of HTTP operation");
+    fprintf(stderr, "\t--%-24s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
+    fprintf(stderr, "\t--%-24s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
+    fprintf(stderr, "\t--%-24s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
+    fprintf(stderr, "\t--%-24s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-24s %s\n", "version", "Show version information and exit");
+    fprintf(stderr, "\t--%-24s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "Default values:\n");
-    fprintf(stderr, "\t--%-22s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
-    fprintf(stderr, "\t--%-22s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
-    fprintf(stderr, "\t--%-22s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS);
-    fprintf(stderr, "\t--%-22s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
-    fprintf(stderr, "\t--%-22s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
-    fprintf(stderr, "\t--%-22s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
-    fprintf(stderr, "\t--%-22s %u\n", "connectTimeout", S3BACKER_DEFAULT_CONNECT_TIMEOUT);
-    fprintf(stderr, "\t--%-22s %u\n", "ioTimeout", S3BACKER_DEFAULT_IO_TIMEOUT);
-    fprintf(stderr, "\t--%-22s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
-    fprintf(stderr, "\t--%-22s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
-    fprintf(stderr, "\t--%-22s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
-    fprintf(stderr, "\t--%-22s %u\n", "cacheTime", S3BACKER_DEFAULT_CACHE_TIME);
-    fprintf(stderr, "\t--%-22s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
+    fprintf(stderr, "\t--%-24s %s\n", "accessId", "The first one listed in `accessFile'");
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
+    fprintf(stderr, "\t--%-24s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
+    fprintf(stderr, "\t--%-24s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);
+    fprintf(stderr, "\t--%-24s %u\n", "cacheTime", S3BACKER_DEFAULT_CACHE_TIME);
+    fprintf(stderr, "\t--%-24s %u\n", "connectTimeout", S3BACKER_DEFAULT_CONNECT_TIMEOUT);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
+    fprintf(stderr, "\t--%-24s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-24s %u\n", "ioTimeout", S3BACKER_DEFAULT_IO_TIMEOUT);
+    fprintf(stderr, "\t--%-24s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-24s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
     fprintf(stderr, "FUSE options (partial list):\n");
     fprintf(stderr, "\t%-24s %s\n", "-d", "Debug mode (implies -f)");
     fprintf(stderr, "\t%-24s %s\n", "-f", "Run in the foreground (do not fork)");
