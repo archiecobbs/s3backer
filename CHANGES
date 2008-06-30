@@ -1,5 +1,5 @@
 
-Version 1.0.3
+Version 1.0.3 released 30 June 2008
 
     - Implement exponential backoff: replace ``--maxRetry'' and ``--retryPause''
       with ``--initialRetryPause'' and ``--maxRetryPause''.
