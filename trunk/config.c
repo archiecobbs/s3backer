@@ -562,22 +562,28 @@ validate_config(void)
         if (config.block_size == 0)
             config.block_size = auto_block_size;
         else if (auto_block_size != config.block_size) {
+            char buf[64];
+
+            unparse_size_string(buf, sizeof(buf), (uintmax_t)config.block_size);
             if (config.force) {
-                warnx("warning: configured block size %u != filesystem block size %u,"
+                warnx("warning: configured block size %s != filesystem block size %s,"
                   " but you said `--force' so I'll proceed anyway even though"
-                  " your data will probably not read back correctly.", config.block_size, auto_block_size);
+                  " your data will probably not read back correctly.", buf, blockSizeBuf);
             } else
-                errx(1, "error: configured block size %u != filesystem block size %u", config.block_size, auto_block_size);
+                errx(1, "error: configured block size %s != filesystem block size %s", buf, blockSizeBuf);
         }
         if (config.file_size == 0)
             config.file_size = auto_file_size;
         else if (auto_file_size != config.file_size) {
+            char buf[64];
+
+            unparse_size_string(buf, sizeof(buf), (uintmax_t)config.file_size);
             if (config.force) {
-                warnx("warning: configured file size %ju != filesystem file size %ju,"
+                warnx("warning: configured file size %s != filesystem file size %s,"
                   " but you said `--force' so I'll proceed anyway even though"
-                  " your data will probably not read back correctly.", (uintmax_t)config.file_size, (uintmax_t)auto_file_size);
+                  " your data will probably not read back correctly.", buf, fileSizeBuf);
             } else
-                errx(1, "error: configured file size %ju != filesystem file size %ju", (uintmax_t)config.file_size, (uintmax_t)auto_file_size);
+                errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
         break;
     case ENOENT:
