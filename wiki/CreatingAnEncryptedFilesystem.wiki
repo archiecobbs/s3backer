@@ -1,4 +1,5 @@
 #summary How to create an encrypted filesystem
+#labels Featured
 
 This page describes how to create a simple encrypted filesystem.
 
