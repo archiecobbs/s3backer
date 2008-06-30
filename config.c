@@ -442,7 +442,7 @@ validate_config(void)
     /* If no accessId specified, default to first in accessFile */
     if (config.accessId == NULL && config.accessFile != NULL)
         search_access_for(config.accessFile, NULL, &config.accessId, NULL);
-    if (config.accessId != NULL && strcmp(config.accessId, ""))
+    if (config.accessId != NULL && *config.accessId == '\0')
         config.accessId = NULL;
     if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0)
         warnx("warning: no `accessId' specified; only read operations will succeed");
@@ -456,7 +456,7 @@ validate_config(void)
         if (config.accessKey == NULL && config.accessFile != NULL)
             search_access_for(config.accessFile, config.accessId, NULL, &config.accessKey);
         if (config.accessKey == NULL) {
-            warnx("no accessKey specified");
+            warnx("no `accessKey' specified");
             return -1;
         }
     }
