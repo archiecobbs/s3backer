@@ -1,0 +1,20 @@
+#summary How to create a new filesystem for use with s3backer
+
+To use *s3backer*, you need a filesystem to play with. For an example of an existing filesystem, see RunningTheDemo.
+
+Fortunately, creating your own new filesystem is also very easy. Just follow these simple steps:
+
+ * Download, build, and install *s3backer*.
+ * Configure your Amazon S3 access ID and access key in `~/.s3backer_passwd` like this (the information below is an example only):
+
+  `# my S3 account info`
+
+  `0KAODKRXJM39543K343:+MkIE9MA/dkwEaldRoaPP83dfa03=`
+
+ * Decide how big you want your filesystem to be. Let's say we want to start with a modest 16 terabytes of storage.
+ * Decide what bucket you want to store the filesystem blocks in. For this example, we'll use `bigspace`. You will have to create and use your own bucket of course.
+ * Create a directory where the *s3backer* filesystem can be mounted: `mkdir ~/mnt-s3b`
+ * Fire up s3backer: `s3backer -o allow_other --size=16t bigspace ~/mnt-s3b`.
+ * Now create your filesystem, pretending that `~/mnt-s3b/file` was a block device such as a disk partition: `mke2fs -b 4096 -F ~/mnt-s3b/file`. Of course, you don't have to use the ext2 filesystem, you can use reiserfs, minix, NTFS, or whatever.
+ * Finally, mount your newly-created filesystem using a loopback mount: `sudo mount -o loop ~/mnt-s3b/file /mnt`
+ * You now have 16 terabytes of storage mounted under `/mnt` to play with!
