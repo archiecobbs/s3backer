@@ -152,6 +152,11 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--debug",
+        .offset=    offsetof(struct s3backer_conf, debug),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--filename=%s",
         .offset=    offsetof(struct s3backer_conf, filename),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -710,6 +715,7 @@ usage(void)
     fprintf(stderr, "\t--%-24s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-24s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-24s %s\n", "connectTimeout=SECONDS", "Timeout for initial HTTP connection");
+    fprintf(stderr, "\t--%-24s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-24s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-24s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-24s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
