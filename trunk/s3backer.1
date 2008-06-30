@@ -39,30 +39,33 @@
 is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
 As a filesystem, it is quite small and simple: it provides a single normal file having a fixed size.
 The file is divided up into blocks, and the content of each block is stored in a unique Amazon S3 object.
-.Pp
-In typical usage, a `normal' filesystem is mounted on top of the file exported by the
-.Nm
-filesystem using a loopback mount.
 In other words, what
 .Nm
 provides is really more like an S3-backed virtual hard disk device, rather than a filesystem.
 .Pp
-This arrangement has several benefits:
+In typical usage, a `normal' filesystem is mounted on top of the file exported by the
+.Nm
+filesystem using a loopback mount.
+.Pp
+This arrangement has several benefits compared to more complete S3 filesystem implementations:
 .Bl -tag -width xx
 .It o
 By not attempting to implement a complete filesystem, which is a complex undertaking and difficult to get right,
 .Nm
 can stay very lightweight and simple. Only three HTTP operations are used: GET, PUT, and DELETE.
 All of the experience and knowledge about how to properly implement filesystems that already exists can
-be leveraged.
+be reused.
 .It o
-By utilizing existing filesystems, you get the full UNIX filesystem semantics.
+By utilizing existing filesystems, you get full UNIX filesystem semantics.
 Subtle bugs or missing functionality relating to hard links, extended attributes, POSIX locking, etc. are avoided.
+.It o
+The gap between normal filesystem semantics and Amazon S3 ``eventual consistency'' is more easily and simply solved
+when one can interpret S3 objects as simple device blocks rather than filesystem objects (see below).
 .It o
 When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt data
 becomes a critical issue.
 .Nm
-suports this automatically because encryption is supported natively on Linux via loopback mounts.
+provides this automatically because encryption support is already included in the Linux loopback mechanism.
 .It o
 Since S3 data is accessed over the network, local caching is also very important for performance reasons.
 Since
@@ -71,9 +74,6 @@ presents the equivalent of a virtual hard disk to the kernel, all of the filesys
 where it should be: in the kernel, via the kernel's page cache.
 .Nm
 itself does not cache any file data, nor does it need to.
-.It o
-The user benefits from the ability to create a multi-terabyte filesystem stored in the `cloud'
-and available from anywhere on the Internet.
 .El
 .Ss Consistency Guarantees
 Amazon S3 makes relatively weak guarantees relating to the timing and consistency of reads vs. writes
@@ -99,8 +99,8 @@ This logic is configured by the following command line options:
 .Fl \-minWriteDelay ,
 .Fl \-initialRetryPause ,
 and
-.Fl \-maxRetryPause
-(all of which have default values).
+.Fl \-maxRetryPause ,
+all of which have default values.
 .Ss Zeroed Block Optimization
 As a simple optimization,
 .Nm
@@ -108,32 +108,45 @@ does not store blocks containing all zeroes; instead, they are simply deleted.
 Conversely, reads of non-existent blocks will contain all zeroes.
 .Pp
 As a result, no special initialization is necessary when creating a new filesystem.
-.Ss File Size Meta-Data
+.Ss File and Block Size Auto-Detection
 As a convenience, whenever the first block of the backed file is written,
 .Nm
 includes as meta-data (in the ``x-amz-meta-s3backer-filesize'' header) the total size of the file.
-This value can then be checked or auto-detected later when the filesystem is remounted,
-eliminating the need for the
+Along with the size of the block itself, this value can be checked and/or auto-detected later when
+the filesystem is remounted, eliminating the need for the
+.Fl \-blockSize
+or
 .Fl \-size
-flag to be explicitly provided (see below).
+flags to be explicitly provided and avoiding accidental mis-interpretation of an existing filesystem (see below).
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
-.Nm
-with Amazon S3.
+.Nm .
 Of course a filesystem must already exist and have S3 objects with ACL's configured for public read access
 (see
 .Fl \-accessType
 below).
-Users should perform the looback mount with the read-only flag.
+For read-only access, users should perform the looback mount with the read-only flag (see
+.Xr mount 8 ) .
 This mode of operation facilitates the creation of public, read-only filesystems.
 .Ss Simultaneous Mounts
 Althogh it functions over the network, the
 .Nm
 filesystem is not a distributed filesystem and does not support simultaneous read/write mounts.
 (This is not something you would normally do with a hard-disk partition either.)
-However,
 .Nm
 does not detect this situation; it is up to the user to ensure that it doesn't happen.
+.Ss Logging
+In normal operation
+.Nm
+will log via
+.Xr syslog 3 .
+When run with the
+.Fl d
+or
+.Fl f
+flags,
+.Nm
+will log to standard error.
 .Sh OPTIONS
 Options specific to
 .Nm
@@ -216,6 +229,16 @@ Default value is 10 seconds.
 .It Fl \-connectTimeout=SECONDS
 Specify a timeout in seconds for the initial HTTP connection.
 Default is 30 seconds.
+.It Fl \-debug
+Enable logging of debug messages.
+Note that this flag is different from
+.Fl d ,
+which is a flag to FUSE.
+Both the
+.Fl d
+and
+.Fl f
+FUSE flags imply this flag.
 .It Fl \-filename=NAME
 Specify the name of the single file that appears in the
 .Nm
@@ -284,10 +307,15 @@ accepts all of the generic FUSE options as well.
 Here is a partial list:
 .Bl -tag -width Ds
 .It Fl d
-Enable debug mode (implies
-.Fl f ) .
+Enable FUSE debug mode.
+Implies
+.Fl f
+and
+.Fl \-debug .
 .It Fl f
 Run in the foreground (do not fork).
+Implies
+.Fl \-debug .
 .It Fl s
 Run in single-threaded mode.
 .It Fl o Ar allow_root
@@ -329,6 +357,7 @@ to FUSE (unless overridden by the user on the command line):
 Contains Amazon S3 `accessID:accessKey' pairs.
 .El
 .Sh SEE ALSO
+.Xr losetup 8 ,
 .Xr mount 8 ,
 .Xr umount 8 ,
 .Xr fusermount 8 .
