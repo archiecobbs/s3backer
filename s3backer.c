@@ -308,7 +308,7 @@ fail2:
 fail1:
     free(s3b);
 fail0:
-    (*config->log)(LOG_ERR, "s3backer creation failed");
+    (*config->log)(LOG_ERR, "s3backer creation failed: %s", strerror(r));
     errno = r;
     return NULL;
 }
