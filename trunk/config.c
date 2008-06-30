@@ -29,35 +29,36 @@
  ****************************************************************************/
 
 /* S3 URL */
-#define S3_BASE_URL                         "http://s3.amazonaws.com/"
+#define S3_BASE_URL                             "http://s3.amazonaws.com/"
 
 /* S3 access permission strings */
-#define S3_ACCESS_PRIVATE                   "private"
-#define S3_ACCESS_PUBLIC_READ               "public-read"
-#define S3_ACCESS_PUBLIC_READ_WRITE         "public-read-write"
-#define S3_ACCESS_AUTHENTICATED_READ        "authenticated-read"
+#define S3_ACCESS_PRIVATE                       "private"
+#define S3_ACCESS_PUBLIC_READ                   "public-read"
+#define S3_ACCESS_PUBLIC_READ_WRITE             "public-read-write"
+#define S3_ACCESS_AUTHENTICATED_READ            "authenticated-read"
 
 /* Default values for some configuration parameters */
-#define S3BACKER_DEFAULT_ACCESS             S3_ACCESS_PRIVATE
-#define S3BACKER_DEFAULT_BASE_URL           S3_BASE_URL
-#define S3BACKER_DEFAULT_PWD_FILE           ".s3backer_passwd"
-#define S3BACKER_DEFAULT_PREFIX             ""
-#define S3BACKER_DEFAULT_FILENAME           "file"
-#define S3BACKER_DEFAULT_BLOCKSIZE          4096
-#define S3BACKER_DEFAULT_CONNECT_TIMEOUT    30
-#define S3BACKER_DEFAULT_IO_TIMEOUT         30
-#define S3BACKER_DEFAULT_FILE_MODE          0600
-#define S3BACKER_DEFAULT_MAX_RETRY          9
-#define S3BACKER_DEFAULT_RETRY_PAUSE        1000            // 1s
-#define S3BACKER_DEFAULT_MIN_WRITE_DELAY    500             // 500ms
-#define S3BACKER_DEFAULT_CACHE_TIME         10000           // 10s
-#define S3BACKER_DEFAULT_CACHE_SIZE         10000
+#define S3BACKER_DEFAULT_ACCESS                 S3_ACCESS_PRIVATE
+#define S3BACKER_DEFAULT_BASE_URL               S3_BASE_URL
+#define S3BACKER_DEFAULT_PWD_FILE               ".s3backer_passwd"
+#define S3BACKER_DEFAULT_PREFIX                 ""
+#define S3BACKER_DEFAULT_FILENAME               "file"
+#define S3BACKER_DEFAULT_BLOCKSIZE              4096
+#define S3BACKER_DEFAULT_CONNECT_TIMEOUT        30
+#define S3BACKER_DEFAULT_IO_TIMEOUT             30
+#define S3BACKER_DEFAULT_FILE_MODE              0600
+#define S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE    200             // 200ms
+#define S3BACKER_DEFAULT_MAX_RETRY_PAUSE        30000           // 30s
+#define S3BACKER_DEFAULT_MIN_WRITE_DELAY        500             // 500ms
+#define S3BACKER_DEFAULT_CACHE_TIME             10000           // 10s
+#define S3BACKER_DEFAULT_CACHE_SIZE             10000
 
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
 
 static int parse_size_string(const char *s, uintmax_t *valp);
+static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
 static int search_access_for(const char *file, const char *accessId, const char **idptr, const char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
@@ -81,26 +82,26 @@ static const char *const s3_acls[] = {
 /* Configuration structure */
 static char user_agent_buf[64];
 static struct s3backer_conf config = {
-    .accessId=          NULL,
-    .accessKey=         NULL,
-    .accessFile=        NULL,
-    .baseURL=           S3BACKER_DEFAULT_BASE_URL,
-    .bucket=            NULL,
-    .prefix=            S3BACKER_DEFAULT_PREFIX,
-    .access=            S3BACKER_DEFAULT_ACCESS,
-    .filename=          S3BACKER_DEFAULT_FILENAME,
-    .user_agent=        user_agent_buf,
-    .block_size=        0,
-    .file_size=         0,
-    .file_mode=         S3BACKER_DEFAULT_FILE_MODE,
-    .connect_timeout=   S3BACKER_DEFAULT_CONNECT_TIMEOUT,
-    .io_timeout=        S3BACKER_DEFAULT_IO_TIMEOUT,
-    .max_retry=         S3BACKER_DEFAULT_MAX_RETRY,
-    .retry_pause=       S3BACKER_DEFAULT_RETRY_PAUSE,
-    .min_write_delay=   S3BACKER_DEFAULT_MIN_WRITE_DELAY,
-    .cache_time=        S3BACKER_DEFAULT_CACHE_TIME,
-    .cache_size=        S3BACKER_DEFAULT_CACHE_SIZE,
-    .log=               syslog_logger
+    .accessId=              NULL,
+    .accessKey=             NULL,
+    .accessFile=            NULL,
+    .baseURL=               S3BACKER_DEFAULT_BASE_URL,
+    .bucket=                NULL,
+    .prefix=                S3BACKER_DEFAULT_PREFIX,
+    .access=                S3BACKER_DEFAULT_ACCESS,
+    .filename=              S3BACKER_DEFAULT_FILENAME,
+    .user_agent=            user_agent_buf,
+    .block_size=            0,
+    .file_size=             0,
+    .file_mode=             S3BACKER_DEFAULT_FILE_MODE,
+    .connect_timeout=       S3BACKER_DEFAULT_CONNECT_TIMEOUT,
+    .io_timeout=            S3BACKER_DEFAULT_IO_TIMEOUT,
+    .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
+    .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+    .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
+    .cache_time=            S3BACKER_DEFAULT_CACHE_TIME,
+    .cache_size=            S3BACKER_DEFAULT_CACHE_SIZE,
+    .log=                   syslog_logger
 };
 
 /* Command line flags */
@@ -161,13 +162,13 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--maxRetry=%u",
-        .offset=    offsetof(struct s3backer_conf, max_retry),
+        .templ=     "--initialRetryPause=%u",
+        .offset=    offsetof(struct s3backer_conf, initial_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--retryPause=%u",
-        .offset=    offsetof(struct s3backer_conf, retry_pause),
+        .templ=     "--maxRetryPause=%u",
+        .offset=    offsetof(struct s3backer_conf, max_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -312,6 +313,22 @@ parse_size_string(const char *s, uintmax_t *valp)
     return 0;
 }
 
+static void
+unparse_size_string(char *buf, size_t bmax, uintmax_t value)
+{
+    uintmax_t unit;
+    int i;
+
+    for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
+        unit = (uintmax_t)1 << size_suffixes[i].bits;
+        if (value % unit == 0) {
+            snprintf(buf, bmax, "%ju%s", value / unit, size_suffixes[i].suffix);
+            return;
+        }
+    }
+    snprintf(buf, bmax, "%ju", value);
+}
+
 /**
  * Handle command-line flag.
  */
@@ -405,13 +422,15 @@ validate_config(void)
     u_int auto_block_size;
     uintmax_t value;
     const char *s;
-    char buf[1024];
+    char blockSizeBuf[64];
+    char fileSizeBuf[64];
     int i;
     int r;
 
     /* Default to $HOME/.s3backer for accessFile */
     if (config.accessFile == NULL) {
         const char *home = getenv("HOME");
+        char buf[PATH_MAX];
 
         if (home != NULL) {
             snprintf(buf, sizeof(buf), "%s/%s", home, S3BACKER_DEFAULT_PWD_FILE);
@@ -423,8 +442,10 @@ validate_config(void)
     /* If no accessId specified, default to first in accessFile */
     if (config.accessId == NULL && config.accessFile != NULL)
         search_access_for(config.accessFile, NULL, &config.accessId, NULL);
-    if (config.accessId == NULL)
-        warnx("warning: no accessId specified");
+    if (config.accessId != NULL && strcmp(config.accessId, ""))
+        config.accessId = NULL;
+    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0)
+        warnx("warning: no `accessId' specified; only read operations will succeed");
 
     /* Find key in file if not specified explicitly */
     if (config.accessId == NULL && config.accessKey != NULL) {
@@ -498,6 +519,10 @@ validate_config(void)
         warnx("`cacheTime' must be at least `minWriteDelay'");
         return -1;
     }
+    if (config.initial_retry_pause > config.max_retry_pause) {
+        warnx("`maxRetryPause' must be at least `initialRetryPause'");
+        return -1;
+    }
 
     /* Parse block and file sizes */
     if (config.block_size_str != NULL) {
@@ -524,7 +549,9 @@ validate_config(void)
     warnx("auto-detecting block size and total size...");
     switch ((r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size))) {
     case 0:
-        warnx("auto-detected block size=%u and total size=%ju", auto_block_size, (uintmax_t)auto_file_size);
+        unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)auto_block_size);
+        unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)auto_file_size);
+        warnx("auto-detected block size=%s and total size=%s", blockSizeBuf, fileSizeBuf);
         if (config.block_size == 0)
             config.block_size = auto_block_size;
         else if (auto_block_size != config.block_size) {
@@ -604,8 +631,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.file_mode);
     (*config.log)(LOG_DEBUG, "%16s: %us", "connect_timeout", config.connect_timeout);
     (*config.log)(LOG_DEBUG, "%16s: %us", "io_timeout", config.io_timeout);
-    (*config.log)(LOG_DEBUG, "%16s: %us", "max_retry", config.max_retry);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "retry_pause", config.retry_pause);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.initial_retry_pause);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.max_retry_pause);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.min_write_delay);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "cache_time", config.cache_time);
     (*config.log)(LOG_DEBUG, "%16s: %u entries", "cache_size", config.cache_size);
@@ -683,8 +710,8 @@ usage(void)
     fprintf(stderr, "\t--%-22s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-22s %s\n", "connectTimeout=SECONDS", "Timeout for initial HTTP connection");
     fprintf(stderr, "\t--%-22s %s\n", "ioTimeout=SECONDS", "Timeout for completion of HTTP operation");
-    fprintf(stderr, "\t--%-22s %s\n", "maxRetry=COUNT", "# retries when HTTP returns stale data or server error");
-    fprintf(stderr, "\t--%-22s %s\n", "retryPause=MILLIS", "Time to pause between aforementioned retries");
+    fprintf(stderr, "\t--%-22s %s\n", "initialRetryPause=MILLIS", "inital retry pause after stale data or server error");
+    fprintf(stderr, "\t--%-22s %s\n", "maxRetryPause=MILLIS", "max total pause after stale data or server error");
     fprintf(stderr, "\t--%-22s %s\n", "minWriteDelay=MILLIS", "Min time between same block writes");
     fprintf(stderr, "\t--%-22s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-22s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
@@ -700,8 +727,8 @@ usage(void)
     fprintf(stderr, "\t--%-22s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
     fprintf(stderr, "\t--%-22s %u\n", "connectTimeout", S3BACKER_DEFAULT_CONNECT_TIMEOUT);
     fprintf(stderr, "\t--%-22s %u\n", "ioTimeout", S3BACKER_DEFAULT_IO_TIMEOUT);
-    fprintf(stderr, "\t--%-22s %u\n", "maxRetry", S3BACKER_DEFAULT_MAX_RETRY);
-    fprintf(stderr, "\t--%-22s %u\n", "retryPause", S3BACKER_DEFAULT_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-22s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-22s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-22s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
     fprintf(stderr, "\t--%-22s %u\n", "cacheTime", S3BACKER_DEFAULT_CACHE_TIME);
     fprintf(stderr, "\t--%-22s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);

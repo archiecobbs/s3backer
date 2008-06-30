@@ -1,4 +1,10 @@
 
+Version 1.0.3
+
+    - Implement exponential backoff: replace ``--maxRetry'' and ``--retryPause''
+      with ``--initialRetryPause'' and ``--maxRetryPause''.
+    - Improvements to the man page.
+
 Version 1.0.2 released 20 June 2008
 
     - Fix bug in setting User-Agent HTTP header.

@@ -72,8 +72,8 @@
  *  cache_size
  *      Maximum number of blocks we'll track at one time. When table
  *      is full, additional writes will block.
- *  max_retry, retry_pause
- *      How many times and how often we will retry a GET that returns stale data.
+ *  initial_retry_pause, max_retry_pause
+ *      Retry timing when a GET returns stale data.
  *
  * Blocks we are currently tracking can be in the following states:
  *
@@ -96,7 +96,7 @@
  *
  * In the WRITING state, we have the data still so any reads are local. In the WRITTEN
  * state we don't have the data but we do know its MD5, so therefore we can verify what
- * comes back; if it doesn't verify, we use max_retry and retry_pause to time retries.
+ * comes back; if it doesn't verify, we use {initial,max}_retry_pause to time retries.
  *
  * If we hit the 'cache_size' limit, we sleep a little while and then try again.
  *
@@ -390,6 +390,7 @@ s3backer_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *bloc
     s3backer_release_curl(priv, curl);
     return r;
 }
+
 static int
 s3backer_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest)
 {
@@ -735,26 +736,23 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
 static int
 s3backer_perform_io(CURL* curl, const char *method, const char *url, struct s3backer_conf *const config)
 {
+    struct timespec delay;
     CURLcode curl_code;
-    int attempts = 1;
+    u_int retry_pause = 0;
+    u_int total_pause;
     long http_code;
+    int attempt;
 
-    /* Make 1 + max_retry attempts */
+    /* Debug */
     if (config->debug)
         (*config->log)(LOG_DEBUG, "%s %s", method, url);
-    for (attempts = 0; attempts < 1 + config->max_retry; attempts++) {
 
-        /* Pause before retry attempts */
-        if (attempts > 0) {
-            struct timespec retry_pause;
-
-            retry_pause.tv_sec = config->retry_pause / 1000;
-            retry_pause.tv_nsec = (config->retry_pause % 1000) * 1000000;
-            nanosleep(&retry_pause, NULL);
-            (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempts + 1, method, url);
-        }
+    /* Make attempts */
+    for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
 
         /* Perform HTTP operation and check result */
+        if (attempt > 0)
+            (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, method, url);
         switch ((curl_code = curl_easy_perform(curl))) {
         case 0:
 #ifndef NDEBUG
@@ -797,6 +795,16 @@ s3backer_perform_io(CURL* curl, const char *method, const char *url, struct s3ba
             (*config->log)(LOG_ERR, "curl error: %s", curl_easy_strerror(curl_code));
             break;
         }
+
+        /* Retry with exponential backoff up to max total pause limit */
+        if (total_pause >= config->max_retry_pause)
+            break;
+        retry_pause = retry_pause > 0 ? retry_pause * 2 : config->initial_retry_pause;
+        if (total_pause + retry_pause > config->max_retry_pause)
+            retry_pause = config->max_retry_pause - total_pause;
+        delay.tv_sec = retry_pause / 1000;
+        delay.tv_nsec = (retry_pause % 1000) * 1000000;
+        nanosleep(&delay, NULL);
     }
 
     /* Give up */
