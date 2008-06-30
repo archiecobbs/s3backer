@@ -9,9 +9,9 @@ Then, run these commands:
 {{{
 $ mkdir s3b.mnt demo.mnt
 $ s3backer -o allow_other s3backer-demo s3b.mnt
-s3backer: warning: no accessId specified
-s3backer: auto-detecting block size and total size...
-s3backer: auto-detected block size=4096 and total size=20971520
+s3backer: warning: no `accessId' specified; only read operations will succeed
+s3backer: auto-detecting block size and total file size...
+s3backer: auto-detected block size=4k and total size=20m
 $ sudo mount -o ro,loop s3b.mnt/file demo.mnt
 $ cat demo.mnt/README
 }}}
