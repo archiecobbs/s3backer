@@ -58,7 +58,7 @@ sudo mke2fs -b 4096 "${LOOP_DEVICE}"
 
 # Done
 sudo losetup -d "${LOOP_DEVICE}"
-echo "done... to mount your encrypoted filesystem, run this command as root:"
+echo "done... to mount your encrypted filesystem, run this command as root:"
 echo "  mount -o loop,encryption=${ENCRYPTION} ${S3B_MOUNT_DIR}/file /mnt"
 
 }}}
