@@ -1,7 +1,9 @@
 #summary How to mount the demo filesystem
 #labels Featured
 
-A demonstration ext2 filesystem has been created that you can mount read-only using *s3backer* on any Linux machine. _No Amazon S3 account is required!_
+A demonstration ext2 filesystem has been created that you can mount read-only using *s3backer* on any Linux machine.
+
+*No Amazon S3 account is required!*
 
 To see the demo, first build and install *s3backer* on a Linux machine.
 
