@@ -815,8 +815,6 @@ s3backer_perform_io(CURL* curl, const char *method, const char *url, struct s3ba
                 break;
             default:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, method, url);
-                if (http_code < 500)
-                    return EIO;
                 break;
             }
             break;
