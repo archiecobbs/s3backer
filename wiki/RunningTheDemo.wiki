@@ -18,3 +18,5 @@ $ cat demo.mnt/README
 }}}
 
 You will then be able to see the files in the demo filesystem.
+
+Note that this mechanism can be used to provide humongous world-readable (read-only) filesystems that can be easily mounted by Linux users the world over. Might be a useful way to publicize all kinds of file-based information.
