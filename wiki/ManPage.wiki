@@ -1,14 +1,15 @@
 #summary Wiki-fied version of the s3backer man page
 
-  S3BACKER(1)                                         BSD General Commands Manual                                         S3BACKER(1)
+{{{
+S3BACKER(1)                                         BSD General Commands Manual                                         S3BACKER(1)
 
-  NAME
+NAME
      s3backer - FUSE-based single file backing store via Amazon S3
 
-  SYNOPSIS
+SYNOPSIS
      s3backer [options] bucket /mount/point
 
-  DESCRIPTION
+DESCRIPTION
      s3backer is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).  As a filesys-
      tem, it is quite small and simple: it provides a single normal file having a fixed size.  The file is divided up into blocks,
      and the content of each block is stored in a unique Amazon S3 object.  In other words, what s3backer provides is really more
@@ -78,7 +79,7 @@
    Logging
      In normal operation s3backer will log via syslog(3).  When run with the -d or -f flags, s3backer will log to standard error.
 
-  OPTIONS
+OPTIONS
      Options specific to s3backer are as follows:
 
      --accessFile=FILE
@@ -223,11 +224,11 @@
      -o nodev
      -o nosuid
 
-  FILES
+FILES
      $HOME/.s3backer_passwd
              Contains Amazon S3 `accessID:accessKey' pairs.
 
-  SEE ALSO
+SEE ALSO
      losetup(8), mount(8), umount(8), fusermount(8).
 
      s3backer: FUSE-based single file backing store via Amazon S3, http://s3backer.googlecode.com/.
@@ -238,12 +239,13 @@
 
      Google Search for `linux page cache', http://www.google.com/search?q=linux+page+cache.
 
-  BUGS
+BUGS
      s3backer should really be implemented as a device rather than a filesystem.  However, this would require writing a kernel mod-
      ule instead of a simple user-space daemon, because Linux does not provide a user-space API for devices like it does for
      filesystems with FUSE.  Implementing s3backer as a filesystem and then using the loopback mount is a simple workaround.
 
-  AUTHOR
+AUTHOR
      Archie L. Cobbs <archie@dellroad.org>
 
-  BSD                                                        June 21, 2008                                                        BSD
+BSD                                                        June 21, 2008                                                        BSD
+}}}
