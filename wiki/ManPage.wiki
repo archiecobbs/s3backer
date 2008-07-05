@@ -1,4 +1,5 @@
 #summary Wiki-fied version of the s3backer man page
+#labels Featured
 
 {{{
 S3BACKER(1)                                         BSD General Commands Manual                                         S3BACKER(1)
