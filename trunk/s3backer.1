@@ -85,12 +85,12 @@ of incorrect data.
 These are:
 .Bl -tag -width xx
 .It 1.
-Regarding PUT/DELETE operations on the same block: avoidance of overlapping operations plus a configurable
-minimum delay between consecutive operations. This ensures S3 doesn't receive these operations out of order.
-.It 2.
-An internal MD5 checksum cache, which enables
 .Nm
-to automatically detect and reject `stale' information returned by GET operations.
+enforces a minimum delay between consecutive PUT or DELETE operations on the same block.
+This ensures that Amazon S3 doesn't receive these operations out of order.
+.It 2.
+.Nm
+maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks returned by GET operations.
 .El
 .Pp
 This logic is configured by the following command line options:
@@ -107,7 +107,7 @@ As a simple optimization,
 does not store blocks containing all zeroes; instead, they are simply deleted.
 Conversely, reads of non-existent blocks will contain all zeroes.
 .Pp
-As a result, no special initialization is necessary when creating a new filesystem.
+As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new filesystem.
 .Ss File and Block Size Auto-Detection
 As a convenience, whenever the first block of the backed file is written,
 .Nm
@@ -124,8 +124,8 @@ An Amazon S3 account is not required in order to use
 Of course a filesystem must already exist and have S3 objects with ACL's configured for public read access
 (see
 .Fl \-accessType
-below).
-For read-only access, users should perform the looback mount with the read-only flag (see
+below);
+users should perform the looback mount with the read-only flag (see
 .Xr mount 8 ) .
 This mode of operation facilitates the creation of public, read-only filesystems.
 .Ss Simultaneous Mounts
@@ -378,6 +378,12 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .%O http://www.google.com/search?q=linux+page+cache
 .Re
 .Sh BUGS
+For cache space efficiency,
+.Nm
+uses 32 bit values to index individual blocks.
+Therefore, the block size must be increased beyond the default 4K when very large filesystems
+(greater than 16 terabytes) are created.
+.Pp
 .Nm
 should really be implemented as a device rather than a filesystem.
 However, this would require writing a kernel module instead of a simple user-space daemon,
