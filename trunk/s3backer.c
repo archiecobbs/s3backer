@@ -649,8 +649,8 @@ s3backer_do_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 
     /* Check for short read */
     if (r == 0 && s3b_io.rdremain != 0) {
-        (*config->log)(LOG_WARNING, "read of block #%u returned %u < %u bytes",
-          block_num, config->block_size - s3b_io.rdremain, config->block_size);
+        (*config->log)(LOG_WARNING, "read of block #%u returned %lu < %lu bytes",
+          block_num, (u_long)(config->block_size - s3b_io.rdremain), (u_long)config->block_size);
         memset((char *)dest + config->block_size - s3b_io.rdremain, 0, s3b_io.rdremain);
     }
 
