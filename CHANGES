@@ -3,6 +3,7 @@ Version 1.0.4
 
     - Retry on all HTTP error codes, not just 500 or greater. Tests show that
       a valid request can return a 4xx response due to network issues.
+    - Support 'E' for 'exabytes'.
 
 Version 1.0.3 released 30 June 2008
 
