@@ -239,6 +239,10 @@ static const struct size_suffix size_suffixes[] = {
         .suffix=    "p",
         .bits=      50
     },
+    {
+        .suffix=    "e",
+        .bits=      60
+    },
 };
 
 /****************************************************************************
