@@ -34,6 +34,8 @@ static void fuse_op_destroy(void *data);
 static int fuse_op_getattr(const char *path, struct stat *st);
 static int fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     off_t offset, struct fuse_file_info *fi);
+static int fuse_op_create(const char *path, mode_t mode, struct fuse_file_info *info);
+static int fuse_op_unlink(const char *path);
 static int fuse_op_open(const char *path, struct fuse_file_info *fi);
 static int fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi);
@@ -54,6 +56,8 @@ const struct fuse_operations s3backer_fuse_ops = {
     .destroy    = fuse_op_destroy,
     .getattr    = fuse_op_getattr,
     .readdir    = fuse_op_readdir,
+    .create     = fuse_op_create,
+    .unlink     = fuse_op_unlink,
     .open       = fuse_op_open,
     .read       = fuse_op_read,
     .write      = fuse_op_write,
@@ -140,6 +144,22 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, "..", NULL, 0);
     filler(buf, config->filename, NULL, 0);
     return 0;
+}
+
+static int
+fuse_op_create(const char *path, mode_t mode, struct fuse_file_info *info)
+{
+    if (*path == '/' && strcmp(path + 1, config->filename) == 0)
+        return 0;
+    return -ENOENT;
+}
+
+static int
+fuse_op_unlink(const char *path)
+{
+    if (*path == '/' && strcmp(path + 1, config->filename) == 0)
+        return 0;
+    return -ENOENT;
 }
 
 static int
