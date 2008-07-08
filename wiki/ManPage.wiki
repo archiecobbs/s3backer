@@ -17,7 +17,7 @@ DESCRIPTION
      like an S3-backed virtual hard disk device, rather than a filesystem.
 
      In typical usage, a `normal' filesystem is mounted on top of the file exported by the s3backer filesystem using a loopback
-     mount.
+     mount (or disk image mount on Mac OS X).
 
      This arrangement has several benefits compared to more complete S3 filesystem implementations:
 
@@ -45,11 +45,11 @@ DESCRIPTION
      the user to guarantee consistency to whatever level desired, up to and including 100% detection and avoidance of incorrect
      data.  These are:
 
-     1.  Regarding PUT/DELETE operations on the same block: avoidance of overlapping operations plus a configurable minimum delay
-         between consecutive operations. This ensures S3 doesn't receive these operations out of order.
+     1.  s3backer enforces a minimum delay between consecutive PUT or DELETE operations on the same block.  This ensures that Ama-
+         zon S3 doesn't receive these operations out of order.
 
-     2.  An internal MD5 checksum cache, which enables s3backer to automatically detect and reject `stale' information returned by
-         GET operations.
+     2.  s3backer maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks
+         returned by GET operations.
 
      This logic is configured by the following command line options: --cacheSize, --cacheTime, --minWriteDelay,
      --initialRetryPause, and --maxRetryPause, all of which have default values.
@@ -58,7 +58,8 @@ DESCRIPTION
      As a simple optimization, s3backer does not store blocks containing all zeroes; instead, they are simply deleted.  Conversely,
      reads of non-existent blocks will contain all zeroes.
 
-     As a result, no special initialization is necessary when creating a new filesystem.
+     As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new
+     filesystem.
 
    File and Block Size Auto-Detection
      As a convenience, whenever the first block of the backed file is written, s3backer includes as meta-data (in the ``x-amz-meta-
@@ -68,13 +69,12 @@ DESCRIPTION
 
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  Of course a filesystem must already exist and have S3 objects
-     with ACL's configured for public read access (see --accessType below).  For read-only access, users should perform the looback
-     mount with the read-only flag (see mount(8)).  This mode of operation facilitates the creation of public, read-only filesys-
-     tems.
+     with ACL's configured for public read access (see --accessType below); users should perform the looback mount with the read-
+     only flag (see mount(8)).  This mode of operation facilitates the creation of public, read-only filesystems.
 
    Simultaneous Mounts
-     Althogh it functions over the network, the s3backer filesystem is not a distributed filesystem and does not support simultane-
-     ous read/write mounts.  (This is not something you would normally do with a hard-disk partition either.)  s3backer does not
+     Although it functions over the network, the s3backer filesystem is not a distributed filesystem and does not support simulta-
+     neous read/write mounts.  (This is not something you would normally do with a hard-disk partition either.)  s3backer does not
      detect this situation; it is up to the user to ensure that it doesn't happen.
 
    Logging
@@ -101,6 +101,13 @@ OPTIONS
      --accessType=TYPE
              Specify the Amazon S3 access privilege ACL type for newly written blocks.  The value must be one of `private', `pub-
              lic-read', `public-read-write', or `authenticated-read'.  Default is `private'.
+
+     --assumeEmpty
+             Assume that no blocks exist in S3 yet.  This enables an optimization whereby zero writes to a block are omitted until
+             there is a non-zero write to the same block.  This is only valid when the S3 objects do not yet exist, and is useful
+             for example when initializing a large backed file from a local copy (such as a Mac OS disk image) that contains mostly
+             zeroes.  If auto-detection finds that there is in fact a block zero stored in S3, this option will cause s3backer to
+             exit with an error unless --force is also given.
 
      --baseURL=URL
              Specify the base URL. Default is `http://s3.amazonaws.com/'.
@@ -141,9 +148,9 @@ OPTIONS
              Specify the name of the single file that appears in the s3backer filesystem.  Default is `file'.
 
      --force
-             Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value.  This is will
-             certainly lead to reading garbled data and should only be used when you intend to write over an existing filesystem
-             with a new one.
+             Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value, or if
+             --assumeEmpty is given yet auto-detection succeeds.  This is will certainly lead to garbled data and should be avoided
+             for normal use.
 
      -h --help
              Print a help message and exit.
@@ -175,10 +182,10 @@ OPTIONS
 
      --size=SIZE
              Specify the size (in bytes) of the single file to be exported by the filesystem.  The size may have an optional suffix
-             'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, or 'T' for terabytes.  s3backer will attempt to auto-detect
-             the block size by reading block number zero.  If this option is not specified, the auto-detected value will be used.
-             If this option is specified but disagrees with the auto-detected value, s3backer will exit with an error unless
-             --force is also given.
+             'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, or 'E' for exabytes.  s3backer will
+             attempt to auto-detect the block size by reading block number zero.  If this option is not specified, the auto-
+             detected value will be used.  If this option is specified but disagrees with the auto-detected value, s3backer will
+             exit with an error unless --force is also given.
 
      --version
              Output version and exit.
@@ -241,6 +248,9 @@ SEE ALSO
      Google Search for `linux page cache', http://www.google.com/search?q=linux+page+cache.
 
 BUGS
+     For cache space efficiency, s3backer uses 32 bit values to index individual blocks.  Therefore, the block size must be
+     increased beyond the default 4K when very large filesystems (greater than 16 terabytes) are created.
+
      s3backer should really be implemented as a device rather than a filesystem.  However, this would require writing a kernel mod-
      ule instead of a simple user-space daemon, because Linux does not provide a user-space API for devices like it does for
      filesystems with FUSE.  Implementing s3backer as a filesystem and then using the loopback mount is a simple workaround.
