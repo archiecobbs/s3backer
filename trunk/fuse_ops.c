@@ -70,6 +70,9 @@ const struct fuse_operations s3backer_fuse_ops = {
 /* Configuration */
 static struct s3backer_conf *config;
 
+/* Runtime state */
+static int unlinked;
+
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
@@ -115,7 +118,7 @@ fuse_op_getattr(const char *path, struct stat *st)
         st->st_ctime = config->start_time;
         return 0;
     }
-    if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
+    if (!unlinked && *path == '/' && strcmp(path + 1, config->filename) == 0) {
         st->st_mode = S_IFREG | config->file_mode;
         st->st_nlink = 1;
         st->st_ino = 2;
@@ -140,32 +143,40 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     (void)fi;
     if (strcmp(path, "/") != 0)
         return -ENOENT;
-    filler(buf, ".", NULL, 0);
-    filler(buf, "..", NULL, 0);
-    filler(buf, config->filename, NULL, 0);
+    (*filler)(buf, ".", NULL, 0);
+    (*filler)(buf, "..", NULL, 0);
+    if (!unlinked)
+        (*filler)(buf, config->filename, NULL, 0);
     return 0;
 }
 
 static int
-fuse_op_create(const char *path, mode_t mode, struct fuse_file_info *info)
+fuse_op_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-    if (*path == '/' && strcmp(path + 1, config->filename) == 0)
-        return 0;
+    if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
+        if (unlinked) {
+            unlinked = 0;
+            return fuse_op_open(path, fi);
+        }
+        return -EEXIST;
+    }
     return -ENOENT;
 }
 
 static int
 fuse_op_unlink(const char *path)
 {
-    if (*path == '/' && strcmp(path + 1, config->filename) == 0)
+    if (!unlinked && *path == '/' && strcmp(path + 1, config->filename) == 0) {
+        unlinked = 1;
         return 0;
+    }
     return -ENOENT;
 }
 
 static int
 fuse_op_open(const char *path, struct fuse_file_info *fi)
 {
-    if (path[0] != '/' || strcmp(path + 1, config->filename) != 0)
+    if (unlinked || path[0] != '/' || strcmp(path + 1, config->filename) != 0)
         return -ENOENT;
     return 0;
 }
