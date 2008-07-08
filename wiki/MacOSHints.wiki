@@ -6,7 +6,7 @@ You can use the *hditutil(1)* command to create disk images. For example, here i
 
 {{{
 $ hdiutil create -size 640k -fs HFS+ -volname  's3backer Demo' -fsargs '-c c=64,a=16,e=16' -attach mydiskimage.dmg
-$ cp files/README.txt files/Telluride\ Airport.jpg /Volumes/s3backer\ Demo/
+$ cp demofiles/* /Volumes/s3backer\ Demo/
 $ hdiutil detach /Volumes/s3backer\ Demo/
 $ mkdir s3b.mnt
 $ s3backer --accessType=public-read --prefix=macos --size=640k --filename=demo.dmg s3backer-demo s3b.mnt
