@@ -5,9 +5,13 @@ A demonstration ext2 filesystem has been created that you can mount read-only us
 
 *No Amazon S3 account is required!*
 
-To see the demo, first build and install *s3backer* on a Linux machine.
+This mechanism can be used to provide humongous world-readable (read-only) filesystems that can be easily mounted by users the world over. Might be a useful way to publicize all kinds of file-based information.
 
-Then, run these commands:
+To see the demo, first build and install *s3backer*.
+
+===Linux Users====
+
+Run these commands:
 
 {{{
 $ mkdir s3b.mnt demo.mnt
@@ -21,4 +25,16 @@ $ cat demo.mnt/README
 
 You will then be able to see the files in the demo filesystem.
 
-Note that this mechanism can be used to provide humongous world-readable (read-only) filesystems that can be easily mounted by Linux users the world over. Might be a useful way to publicize all kinds of file-based information.
+===Mac OS Users===
+
+Run these commands:
+
+{{{
+$ mkdir s3b.mnt
+$ s3backer --filename=demo.dmg --prefix=macos s3backer-demo s3b.mnt
+s3backer: warning: no accessId specified; only read operations will succeed
+s3backer: auto-detecting block size and total file size...
+s3backer: auto-detected block size=4k and total size=640k
+}}}
+
+You will then see {{{demo.dmg}}} inside the {{{s3b.mnt}}} directory, which is a Mac OS disk image you can then mount normally.
