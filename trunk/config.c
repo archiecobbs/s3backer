@@ -570,9 +570,9 @@ validate_config(void)
 
             unparse_size_string(buf, sizeof(buf), (uintmax_t)config.block_size);
             if (config.force) {
-                warnx("warning: configured block size %s != filesystem block size %s,"
-                  " but you said `--force' so I'll proceed anyway even though"
-                  " your data will probably not read back correctly.", buf, blockSizeBuf);
+                warnx("warning: configured block size %s != filesystem block size %s,\n"
+                  "but you said `--force' so I'll proceed anyway even though your data will\n"
+                  "probably not read back correctly.", buf, blockSizeBuf);
             } else
                 errx(1, "error: configured block size %s != filesystem block size %s", buf, blockSizeBuf);
         }
@@ -583,22 +583,28 @@ validate_config(void)
 
             unparse_size_string(buf, sizeof(buf), (uintmax_t)config.file_size);
             if (config.force) {
-                warnx("warning: configured file size %s != filesystem file size %s,"
-                  " but you said `--force' so I'll proceed anyway even though"
-                  " your data will probably not read back correctly.", buf, fileSizeBuf);
+                warnx("warning: configured file size %s != filesystem file size %s,\n"
+                  "but you said `--force' so I'll proceed anyway even though your data will\n"
+                  "probably not read back correctly.", buf, fileSizeBuf);
             } else
                 errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
         break;
     case ENOENT:
     case ENXIO:
+    {
+        int config_block_size = config.block_size;
+
         if (config.file_size == 0)
             errx(1, "error: auto-detection of filesystem size failed; please specify `--size'");
-        if (config.block_size == 0) {
+        if (config.block_size == 0)
             config.block_size = S3BACKER_DEFAULT_BLOCKSIZE;
-            warnx("assuming default block size of %u", config.block_size);
-        }
+        unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)config.block_size);
+        unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)config.file_size);
+        warnx("auto-detection failed; using %s block size %s and file size %s",
+          config_block_size == 0 ? "default" : "configured", blockSizeBuf, fileSizeBuf);
         break;
+    }
     default:
         errno = r;
         err(1, "can't read block zero meta-data");
