@@ -180,6 +180,16 @@ instead of this flag.
 Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
 Default is `private'.
+.It Fl \-assumeEmpty
+Assume that no blocks exist in S3 yet.
+This enables an optimization whereby zero writes to a block are omitted until there is a non-zero write to the same block.
+This is only valid when the S3 objects do not yet exist, and is useful for example when initializing a large backed file
+from a local copy (such as a Mac OS disk image) that contains mostly zeroes.
+If auto-detection finds that there is in fact a block zero stored in S3, this option will cause
+.Nm
+to exit with an error unless
+.Fl \-force
+is also given.
 .It Fl \-baseURL=URL
 Specify the base URL. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockSize=SIZE
@@ -249,9 +259,10 @@ Proceed even if the value specified by
 .Fl \-blockSize
 or
 .Fl \-size
-disagrees with the auto-detected value.
-This is will certainly lead to reading garbled data and should only be used when you
-intend to write over an existing filesystem with a new one.
+disagrees with the auto-detected value, or if
+.Fl \-assumeEmpty
+is given yet auto-detection succeeds.
+This is will certainly lead to garbled data and should be avoided for normal use.
 .It Fl h Fl \-help
 Print a help message and exit.
 .It Fl \-initialRetryPause=MILLIS

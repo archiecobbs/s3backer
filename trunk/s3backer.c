@@ -145,6 +145,7 @@ struct s3backer_private {
     pthread_cond_t              space_cond;     // signaled when cache space available
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
     char                        *zero_block;
+    u_char                      *non_zero;      // used when 'assume_empty' is set
 };
 
 /* I/O state when reading/writing a block */
@@ -351,6 +352,7 @@ s3backer_destroy(struct s3backer_store *const s3b)
     g_hash_table_foreach(priv->hashtable, s3backer_free_one, NULL);
     g_hash_table_destroy(priv->hashtable);
     free(priv->zero_block);
+    free(priv->non_zero);
     free(priv);
     free(s3b);
 }
@@ -486,6 +488,11 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
     /* Allocate zero block if necessary */
     if (priv->zero_block == NULL
       && (priv->zero_block = calloc(1, config->block_size)) == NULL)
+        return errno;
+
+    /* Allocate empty block array if necessary */
+    if (config->assume_empty && priv->non_zero == NULL
+      && (priv->non_zero = calloc(1, (config->num_blocks + 7) / 8)) == NULL)
         return errno;
 
     /* Special case handling for all-zeroes blocks */
@@ -684,6 +691,22 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     char datebuf[64];
     CURL *curl;
     int r;
+
+    /* Don't write zero blocks when 'assume_empty' until non-zero content is written */
+    if (config->assume_empty) {
+        const int byte = block_num / 8;
+        const int bit = 1 << (block_num % 8);
+
+        pthread_mutex_lock(&priv->mutex);
+        if ((priv->non_zero[byte] & bit) == 0) {
+            if (src == NULL) {
+                pthread_mutex_unlock(&priv->mutex);
+                return 0;
+            }
+            priv->non_zero[byte] |= bit;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+    }
 
     /* Construct URL for this block */
     resource = s3backer_get_url(urlbuf, sizeof(urlbuf), config->baseURL, config->bucket, config->prefix, block_num);

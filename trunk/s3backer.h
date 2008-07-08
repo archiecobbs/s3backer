@@ -77,6 +77,7 @@ struct s3backer_conf {
     const char          *user_agent;
     int                 debug;
     int                 force;
+    int                 assume_empty;
     uid_t               uid;
     gid_t               gid;
     time_t              start_time;
