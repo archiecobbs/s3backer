@@ -3,6 +3,7 @@ Version 1.0.4
 
     - Retry on all HTTP error codes, not just 500 or greater. Tests show that
       a valid request can return a 4xx response due to network issues.
+    - Added `--assumeEmpty' flag.
     - Support 'E' for 'exabytes'.
     - Port to Mac OS 
 

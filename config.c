@@ -127,6 +127,11 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--assumeEmpty",
+        .offset=    offsetof(struct s3backer_conf, assume_empty),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--baseURL=%s",
         .offset=    offsetof(struct s3backer_conf, baseURL),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -589,6 +594,14 @@ validate_config(void)
             } else
                 errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
+        if (config.assume_empty) {
+            if (config.force) {
+                warnx("warning: `--assumeEmpty' was specified but filesystem is not empty,\n"
+                  "but you said `--force' so I'll proceed anyway even though your data will\n"
+                  "probably not read back correctly.");
+            } else
+                errx(1, "error: `--assumeEmpty' was specified but filesystem is not empty");
+        }
         break;
     case ENOENT:
     case ENXIO:
@@ -642,6 +655,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.accessType);
+    (*config.log)(LOG_DEBUG, "%16s: %s", "assumeEmpty", config.assume_empty ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.baseURL);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "bucket", config.bucket);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.prefix);
@@ -726,6 +740,7 @@ usage(void)
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "", s3_acls[i]);
     fprintf(stderr, "\n");
+    fprintf(stderr, "\t--%-24s %s\n", "assumeEmpty", "Assume no blocks exist yet (skip DELETE until PUT)");
     fprintf(stderr, "\t--%-24s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-24s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-24s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
