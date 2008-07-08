@@ -1,0 +1,23 @@
+#summary How to use s3backer on Mac OS 10.
+
+On Mac OS 10, there is no "loopback" option to mount. However, Apple provides equivalent functionality using disk images.
+
+You can use the *hditutil(1)* command to create disk images. For example, here is how the demo filesystem for Mac OS was created:
+
+{{{
+$ hdiutil create -size 640k -fs HFS+ -volname  's3backer Demo' -fsargs '-c c=64,a=16,e=16' -attach mydiskimage.dmg
+$ cp files/README.txt files/Telluride\ Airport.jpg /Volumes/s3backer\ Demo/
+$ hdiutil detach /Volumes/s3backer\ Demo/
+$ mkdir s3b.mnt
+$ s3backer --accessType=public-read --prefix=macos --size=640k --filename=demo.dmg s3backer-demo s3b.mnt
+s3backer: auto-detecting block size and total file size...
+s3backer: assuming default block size of 4096
+$ dd if=mydiskimage.dmg of=s3b.mnt/demo.dmg bs=4096
+160+0 records in
+160+0 records out
+655360 bytes transferred in 30.733475 secs (21324 bytes/sec)
+$ rm mydiskimage.dmg
+$ umount s3b.mnt/
+}}}
+
+See RunningTheDemo for how to mount the disk image.
