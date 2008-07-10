@@ -30,7 +30,7 @@ noinst_HEADERS=     s3backer.h
 
 man_MANS=           s3backer.1
 
-EXTRA_DIST=         s3backer.1 svnrev.c
+EXTRA_DIST=         CHANGES s3backer.1 svnrev.c
 
 s3backer_SOURCES=	main.c fuse_ops.c s3backer.c config.c svnrev.c
 
