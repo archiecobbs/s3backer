@@ -1,5 +1,5 @@
 
-Version 1.0.4
+Version 1.0.4 released 9 July 2008
 
     - Retry on all HTTP error codes, not just 500 or greater. Tests show that
       a valid request can return a 4xx response due to network issues.
