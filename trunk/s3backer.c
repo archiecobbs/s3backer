@@ -692,6 +692,10 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     CURL *curl;
     int r;
 
+    /* Check for read-only configuration */
+    if (config->read_only)
+        return EROFS;
+
     /* Don't write zero blocks when 'assume_empty' until non-zero content is written */
     if (config->assume_empty) {
         const int byte = block_num / 8;
