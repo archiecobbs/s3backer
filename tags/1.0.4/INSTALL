@@ -1,0 +1,16 @@
+
+To build and install s3backer:
+
+    1. Ensure you have the following software packages installed:
+
+        curl-devel
+        fuse-devel
+        glib2-devel
+        openssl-devel
+        pkgconfig
+
+    2. Run `./configure'
+    3. Run `make'
+    4. Run `make install'
+
+$Id$
