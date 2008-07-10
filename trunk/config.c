@@ -475,7 +475,7 @@ validate_config(void)
         search_access_for(config.accessFile, NULL, &config.accessId, NULL);
     if (config.accessId != NULL && *config.accessId == '\0')
         config.accessId = NULL;
-    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0)
+    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0 && !config.read_only)
         warnx("warning: no `accessId' specified; only read operations will succeed");
 
     /* Find key in file if not specified explicitly */
