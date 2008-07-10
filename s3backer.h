@@ -78,6 +78,7 @@ struct s3backer_conf {
     int                 debug;
     int                 force;
     int                 assume_empty;
+    int                 read_only;
     uid_t               uid;
     gid_t               gid;
     time_t              start_time;
