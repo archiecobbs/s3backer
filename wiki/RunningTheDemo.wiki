@@ -15,7 +15,7 @@ Run these commands:
 
 {{{
 $ mkdir s3b.mnt demo.mnt
-$ s3backer -o allow_other s3backer-demo s3b.mnt
+$ s3backer -o allow_other s3backer-demo --readOnly s3b.mnt
 s3backer: warning: no accessId specified; only read operations will succeed
 s3backer: auto-detecting block size and total file size...
 s3backer: auto-detected block size=4k and total size=20m
@@ -31,7 +31,7 @@ Run these commands:
 
 {{{
 $ mkdir s3b.mnt
-$ s3backer --filename=demo.dmg --prefix=macos s3backer-demo s3b.mnt
+$ s3backer --filename=demo.dmg --prefix=macos --readOnly s3backer-demo s3b.mnt
 s3backer: warning: no accessId specified; only read operations will succeed
 s3backer: auto-detecting block size and total file size...
 s3backer: auto-detected block size=4k and total size=640k

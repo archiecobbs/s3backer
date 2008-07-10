@@ -70,7 +70,8 @@ DESCRIPTION
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  Of course a filesystem must already exist and have S3 objects
      with ACL's configured for public read access (see --accessType below); users should perform the looback mount with the read-
-     only flag (see mount(8)).  This mode of operation facilitates the creation of public, read-only filesystems.
+     only flag (see mount(8)) and provide the --readOnly flag to s3backer.  This mode of operation facilitates the creation of pub-
+     lic, read-only filesystems.
 
    Simultaneous Mounts
      Although it functions over the network, the s3backer filesystem is not a distributed filesystem and does not support simulta-
@@ -147,6 +148,10 @@ OPTIONS
      --filename=NAME
              Specify the name of the single file that appears in the s3backer filesystem.  Default is `file'.
 
+     --fileMode=MODE
+             Specify the UNIX permission bits for the single file that appears in the s3backer filesystem.  Default is 0600, unless
+             --readOnly is specified, in which case the default is 0400.
+
      --force
              Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value, or if
              --assumeEmpty is given yet auto-detection succeeds.  This is will certainly lead to garbled data and should be avoided
@@ -180,6 +185,10 @@ OPTIONS
              Specify a prefix to prepend to the resource names within bucket that identify each block.  Default is the empty
              string.
 
+     --readOnly
+             Assume the filesystem is going to be mounted read-only, and return EROFS in response to any attempt to write.  This
+             flag also changes the default mode of the backed file from 0600 to 0400.
+
      --size=SIZE
              Specify the size (in bytes) of the single file to be exported by the filesystem.  The size may have an optional suffix
              'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, or 'E' for exabytes.  s3backer will
@@ -192,19 +201,10 @@ OPTIONS
 
      In addition, s3backer accepts all of the generic FUSE options as well.  Here is a partial list:
 
-     -d      Enable FUSE debug mode.  Implies -f and --debug.
-
-     -f      Run in the foreground (do not fork).  Implies --debug.
-
-     -s      Run in single-threaded mode.
-
      -o allow_root
              Allow root (only) to view backed file.
 
      -o allow_other
-             Allow all users to view backed file.
-
-     -o nonempty
              Allow all users to view backed file.
 
      -o uid=UID
@@ -218,6 +218,12 @@ OPTIONS
 
      -o max_readahead=NUM
              Set maximum read-ahead (in bytes).
+
+     -f      Run in the foreground (do not fork).  Implies --debug.
+
+     -d      Enable FUSE debug mode.  Implies -f and --debug.
+
+     -s      Run in single-threaded mode.
 
      In addition, s3backer passes the following flags which are optimized for s3backer to FUSE (unless overridden by the user on
      the command line):
