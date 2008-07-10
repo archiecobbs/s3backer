@@ -1,11 +1,56 @@
-s3backer - FUSE filesystem backed by Amazon S3
+s3backer - FUSE-based single file backing store via Amazon S3
 
-See INSTALL for installation instructions.
+s3backer is a filesystem that contains a single file backed by the Amazon
+Simple Storage Service (Amazon S3). As a filesystem, it is quite small and
+simple: it provides a single normal file having a fixed size. The file
+is divided up into blocks, and the content of each block is stored in a
+unique Amazon S3 object. In other words, what s3backer provides is really
+more like an S3-backed virtual hard disk device, rather than a filesystem.
 
-After installing, see s3backer(1) man page for how to run it.
+In typical usage, a `normal' filesystem is mounted on top of the file
+exported by the s3backer filesystem using a loopback mount (or disk
+image mount on Mac OS X).
+
+This arrangement has several benefits compared to more complete S3
+filesystem implementations:
+
+    * By not attempting to implement a complete filesystem, which is a
+    complex undertaking and difficult to get right, s3backer can stay
+    very lightweight and simple. Only three HTTP operations are used:
+    GET, PUT, and DELETE. All of the experience and knowledge about how
+    to properly implement filesystems that already exists can be reused.
+
+    * By utilizing existing filesystems, you get full UNIX filesystem
+    semantics. Subtle bugs or missing functionality relating to hard
+    links, extended attributes, POSIX locking, etc. are avoided.
+
+    * The gap between normal filesystem semantics and Amazon S3 "eventual
+    consistency" is more easily and simply solved when one can interpret
+    S3 objects as simple device blocks rather than filesystem objects.
+
+    * When storing your data on Amazon S3 servers, which are not under
+    your control, the ability to encrypt data becomes a critical
+    issue. s3backer provides this automatically because encryption
+    support is already included in the Linux loopback mechanism.
+
+    * Since S3 data is accessed over the network, local caching is also
+    very important for performance reasons. Since s3backer presents
+    the equivalent of a virtual hard disk to the kernel, all of the
+    filesystem caching can be done where it should be: in the kernel,
+    via the kernel's page cache. s3backer itself does not cache any file
+    data, nor does it need to.
+
+Home page: http://s3backer.googlecode.com/
+
+------------------------------------------------------------------------
+
+See INSTALL for installation instructions. After installing, see the s3backer(1)
+man page for how to run it.
 
 See COPYING for license.
 
-http://s3backer.googlecode.com/
+See CHANGES for change history.
+
+Enjoy!
 
 $Id$
