@@ -1,4 +1,8 @@
 
+Version 1.0.5
+
+    - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
+
 Version 1.0.4 released 9 July 2008
 
     - Retry on all HTTP error codes, not just 500 or greater. Tests show that
