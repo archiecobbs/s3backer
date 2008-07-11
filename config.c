@@ -294,6 +294,18 @@ s3backer_get_config(int argc, char **argv)
             err(1, "fuse_opt_insert_arg");
     }
 
+    /* On MacOS, prevent kernel timeouts prior to our own timeout */
+#ifdef __APPLE__
+    {
+        char buf[64];
+
+        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", config.connect_timeout
+          + config.io_timeout + config.max_retry_pause / 1000 + 10);
+        if (fuse_opt_insert_arg(&config.fuse_args, i + 1, buf) != 0)
+            err(1, "fuse_opt_insert_arg");
+    }
+#endif
+
     /* Parse command line flags */
     if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0) {
         usage();

@@ -2,6 +2,7 @@
 Version 1.0.5
 
     - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
+    - On MacOS, prevent kernel timeouts prior to our own timeout (issue #2)
 
 Version 1.0.4 released 9 July 2008
 
@@ -10,7 +11,7 @@ Version 1.0.4 released 9 July 2008
     - Added `--fileMode' and `--readOnly' flags.
     - Added `--assumeEmpty' flag.
     - Support 'E' for 'exabytes'.
-    - Port to Mac OS 
+    - Port to Mac OS (issue #1)
 
 Version 1.0.3 released 30 June 2008
 
