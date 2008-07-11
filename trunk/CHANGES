@@ -4,7 +4,7 @@ Version 1.0.5
     - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
     - On MacOS, prevent kernel timeouts prior to our own timeout (issue #2)
 
-Version 1.0.4 released 9 July 2008
+Version 1.0.4 (r82) released 9 July 2008
 
     - Retry on all HTTP error codes, not just 500 or greater. Tests show that
       a valid request can return a 4xx response due to network issues.
@@ -13,19 +13,19 @@ Version 1.0.4 released 9 July 2008
     - Support 'E' for 'exabytes'.
     - Port to Mac OS (issue #1)
 
-Version 1.0.3 released 30 June 2008
+Version 1.0.3 (r39) released 30 June 2008
 
     - Implement exponential backoff: replace ``--maxRetry'' and ``--retryPause''
       with ``--initialRetryPause'' and ``--maxRetryPause''.
     - Fix `--accessType' flag which was not being properly handled.
     - Improvements to the man page.
 
-Version 1.0.2 released 20 June 2008
+Version 1.0.2 (r25) released 20 June 2008
 
     - Fix bug in setting User-Agent HTTP header.
     - Fix glitch in man page.
 
-Version 1.0.1 released 20 June 2008
+Version 1.0.1 (r18) released 20 June 2008
 
     - Store filesystem size in meta-data associated with the first block and
       use it to auto-detect filesystem block and file sizes if not specified.
