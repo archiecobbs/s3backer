@@ -1,8 +1,12 @@
 #summary How to use s3backer on Mac OS 10.
 
-On Mac OS 10, there is no "loopback" option to mount. However, Apple provides equivalent functionality using disk images.
+On Mac OS 10, there is no "loopback" option to the *mount(8)* command. However, Apple provides equivalent functionality using *disk images*, which are simply normal files containing the raw contents of a formatted hard disk.
 
-You can use the *hditutil(1)* command to create disk images. For example, here is how the demo filesystem for Mac OS was created:
+Note that with Linux, the thing that s3backer is backing when you do a loopback mount is a _filesystem_, whereas with Apple it's a _disk image_. In other words, on Linux you treat the file that s3backer gives you like a partition  on a hard disk, whereas on Apple you treat it like an entire hard disk (which of course will contain within it at least one partition formatted as a filesystem).
+
+However, you can do the "whole disk" thing on Linux as well if you want to. You would use *losetup(8)* to associate the s3backer file with a loopback device. For more information see the *losetup(8)*, *sfdisk(8)*, and *mkfs(8)* man pages.
+
+On MacOS, you can use the *hditutil(1)* command to create disk images. For example, here is how the demo filesystem for Mac OS was created:
 
 {{{
 $ hdiutil create -size 640k -fs HFS+ -volname  's3backer Demo' -fsargs '-c c=64,a=16,e=16' -attach mydiskimage.dmg
@@ -19,5 +23,7 @@ $ dd if=mydiskimage.dmg of=s3b.mnt/demo.dmg bs=4096
 $ rm mydiskimage.dmg
 $ umount s3b.mnt/
 }}}
+
+As you can see from the above commands, I had to create the disk image in a separate file, then copy it to the s3backer file. Creating the disk image directly in the s3backer file didn't work due to the way *hditutil(1)* wants to unlink and the recreate the image file (the s3backer filesystem does not allow unlinking the backed file).
 
 See RunningTheDemo for how to mount the disk image.
