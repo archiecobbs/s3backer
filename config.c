@@ -688,9 +688,11 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.prefix);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "filename", config.filename);
-    (*config.log)(LOG_DEBUG, "%16s: %s (%u)", "block_size", config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
+    (*config.log)(LOG_DEBUG, "%16s: %s (%u)", "block_size",
+      config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
     (*config.log)(LOG_DEBUG, "%16s: %u", "block_bits", config.block_bits);
-    (*config.log)(LOG_DEBUG, "%16s: %s (%jd)", "file_size", config.file_size_str, (intmax_t)config.file_size);
+    (*config.log)(LOG_DEBUG, "%16s: %s (%jd)", "file_size",
+      config.file_size_str != NULL ? config.file_size_str : "-", (intmax_t)config.file_size);
     (*config.log)(LOG_DEBUG, "%16s: %jd", "num_blocks", (intmax_t)config.num_blocks);
     (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.file_mode);
     (*config.log)(LOG_DEBUG, "%16s: %s", "read_only", config.read_only ? "true" : "false");
