@@ -49,6 +49,7 @@ main(int argc, char **argv)
     pthread_t thread;
     MD5_CTX ctx;
     int i;
+    int r;
 
     /* Get configuration */
     if ((config = s3backer_get_config(argc, argv)) == NULL)
@@ -77,6 +78,13 @@ main(int argc, char **argv)
     for (i = 0; i < config->num_blocks; i++)
         memcpy(&md5s[i * MD5_DIGEST_LENGTH], zero_md5, MD5_DIGEST_LENGTH);
 
+    /* Zero all blocks */
+    for (i = 0; i < config->num_blocks; i++) {
+	fprintf(stderr, "zeroing block #%u\n", i);
+	if ((r = (*store->write_block)(store, i, zero_block)) != 0)
+	    warnx("write error: %s", strerror(r));
+    }
+
     /* Create threads */
     for (i = 0; i < NUM_THREADS; i++)
         pthread_create(&thread, NULL, thread_main, (void *)i);
@@ -97,17 +105,7 @@ thread_main(void *arg)
     MD5_CTX ctx;
     int millis;
     int lockid;
-    int i;
     int r;
-
-    /* Zero all blocks equal to my thread ID modulo #threads */
-    if (id < config->num_blocks) {
-        for (i = id; i < config->num_blocks; i += NUM_THREADS) {
-            fprintf(stderr, "[%2d] zeroing block #%u\n", id, i);
-            if ((r = (*store->write_block)(store, i, zero_block)) != 0)
-                warnx("[%2d] write error: %s", id, strerror(r));
-        }
-    }
 
     /* Loop */
     while (1) {
