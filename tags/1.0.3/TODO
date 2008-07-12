@@ -1,7 +1,0 @@
-TODO
-
-- compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
-- interrupt active write when new write happens (instead of waiting)
-- exponential backoff on HTTP 5xx errors
-
-$Id$
