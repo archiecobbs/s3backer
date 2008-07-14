@@ -1196,8 +1196,7 @@ s3backer_acquire_curl(struct s3backer_private *priv)
         }
     }
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)config->connect_timeout);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->io_timeout);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
     //curl_easy_setopt(curl, CURLOPT_VERBOSE);

@@ -240,9 +240,6 @@ This value must be set to zero when
 .Fl \-cacheSize
 is set to zero (cache disabled).
 Default value is 10 seconds.
-.It Fl \-connectTimeout=SECONDS
-Specify a timeout in seconds for the initial HTTP connection.
-Default is 30 seconds.
 .It Fl \-debug
 Enable logging of debug messages.
 Note that this flag is different from
@@ -285,9 +282,6 @@ will make multiple retry attempts using an exponential backoff algorithm, starti
 Default value is 200ms.
 See also
 .Fl \-maxRetryPause .
-.It Fl \-ioTimeout=SECONDS
-Specify a timeout in seconds for the completion of an HTTP operation after the initial connection.
-Default is 30 seconds.
 .It Fl \-maxRetryPause=MILLIS
 Specify the total amount of time in milliseconds
 .Nm
@@ -296,7 +290,9 @@ Failures include network failures and timeouts, 5xx server errors, and reads of 
 (i.e., MD5 mismatch);
 .Nm
 will make multiple retry attempts using an exponential backoff algorithm, up to this maximum total retry pause time.
-This value does not include the time it takes to perform the HTTP operations themselves.
+This value does not include the time it takes to perform the HTTP operations themselves (use
+.Fl \-timeout
+for that).
 Default value is 30000 (30 seconds).
 See also
 .Fl \-initialRetryPause .
@@ -324,6 +320,10 @@ If this option is specified but disagrees with the auto-detected value,
 will exit with an error unless
 .Fl \-force
 is also given.
+.It Fl \-timeout=SECONDS
+Specify a time limit in seconds for one HTTP operation.
+This limits the entire operation including connection time (if not already connected) and data transfer time.
+Default is 90 seconds.
 .It Fl \-version
 Output version and exit.
 .El
