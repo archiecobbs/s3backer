@@ -298,9 +298,26 @@ s3backer_get_config(int argc, char **argv)
 #ifdef __APPLE__
     {
         char buf[64];
+        u_int total_time = 0;
+        u_int retry_pause = 0;
+        u_int total_pause;
 
-        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", config.connect_timeout
-          + config.io_timeout + config.max_retry_pause / 1000 + 10);
+        /*
+         * Determine how much total time an operation can take including retries.
+         * We have to use the same exponential backoff algorithm.
+         */
+        for (total_pause = 0; 1; total_pause += retry_pause) {
+            total_time += config.io_timeout * 1000;
+            if (total_pause >= config.max_retry_pause)
+                break;
+            retry_pause = retry_pause > 0 ? retry_pause * 2 : config.initial_retry_pause;
+            if (total_pause + retry_pause > config.max_retry_pause)
+                retry_pause = config.max_retry_pause - total_pause;
+            total_time += retry_pause;
+        }
+
+        /* Set kernel timeout to at least that */
+        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", total_time / 1000 + 10);
         if (fuse_opt_insert_arg(&config.fuse_args, i + 1, buf) != 0)
             err(1, "fuse_opt_insert_arg");
     }
