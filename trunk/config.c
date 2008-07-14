@@ -504,8 +504,10 @@ validate_config(void)
         search_access_for(config.accessFile, NULL, &config.accessId, NULL);
     if (config.accessId != NULL && *config.accessId == '\0')
         config.accessId = NULL;
-    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0 && !config.read_only)
+    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0 && !config.read_only) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
+        warnx("you can eliminate this warning by providing the `--readOnly' flag");
+    }
 
     /* Find key in file if not specified explicitly */
     if (config.accessId == NULL && config.accessKey != NULL) {
