@@ -864,7 +864,7 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
         /* Handle errors */
         switch (curl_code) {
         case CURLE_OPERATION_TIMEDOUT:
-            (*config->log)(LOG_NOTICE, "HTTP operation timeout: %s %s", s3b_io->method, s3b_io->url);
+            (*config->log)(LOG_NOTICE, "operation timeout: %s %s", s3b_io->method, s3b_io->url);
             s3backer_release_curl(priv, curl, 0);
             break;
         case CURLE_HTTP_RETURNED_ERROR:
@@ -900,7 +900,8 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             }
             break;
         default:
-            (*config->log)(LOG_ERR, "curl error: %s", curl_easy_strerror(curl_code));
+            (*config->log)(LOG_ERR, "operation failed: %s (%s)", curl_easy_strerror(curl_code),
+              total_pause >= config->max_retry_pause ? "final attempt" : "will retry");
             break;
         }
 
@@ -916,7 +917,7 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
     }
 
     /* Give up */
-    (*config->log)(LOG_ERR, "giving up: %s %s", s3b_io->method, s3b_io->url);
+    (*config->log)(LOG_ERR, "giving up on: %s %s", s3b_io->method, s3b_io->url);
     return EIO;
 }
 
