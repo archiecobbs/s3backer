@@ -44,8 +44,7 @@
 #define S3BACKER_DEFAULT_PREFIX                 ""
 #define S3BACKER_DEFAULT_FILENAME               "file"
 #define S3BACKER_DEFAULT_BLOCKSIZE              4096
-#define S3BACKER_DEFAULT_CONNECT_TIMEOUT        30
-#define S3BACKER_DEFAULT_IO_TIMEOUT             30
+#define S3BACKER_DEFAULT_TIMEOUT                90
 #define S3BACKER_DEFAULT_FILE_MODE              0600
 #define S3BACKER_DEFAULT_FILE_MODE_READ_ONLY    0400
 #define S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE    200             // 200ms
@@ -95,8 +94,7 @@ static struct s3backer_conf config = {
     .block_size=            0,
     .file_size=             0,
     .file_mode=             -1,             /* default depends on 'read_only' */
-    .connect_timeout=       S3BACKER_DEFAULT_CONNECT_TIMEOUT,
-    .io_timeout=            S3BACKER_DEFAULT_IO_TIMEOUT,
+    .timeout=               S3BACKER_DEFAULT_TIMEOUT,
     .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
     .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
     .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
@@ -153,11 +151,6 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--connectTimeout=%u",
-        .offset=    offsetof(struct s3backer_conf, connect_timeout),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
         .templ=     "--debug",
         .offset=    offsetof(struct s3backer_conf, debug),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -183,11 +176,6 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--ioTimeout=%u",
-        .offset=    offsetof(struct s3backer_conf, io_timeout),
-        .value=     FUSE_OPT_KEY_DISCARD
-    },
-    {
         .templ=     "--maxRetryPause=%u",
         .offset=    offsetof(struct s3backer_conf, max_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -210,6 +198,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--size=%s",
         .offset=    offsetof(struct s3backer_conf, file_size_str),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--timeout=%u",
+        .offset=    offsetof(struct s3backer_conf, timeout),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     FUSE_OPT_END
@@ -307,7 +300,7 @@ s3backer_get_config(int argc, char **argv)
          * We have to use the same exponential backoff algorithm.
          */
         for (total_pause = 0; 1; total_pause += retry_pause) {
-            total_time += config.io_timeout * 1000;
+            total_time += config.timeout * 1000;
             if (total_pause >= config.max_retry_pause)
                 break;
             retry_pause = retry_pause > 0 ? retry_pause * 2 : config.initial_retry_pause;
@@ -715,8 +708,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: %jd", "num_blocks", (intmax_t)config.num_blocks);
     (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.file_mode);
     (*config.log)(LOG_DEBUG, "%16s: %s", "read_only", config.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%16s: %us", "connect_timeout", config.connect_timeout);
-    (*config.log)(LOG_DEBUG, "%16s: %us", "io_timeout", config.io_timeout);
+    (*config.log)(LOG_DEBUG, "%16s: %us", "timeout", config.timeout);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.max_retry_pause);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.min_write_delay);
@@ -794,13 +786,12 @@ usage(void)
     fprintf(stderr, "\t--%-24s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-24s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-24s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
-    fprintf(stderr, "\t--%-24s %s\n", "connectTimeout=SECONDS", "Timeout for initial HTTP connection");
+    fprintf(stderr, "\t--%-24s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-24s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-24s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-24s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-24s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-24s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
-    fprintf(stderr, "\t--%-24s %s\n", "ioTimeout=SECONDS", "Timeout for completion of HTTP operation");
     fprintf(stderr, "\t--%-24s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
     fprintf(stderr, "\t--%-24s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
     fprintf(stderr, "\t--%-24s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
@@ -816,11 +807,10 @@ usage(void)
     fprintf(stderr, "\t--%-24s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
     fprintf(stderr, "\t--%-24s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);
     fprintf(stderr, "\t--%-24s %u\n", "cacheTime", S3BACKER_DEFAULT_CACHE_TIME);
-    fprintf(stderr, "\t--%-24s %u\n", "connectTimeout", S3BACKER_DEFAULT_CONNECT_TIMEOUT);
+    fprintf(stderr, "\t--%-24s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "\t--%-24s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
     fprintf(stderr, "\t--%-24s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
-    fprintf(stderr, "\t--%-24s %u\n", "ioTimeout", S3BACKER_DEFAULT_IO_TIMEOUT);
     fprintf(stderr, "\t--%-24s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-24s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);

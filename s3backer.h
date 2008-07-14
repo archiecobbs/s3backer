@@ -87,8 +87,7 @@ struct s3backer_conf {
     off_t               file_size;
     off_t               num_blocks;
     int                 file_mode;
-    u_int               connect_timeout;
-    u_int               io_timeout;
+    u_int               timeout;
     u_int               initial_retry_pause;
     u_int               max_retry_pause;
     u_int               min_write_delay;
