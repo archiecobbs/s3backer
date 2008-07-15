@@ -1,5 +1,5 @@
 
-Version 1.0.5
+Version 1.0.5 (r106) released 15 July 2008
 
     - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
     - On MacOS, prevent kernel timeouts prior to our own timeout (issue #2)
