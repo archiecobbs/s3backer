@@ -53,6 +53,16 @@
 #define S3BACKER_DEFAULT_CACHE_TIME             10000           // 10s
 #define S3BACKER_DEFAULT_CACHE_SIZE             10000
 
+/* MacFUSE setting for kernel daemon timeout */
+#ifdef __APPLE__
+#ifndef FUSE_MAX_DAEMON_TIMEOUT
+#define FUSE_MAX_DAEMON_TIMEOUT         600
+#endif
+#define s3bquote0(x)                    #x
+#define s3bquote(x)                     s3bquote0(x)
+#define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
+#endif  /* __APPLE__ */
+
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
@@ -220,7 +230,7 @@ static const char *const s3backer_fuse_defaults[] = {
     "-onodev",
     "-onosuid",
 #ifdef __APPLE__
-    "-odaemon_timeout=600",     /* On MacOS, prevent kernel timeouts prior to our own timeout */
+    "-odaemon_timeout=" FUSE_MAX_DAEMON_TIMEOUT_STRING,
 #endif
 /*  "-ointr", */
 };
@@ -653,6 +663,38 @@ validate_config(void)
         warnx("more than 2^%d blocks: decrease file size or increase block size", sizeof(s3b_block_t) * 8);
         return -1;
     }
+
+#ifdef __APPLE__
+    /* On MacOS, warn if kernel timeouts can happen prior to our own timeout */
+    {
+        u_int total_time = 0;
+        u_int retry_pause = 0;
+        u_int total_pause;
+
+        /*
+         * Determine how much total time an operation can take including retries.
+         * We have to use the same exponential backoff algorithm.
+         */
+        for (total_pause = 0; 1; total_pause += retry_pause) {
+            total_time += config.timeout * 1000;
+            if (total_pause >= config.max_retry_pause)
+                break;
+            retry_pause = retry_pause > 0 ? retry_pause * 2 : config.initial_retry_pause;
+            if (total_pause + retry_pause > config.max_retry_pause)
+                retry_pause = config.max_retry_pause - total_pause;
+            total_time += retry_pause;
+        }
+
+        /* Convert from milliseconds to seconds */
+        total_time = (total_time + 999) / 1000;
+
+        /* Warn if exceeding MacFUSE limit */
+        if (total_time >= FUSE_MAX_DAEMON_TIMEOUT) {
+            warnx("warning: maximum possible I/O delay (%us) >= MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
+            warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
+        }
+    }
+#endif  /* __APPLE__ */
 
     /* Done */
     return 0;
