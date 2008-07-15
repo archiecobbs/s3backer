@@ -219,6 +219,9 @@ static const char *const s3backer_fuse_defaults[] = {
     "-odefault_permissions",
     "-onodev",
     "-onosuid",
+#ifdef __APPLE__
+    "-odaemon_timeout=600",     /* On MacOS, prevent kernel timeouts prior to our own timeout */
+#endif
 /*  "-ointr", */
 };
 
@@ -286,48 +289,6 @@ s3backer_get_config(int argc, char **argv)
         if (fuse_opt_insert_arg(&config.fuse_args, i + 1, s3backer_fuse_defaults[i]) != 0)
             err(1, "fuse_opt_insert_arg");
     }
-
-    /* On MacOS, prevent kernel timeouts prior to our own timeout */
-#ifdef __APPLE__
-    {
-        char buf[64];
-        u_int total_time = 0;
-        u_int retry_pause = 0;
-        u_int total_pause;
-
-        /*
-         * Determine how much total time an operation can take including retries.
-         * We have to use the same exponential backoff algorithm.
-         */
-        for (total_pause = 0; 1; total_pause += retry_pause) {
-            total_time += config.timeout * 1000;
-            if (total_pause >= config.max_retry_pause)
-                break;
-            retry_pause = retry_pause > 0 ? retry_pause * 2 : config.initial_retry_pause;
-            if (total_pause + retry_pause > config.max_retry_pause)
-                retry_pause = config.max_retry_pause - total_pause;
-            total_time += retry_pause;
-        }
-
-        /* Convert from milliseconds to seconds, add one second margin */
-        total_time = (total_time + 999) / 1000 + 1;
-
-#ifndef FUSE_MAX_DAEMON_TIMEOUT
-#define FUSE_MAX_DAEMON_TIMEOUT     600
-#endif
-        /* Avoid exceeding MacFUSE limit */
-        if (total_time > FUSE_MAX_DAEMON_TIMEOUT) {
-            warnx("warning: maximum possible I/O delay (%us) exceeds MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
-            warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
-            total_time = FUSE_MAX_DAEMON_TIMEOUT;
-        }
-
-        /* Set kernel timeout to at least that */
-        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", total_time);
-        if (fuse_opt_insert_arg(&config.fuse_args, i + 1, buf) != 0)
-            err(1, "fuse_opt_insert_arg");
-    }
-#endif
 
     /* Parse command line flags */
     if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0) {
