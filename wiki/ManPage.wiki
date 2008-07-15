@@ -138,9 +138,6 @@ OPTIONS
              least as big as --minWriteDelay. This value must be set to zero when --cacheSize is set to zero (cache disabled).
              Default value is 10 seconds.
 
-     --connectTimeout=SECONDS
-             Specify a timeout in seconds for the initial HTTP connection.  Default is 30 seconds.
-
      --debug
              Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE.  Both the -d and
              -f FUSE flags imply this flag.
@@ -162,20 +159,16 @@ OPTIONS
 
      --initialRetryPause=MILLIS
              Specify the initial pause time in milliseconds before the first retry attempt after failed HTTP operations.  Failures
-             include network failures and timeouts, 5xx server errors, and reads of stale data (i.e., MD5 mismatch); s3backer will
-             make multiple retry attempts using an exponential backoff algorithm, starting with this initial retry pause time.
-             Default value is 200ms.  See also --maxRetryPause.
-
-     --ioTimeout=SECONDS
-             Specify a timeout in seconds for the completion of an HTTP operation after the initial connection.  Default is 30 sec-
-             onds.
+             include network failures and timeouts, HTTP errors, and reads of stale data (i.e., MD5 mismatch); s3backer will make
+             multiple retry attempts using an exponential backoff algorithm, starting with this initial retry pause time.  Default
+             value is 200ms.  See also --maxRetryPause.
 
      --maxRetryPause=MILLIS
              Specify the total amount of time in milliseconds s3backer should pause when retrying failed HTTP operations before
-             giving up.  Failures include network failures and timeouts, 5xx server errors, and reads of stale data (i.e., MD5 mis-
-             match); s3backer will make multiple retry attempts using an exponential backoff algorithm, up to this maximum total
-             retry pause time.  This value does not include the time it takes to perform the HTTP operations themselves.  Default
-             value is 30000 (30 seconds).  See also --initialRetryPause.
+             giving up.  Failures include network failures and timeouts, HTTP errors, and reads of stale data (i.e., MD5 mismatch);
+             s3backer will make multiple retry attempts using an exponential backoff algorithm, up to this maximum total retry
+             pause time.  This value does not include the time it takes to perform the HTTP operations themselves (use --timeout
+             for that).  Default value is 30000 (30 seconds).  See also --initialRetryPause.
 
      --minWriteDelay=MILLIS
              Specify a minimum time in milliseconds between the successful completion of a write and the initiation of another
@@ -195,6 +188,10 @@ OPTIONS
              attempt to auto-detect the block size by reading block number zero.  If this option is not specified, the auto-
              detected value will be used.  If this option is specified but disagrees with the auto-detected value, s3backer will
              exit with an error unless --force is also given.
+
+     --timeout=SECONDS
+             Specify a time limit in seconds for one HTTP operation attempt.  This limits the entire operation including connection
+             time (if not already connected) and data transfer time.  Default is 30 seconds.  See also --maxRetryPause.
 
      --version
              Output version and exit.
@@ -251,6 +248,8 @@ SEE ALSO
 
      FUSE: Filesystem in Userspace, http://fuse.sourceforge.net/.
 
+     MacFUSE: A User-Space File System Implementation Mechanism for Mac OS X, http://code.google.com/p/macfuse/.
+
      Google Search for `linux page cache', http://www.google.com/search?q=linux+page+cache.
 
 BUGS
@@ -260,6 +259,10 @@ BUGS
      s3backer should really be implemented as a device rather than a filesystem.  However, this would require writing a kernel mod-
      ule instead of a simple user-space daemon, because Linux does not provide a user-space API for devices like it does for
      filesystems with FUSE.  Implementing s3backer as a filesystem and then using the loopback mount is a simple workaround.
+
+     On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically unmounts the filesystem
+     when this limit is reached.  This can happen when a combination of --maxRetryPause and/or --timeout settings allow HTTP
+     retries to take longer than this value.  A warning is emitted on startup in this case.
 
 AUTHOR
      Archie L. Cobbs <archie@dellroad.org>
