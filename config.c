@@ -44,7 +44,7 @@
 #define S3BACKER_DEFAULT_PREFIX                 ""
 #define S3BACKER_DEFAULT_FILENAME               "file"
 #define S3BACKER_DEFAULT_BLOCKSIZE              4096
-#define S3BACKER_DEFAULT_TIMEOUT                90
+#define S3BACKER_DEFAULT_TIMEOUT                30              // 30s
 #define S3BACKER_DEFAULT_FILE_MODE              0600
 #define S3BACKER_DEFAULT_FILE_MODE_READ_ONLY    0400
 #define S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE    200             // 200ms
@@ -309,8 +309,20 @@ s3backer_get_config(int argc, char **argv)
             total_time += retry_pause;
         }
 
+        /* Convert from milliseconds to seconds, add one second margin */
+        total_time = (total_time + 999) / 1000 + 1;
+
+#ifdef FUSE_MAX_DAEMON_TIMEOUT
+        /* Avoid exceeding MacFUSE limit */
+        if (total_time > FUSE_MAX_DAEMON_TIMEOUT) {
+            warnx("warning: maximum possible I/O delay (%us) exceeds MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
+            warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
+            total_time = FUSE_MAX_DAEMON_TIMEOUT;
+        }
+#endif
+
         /* Set kernel timeout to at least that */
-        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", total_time / 1000 + 10);
+        snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", total_time);
         if (fuse_opt_insert_arg(&config.fuse_args, i + 1, buf) != 0)
             err(1, "fuse_opt_insert_arg");
     }

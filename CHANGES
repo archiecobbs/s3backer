@@ -4,8 +4,7 @@ Version 1.0.5
     - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
     - On MacOS, prevent kernel timeouts prior to our own timeout (issue #2)
     - Replaced `--connectTimeout' and `--ioTimeout' with `--timeout' because
-      CURL's I/O timeout includes in it the connection time as well; increase
-      default from 30 to 90 seconds (a more conservative default).
+      CURL's I/O timeout includes in it the connection time as well.
 
 Version 1.0.4 (r82) released 9 July 2008
 

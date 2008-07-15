@@ -275,7 +275,7 @@ This is will certainly lead to garbled data and should be avoided for normal use
 Print a help message and exit.
 .It Fl \-initialRetryPause=MILLIS
 Specify the initial pause time in milliseconds before the first retry attempt after failed HTTP operations.
-Failures include network failures and timeouts, 5xx server errors, and reads of stale data
+Failures include network failures and timeouts, HTTP errors, and reads of stale data
 (i.e., MD5 mismatch);
 .Nm
 will make multiple retry attempts using an exponential backoff algorithm, starting with this initial retry pause time.
@@ -286,7 +286,7 @@ See also
 Specify the total amount of time in milliseconds
 .Nm
 should pause when retrying failed HTTP operations before giving up.
-Failures include network failures and timeouts, 5xx server errors, and reads of stale data
+Failures include network failures and timeouts, HTTP errors, and reads of stale data
 (i.e., MD5 mismatch);
 .Nm
 will make multiple retry attempts using an exponential backoff algorithm, up to this maximum total retry pause time.
@@ -321,9 +321,11 @@ will exit with an error unless
 .Fl \-force
 is also given.
 .It Fl \-timeout=SECONDS
-Specify a time limit in seconds for one HTTP operation.
+Specify a time limit in seconds for one HTTP operation attempt.
 This limits the entire operation including connection time (if not already connected) and data transfer time.
-Default is 90 seconds.
+Default is 30 seconds.
+See also
+.Fl \-maxRetryPause .
 .It Fl \-version
 Output version and exit.
 .El
@@ -397,6 +399,10 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .Rs
 .%T "FUSE: Filesystem in Userspace"
 .%O http://fuse.sourceforge.net/
+.Re
+.Rs
+.%T "MacFUSE: A User-Space File System Implementation Mechanism for Mac OS X"
+.%O http://code.google.com/p/macfuse/
 .Re
 .Rs
 .%T "Google Search for `linux page cache'"
