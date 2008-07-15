@@ -1,11 +1,11 @@
-# $Id: configure.ac 386451 2006-03-16 20:27:11Z archie $
+# $Id$
 
-AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.0.5], [http://s3backer.googlecode.com/], [s3backer])
+AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.0.6], [http://s3backer.googlecode.com/], [s3backer])
 AC_CONFIG_AUX_DIR(scripts)
 AM_INIT_AUTOMAKE
 dnl AM_MAINTAINER_MODE
 AC_PREREQ(2.59)
-AC_REVISION($Id: configure.ac 386451 2006-03-16 20:27:11Z archie $)
+AC_REVISION($Id$)
 AC_PREFIX_DEFAULT(/usr)
 AC_PROG_MAKE_SET
 
