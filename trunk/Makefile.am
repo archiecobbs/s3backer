@@ -22,23 +22,27 @@
 # $Id$
 #
 
-bin_PROGRAMS=	    s3backer
+bin_PROGRAMS=       s3backer
 
-noinst_PROGRAMS=	tester
+noinst_PROGRAMS=    tester
 
 noinst_HEADERS=     s3backer.h
 
 man_MANS=           s3backer.1
 
-EXTRA_DIST=         CHANGES s3backer.1 svnrev.c
+docdir=             $(datadir)/doc/$(PACKAGE)-$(VERSION)
 
-s3backer_SOURCES=	main.c fuse_ops.c s3backer.c config.c svnrev.c
+doc_DATA=           CHANGES COPYING README INSTALL TODO
 
-tester_SOURCES=	    tester.c s3backer.c config.c svnrev.c
+EXTRA_DIST=         CHANGES s3backer.1
 
-AM_CFLAGS=	        $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
+s3backer_SOURCES=   main.c fuse_ops.c s3backer.c config.c svnrev.c
 
-AM_LDFLAGS=	        $(FUSE_LIBS) $(GLIB2_LIBS)
+tester_SOURCES=     tester.c s3backer.c config.c svnrev.c
+
+AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
+
+AM_LDFLAGS=         $(FUSE_LIBS) $(GLIB2_LIBS)
 
 svnrev.c:
 					printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.c
