@@ -1,0 +1,435 @@
+.\"  -*- nroff -*-
+.\"
+.\" s3backer - FUSE-based single file backing store via Amazon S3
+.\" 
+.\" Copyright 2008 Archie L. Cobbs <archie@dellroad.org>
+.\" 
+.\" This program is free software; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License
+.\" as published by the Free Software Foundation; either version 2
+.\" of the License, or (at your option) any later version.
+.\" 
+.\" This program is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\" 
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program; if not, write to the Free Software
+.\" Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+.\" 02110-1301, USA.
+.\"
+.\" $Id$
+.\"
+.Dd June 21, 2008
+.Dt S3BACKER 1
+.Os
+.Sh NAME
+.Nm s3backer
+.Nd FUSE-based single file backing store via Amazon S3
+.Sh SYNOPSIS
+.Nm s3backer
+.Bk -words
+.Op options
+.Ar bucket
+.Ar /mount/point
+.Ek
+.Sh DESCRIPTION
+.Nm
+is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
+As a filesystem, it is quite small and simple: it provides a single normal file having a fixed size.
+The file is divided up into blocks, and the content of each block is stored in a unique Amazon S3 object.
+In other words, what
+.Nm
+provides is really more like an S3-backed virtual hard disk device, rather than a filesystem.
+.Pp
+In typical usage, a `normal' filesystem is mounted on top of the file exported by the
+.Nm
+filesystem using a loopback mount (or disk image mount on Mac OS X).
+.Pp
+This arrangement has several benefits compared to more complete S3 filesystem implementations:
+.Bl -tag -width xx
+.It o
+By not attempting to implement a complete filesystem, which is a complex undertaking and difficult to get right,
+.Nm
+can stay very lightweight and simple. Only three HTTP operations are used: GET, PUT, and DELETE.
+All of the experience and knowledge about how to properly implement filesystems that already exists can
+be reused.
+.It o
+By utilizing existing filesystems, you get full UNIX filesystem semantics.
+Subtle bugs or missing functionality relating to hard links, extended attributes, POSIX locking, etc. are avoided.
+.It o
+The gap between normal filesystem semantics and Amazon S3 ``eventual consistency'' is more easily and simply solved
+when one can interpret S3 objects as simple device blocks rather than filesystem objects (see below).
+.It o
+When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt data
+becomes a critical issue.
+.Nm
+provides this automatically because encryption support is already included in the Linux loopback mechanism.
+.It o
+Since S3 data is accessed over the network, local caching is also very important for performance reasons.
+Since
+.Nm
+presents the equivalent of a virtual hard disk to the kernel, all of the filesystem caching can be done
+where it should be: in the kernel, via the kernel's page cache.
+.Nm
+itself does not cache any file data, nor does it need to.
+.El
+.Ss Consistency Guarantees
+Amazon S3 makes relatively weak guarantees relating to the timing and consistency of reads vs. writes
+(collectively known as ``eventual consistency'').
+.Nm
+includes logic and configuration parameters to work around these limitations, allowing the user to
+guarantee consistency to whatever level desired, up to and including 100% detection and avoidance
+of incorrect data.
+These are:
+.Bl -tag -width xx
+.It 1.
+.Nm
+enforces a minimum delay between consecutive PUT or DELETE operations on the same block.
+This ensures that Amazon S3 doesn't receive these operations out of order.
+.It 2.
+.Nm
+maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks returned by GET operations.
+.El
+.Pp
+This logic is configured by the following command line options:
+.Fl \-cacheSize ,
+.Fl \-cacheTime ,
+.Fl \-minWriteDelay ,
+.Fl \-initialRetryPause ,
+and
+.Fl \-maxRetryPause ,
+all of which have default values.
+.Ss Zeroed Block Optimization
+As a simple optimization,
+.Nm
+does not store blocks containing all zeroes; instead, they are simply deleted.
+Conversely, reads of non-existent blocks will contain all zeroes.
+.Pp
+As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new filesystem.
+.Ss File and Block Size Auto-Detection
+As a convenience, whenever the first block of the backed file is written,
+.Nm
+includes as meta-data (in the ``x-amz-meta-s3backer-filesize'' header) the total size of the file.
+Along with the size of the block itself, this value can be checked and/or auto-detected later when
+the filesystem is remounted, eliminating the need for the
+.Fl \-blockSize
+or
+.Fl \-size
+flags to be explicitly provided and avoiding accidental mis-interpretation of an existing filesystem (see below).
+.Ss Read-Only Access
+An Amazon S3 account is not required in order to use
+.Nm .
+Of course a filesystem must already exist and have S3 objects with ACL's configured for public read access
+(see
+.Fl \-accessType
+below);
+users should perform the looback mount with the read-only flag (see
+.Xr mount 8 )
+and provide the
+.Fl \-readOnly
+flag to
+.Nm .
+This mode of operation facilitates the creation of public, read-only filesystems.
+.Ss Simultaneous Mounts
+Although it functions over the network, the
+.Nm
+filesystem is not a distributed filesystem and does not support simultaneous read/write mounts.
+(This is not something you would normally do with a hard-disk partition either.)
+.Nm
+does not detect this situation; it is up to the user to ensure that it doesn't happen.
+.Ss Logging
+In normal operation
+.Nm
+will log via
+.Xr syslog 3 .
+When run with the
+.Fl d
+or
+.Fl f
+flags,
+.Nm
+will log to standard error.
+.Sh OPTIONS
+Options specific to
+.Nm
+are as follows:
+.Bl -tag -width Ds
+.It Fl \-accessFile=FILE
+Specify a file containing `accessID:accessKey' pairs, one per-line.
+Blank lines and lines beginning with a `#' are ignored.
+If no
+.Fl \-accessKey
+is specified, this file will be searched for the entry matching the access ID specified via
+.Fl \-accessId;
+if neither
+.Fl \-accessKey
+nor
+.Fl \-accessId
+is specified, the first entry in this file will be used.
+Default value is
+.Pa $HOME/.s3backer_passwd .
+.It Fl \-accessId=ID
+Specify Amazon S3 access ID.
+Specify an empty string to force no access ID.
+If no access ID is specified (and none is found in the access file) then
+.Nm
+will still function, but only reads of publicly available filesystems will work.
+.It Fl \-accessKey=KEY
+Specify Amazon S3 access key. To avoid publicizing this secret via the command line, use
+.Fl \-accessFile
+instead of this flag.
+.It Fl \-accessType=TYPE
+Specify the Amazon S3 access privilege ACL type for newly written blocks.
+The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
+Default is `private'.
+.It Fl \-assumeEmpty
+Assume that no blocks exist in S3 yet.
+This enables an optimization whereby zero writes to a block are omitted until there is a non-zero write to the same block.
+This is only valid when the S3 objects do not yet exist, and is useful for example when initializing a large backed file
+from a local copy (such as a Mac OS disk image) that contains mostly zeroes.
+If auto-detection finds that there is in fact a block zero stored in S3, this option will cause
+.Nm
+to exit with an error unless
+.Fl \-force
+is also given.
+.It Fl \-baseURL=URL
+Specify the base URL. Default is `http://s3.amazonaws.com/'.
+.It Fl \-blockSize=SIZE
+Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.
+The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+.Nm
+supports partial block operations, though for writes this may require a read and then a write;
+proper alignment of the
+.Nm
+block size with the intended use (e.g., the block size of the `upper' filesystem) will minimize or
+eliminate the extra reads.
+.Nm
+will attempt to auto-detect the block size by reading block number zero.
+If this option is not specified, the auto-detected value will be used.
+If this option is specified but disagrees with the auto-detected value,
+.Nm
+will exit with an error unless
+.Fl \-force
+is also given.
+If auto-detection fails because block number zero does not exist, and this option is not specified,
+then the default value of 4K (4096) is used.
+.It Fl \-cacheSize=SIZE
+Specify the size of the MD5 checksum cache (in blocks).
+If the cache is full when a new block is written, the write will block until there is room.
+Therefore, it is important to configure
+.Fl \-cacheTime
+and
+.Fl \-cacheSize
+according to the frequency of writes to the filesystem overall and to the same block repeatedly.
+Alternately, a value equal to the number of blocks in the filesystem eliminates this problem but consumes
+the most memory when full (each entry in the cache is approximately 40 bytes).
+A value of zero disables the cache.
+Default value is 1000.
+.It Fl \-cacheTime=MILLIS
+Specify in milliseconds the time after a block has been successfully written for which the MD5 checksum
+of the block's contents should be cached, for the purpose of detecting stale data during subsequent reads.
+A value of zero means `infinite' and provides a guarantee against reading stale data; however,
+you should only do this when
+.Fl \-cacheSize
+is configured to be equal to the number of blocks; otherwise deadlock will (eventually) occur.
+This value must be at least as big as
+.Fl \-minWriteDelay.
+This value must be set to zero when
+.Fl \-cacheSize
+is set to zero (cache disabled).
+Default value is 10 seconds.
+.It Fl \-debug
+Enable logging of debug messages.
+Note that this flag is different from
+.Fl d ,
+which is a flag to FUSE.
+Both the
+.Fl d
+and
+.Fl f
+FUSE flags imply this flag.
+.It Fl \-filename=NAME
+Specify the name of the single file that appears in the
+.Nm
+filesystem.
+Default is `file'.
+.It Fl \-fileMode=MODE
+Specify the UNIX permission bits for the single file that appears in the
+.Nm
+filesystem.
+Default is 0600, unless
+.Fl \-readOnly
+is specified, in which case the default is 0400.
+.It Fl \-force
+Proceed even if the value specified by
+.Fl \-blockSize
+or
+.Fl \-size
+disagrees with the auto-detected value, or if
+.Fl \-assumeEmpty
+is given yet auto-detection succeeds.
+This is will certainly lead to garbled data and should be avoided for normal use.
+.It Fl h Fl \-help
+Print a help message and exit.
+.It Fl \-initialRetryPause=MILLIS
+Specify the initial pause time in milliseconds before the first retry attempt after failed HTTP operations.
+Failures include network failures and timeouts, HTTP errors, and reads of stale data
+(i.e., MD5 mismatch);
+.Nm
+will make multiple retry attempts using an exponential backoff algorithm, starting with this initial retry pause time.
+Default value is 200ms.
+See also
+.Fl \-maxRetryPause .
+.It Fl \-maxRetryPause=MILLIS
+Specify the total amount of time in milliseconds
+.Nm
+should pause when retrying failed HTTP operations before giving up.
+Failures include network failures and timeouts, HTTP errors, and reads of stale data
+(i.e., MD5 mismatch);
+.Nm
+will make multiple retry attempts using an exponential backoff algorithm, up to this maximum total retry pause time.
+This value does not include the time it takes to perform the HTTP operations themselves (use
+.Fl \-timeout
+for that).
+Default value is 30000 (30 seconds).
+See also
+.Fl \-initialRetryPause .
+.It Fl \-minWriteDelay=MILLIS
+Specify a minimum time in milliseconds between the successful completion of a write and the initiation
+of another write to the same block. This delay ensures that S3 doesn't receive the writes
+out of order.
+Default value is 500ms.
+.It Fl \-prefix=STRING
+Specify a prefix to prepend to the resource names within bucket that identify each block.
+Default is the empty string.
+.It Fl \-readOnly
+Assume the filesystem is going to be mounted read-only, and return
+.Er EROFS
+in response to any attempt to write.
+This flag also changes the default mode of the backed file from 0600 to 0400.
+.It Fl \-size=SIZE
+Specify the size (in bytes) of the single file to be exported by the filesystem.
+The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, or 'E' for exabytes.
+.Nm
+will attempt to auto-detect the block size by reading block number zero.
+If this option is not specified, the auto-detected value will be used.
+If this option is specified but disagrees with the auto-detected value,
+.Nm
+will exit with an error unless
+.Fl \-force
+is also given.
+.It Fl \-timeout=SECONDS
+Specify a time limit in seconds for one HTTP operation attempt.
+This limits the entire operation including connection time (if not already connected) and data transfer time.
+Default is 30 seconds.
+See also
+.Fl \-maxRetryPause .
+.It Fl \-version
+Output version and exit.
+.El
+.Pp
+In addition,
+.Nm
+accepts all of the generic FUSE options as well.
+Here is a partial list:
+.Bl -tag -width Ds
+.It Fl o Ar allow_root
+Allow root (only) to view backed file.
+.It Fl o Ar allow_other
+Allow all users to view backed file.
+.It Fl o Ar uid=UID
+Override the user ID of the backed file, which defaults to the current user ID.
+.It Fl o Ar gid=GID
+Override the group ID of the backed file, which defaults to the current group ID.
+.It Fl o Ar sync_read
+Do synchronous reads.
+.It Fl o Ar max_readahead=NUM
+Set maximum read-ahead (in bytes).
+.It Fl f
+Run in the foreground (do not fork).
+Implies
+.Fl \-debug .
+.It Fl d
+Enable FUSE debug mode.
+Implies
+.Fl f
+and
+.Fl \-debug .
+.It Fl s
+Run in single-threaded mode.
+.El
+.Pp
+In addition,
+.Nm
+passes the following flags which are optimized for 
+.Nm
+to FUSE (unless overridden by the user on the command line):
+.Pp
+.Bl -tag -width Ds -compact
+.It Fl o Ar kernel_cache
+.It Fl o Ar fsname=s3backer
+.It Fl o Ar use_ino
+.It Fl o Ar entry_timeout=31536000
+.It Fl o Ar negative_timeout=31536000
+.It Fl o Ar attr_timeout=31536000
+.It Fl o Ar default_permissions
+.It Fl o Ar nodev
+.It Fl o Ar nosuid
+.El
+.Sh FILES
+.Bl -tag -compact -width Ds
+.It Pa $HOME/.s3backer_passwd
+Contains Amazon S3 `accessID:accessKey' pairs.
+.El
+.Sh SEE ALSO
+.Xr losetup 8 ,
+.Xr mount 8 ,
+.Xr umount 8 ,
+.Xr fusermount 8 .
+.Rs
+.%T "s3backer: FUSE-based single file backing store via Amazon S3"
+.%O http://s3backer.googlecode.com/
+.Re
+.Rs
+.%T "Amazon Simple Storage Service (Amazon S3)"
+.%O http://aws.amazon.com/s3
+.Re
+.Rs
+.%T "FUSE: Filesystem in Userspace"
+.%O http://fuse.sourceforge.net/
+.Re
+.Rs
+.%T "MacFUSE: A User-Space File System Implementation Mechanism for Mac OS X"
+.%O http://code.google.com/p/macfuse/
+.Re
+.Rs
+.%T "Google Search for `linux page cache'"
+.%O http://www.google.com/search?q=linux+page+cache
+.Re
+.Sh BUGS
+For cache space efficiency,
+.Nm
+uses 32 bit values to index individual blocks.
+Therefore, the block size must be increased beyond the default 4K when very large filesystems
+(greater than 16 terabytes) are created.
+.Pp
+.Nm
+should really be implemented as a device rather than a filesystem.
+However, this would require writing a kernel module instead of a simple user-space daemon,
+because Linux does not provide a user-space API for devices like it does for filesystems with FUSE.
+Implementing
+.Nm
+as a filesystem and then using the loopback mount is a simple workaround.
+.Pp
+On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically
+unmounts the filesystem when this limit is reached.
+This can happen when a combination of
+.Fl \-maxRetryPause
+and/or
+.Fl \-timeout
+settings allow HTTP retries to take longer than this value.
+A warning is emitted on startup in this case.
+.Sh AUTHOR
+.An Archie L. Cobbs Aq archie@dellroad.org
