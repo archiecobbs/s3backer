@@ -312,14 +312,15 @@ s3backer_get_config(int argc, char **argv)
         /* Convert from milliseconds to seconds, add one second margin */
         total_time = (total_time + 999) / 1000 + 1;
 
-#ifdef FUSE_MAX_DAEMON_TIMEOUT
+#ifndef FUSE_MAX_DAEMON_TIMEOUT
+#define FUSE_MAX_DAEMON_TIMEOUT     600
+#endif
         /* Avoid exceeding MacFUSE limit */
         if (total_time > FUSE_MAX_DAEMON_TIMEOUT) {
             warnx("warning: maximum possible I/O delay (%us) exceeds MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
             warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
             total_time = FUSE_MAX_DAEMON_TIMEOUT;
         }
-#endif
 
         /* Set kernel timeout to at least that */
         snprintf(buf, sizeof(buf), "-odaemon_timeout=%u", total_time);
