@@ -215,8 +215,7 @@ static void s3backer_hash_put(struct s3backer_private *priv, struct block_info *
 static void s3backer_hash_remove(struct s3backer_private *priv, s3b_block_t block_num);
 
 /* Misc */
-static int s3backer_sleep_until(struct s3backer_private *priv, uint64_t wake_time_millis);
-static int s3backer_sleep_until_cond(struct s3backer_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
+static uint64_t s3backer_sleep_until(struct s3backer_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void s3backer_openssl_locker(int mode, int i, const char *file, int line);
 static unsigned long s3backer_openssl_ider(void);
 static void s3backer_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
@@ -557,9 +556,9 @@ again:
         /* If we have reached max cache capacity, wait until there's more room */
         if (g_hash_table_size(priv->hashtable) >= config->cache_size) {
             if ((binfo = priv->list.head) != NULL)
-                s3backer_sleep_until_cond(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
+                s3backer_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
-                pthread_cond_wait(&priv->space_cond, &priv->mutex);
+                s3backer_sleep_until(priv, &priv->space_cond, 0);
             goto again;
         }
 
@@ -603,7 +602,7 @@ writeit:
      * but that's OK.
      */
     if (binfo->timestamp == 0) {
-        s3backer_sleep_until(priv, current_time + config->min_write_delay);
+        s3backer_sleep_until(priv, NULL, current_time + config->min_write_delay);
         goto again;
     }
 
@@ -611,7 +610,7 @@ writeit:
      * WRITTEN case: wait until at least 'min_write_time' milliseconds has passed since previous write.
      */
     if (current_time < binfo->timestamp + config->min_write_delay) {
-        s3backer_sleep_until(priv, binfo->timestamp + config->min_write_delay);
+        s3backer_sleep_until(priv, NULL, binfo->timestamp + config->min_write_delay);
         goto again;
     }
 
@@ -1051,20 +1050,35 @@ s3backer_scrub_expired_writtens(struct s3backer_private *priv, uint64_t current_
     }
 }
 
-static int
-s3backer_sleep_until(struct s3backer_private *priv, uint64_t wake_time_millis)
+/*
+ * Sleep until specified time (if non-zero) or condition (if non-NULL).
+ * Note: in rare cases there can be spurious early wakeups.
+ * Returns number of milliseconds slept.
+ */
+static uint64_t
+s3backer_sleep_until(struct s3backer_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis)
 {
-    return s3backer_sleep_until_cond(priv, &priv->never_cond, wake_time_millis);
-}
+    uint64_t time_before;
+    uint64_t time_after;
 
-static int
-s3backer_sleep_until_cond(struct s3backer_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis)
-{
-    struct timespec wake_time;
+    assert(cond != NULL || wake_time_millis != 0);
+    if (cond == NULL)
+        cond = &priv->never_cond;
+    time_before = s3backer_get_time();
+    if (wake_time_millis != 0) {
+        struct timespec wake_time;
 
-    wake_time.tv_sec = wake_time_millis / 1000;
-    wake_time.tv_nsec = (wake_time_millis % 1000) * 1000000;
-    return pthread_cond_timedwait(cond, &priv->mutex, &wake_time);
+        wake_time.tv_sec = wake_time_millis / 1000;
+        wake_time.tv_nsec = (wake_time_millis % 1000) * 1000000;
+        if (pthread_cond_timedwait(cond, &priv->mutex, &wake_time) == ETIMEDOUT)
+            time_after = wake_time_millis;
+        else
+            time_after = s3backer_get_time();
+    } else {
+        pthread_cond_wait(cond, &priv->mutex);
+        time_after = s3backer_get_time();
+    }
+    return time_after - time_before;
 }
 
 static void
