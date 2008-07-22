@@ -615,7 +615,7 @@ writeit:
     }
 
     /*
-     * WRITTEN case: if 'min_write_time' milliseconds have indeed passed, go back to WRITING.
+     * WRITTEN case: 'min_write_time' milliseconds have indeed passed, so go back to WRITING.
      */
     binfo->timestamp = 0;
     binfo->u.data = src;
