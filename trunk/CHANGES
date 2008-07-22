@@ -1,4 +1,9 @@
 
+Version 1.0.6
+
+    - Fixed a few small race conditions and memory leaks.
+    - Return zeroes for unwritten blocks with `assumeEmpty'
+
 Version 1.0.5 (r111) released 15 July 2008
 
     - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
