@@ -138,6 +138,7 @@ struct s3backer_list {
 struct s3backer_private {
     struct s3backer_conf        *config;
     struct s3backer_curl_holder *curls;
+    struct s3backer_stats       stats;
     pthread_mutex_t             curls_mutex;
     GHashTable                  *hashtable;
     struct s3backer_list        list;
@@ -180,6 +181,7 @@ typedef void (*s3b_curl_prepper_t)(CURL *curl, struct s3b_io *s3b_io);
 static int s3backer_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest);
 static int s3backer_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src);
 static int s3backer_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+static void s3backer_get_stats(struct s3backer_store *s3b, struct s3backer_stats *stats);
 static void s3backer_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -266,6 +268,7 @@ s3backer_create(struct s3backer_conf *config)
     s3b->read_block = s3backer_read_block;
     s3b->write_block = s3backer_write_block;
     s3b->detect_sizes = s3backer_detect_sizes;
+    s3b->get_stats = s3backer_get_stats;
     s3b->destroy = s3backer_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -378,6 +381,17 @@ s3backer_destroy(struct s3backer_store *const s3b)
     free(s3b);
 }
 
+static void
+s3backer_get_stats(struct s3backer_store *s3b, struct s3backer_stats *stats)
+{
+    struct s3backer_private *const priv = s3b->data;
+
+    pthread_mutex_lock(&priv->mutex);
+    memcpy(stats, &priv->stats, sizeof(*stats));
+    stats->current_cache_size = g_hash_table_size(priv->hashtable);
+    pthread_mutex_unlock(&priv->mutex);
+}
+
 static int
 s3backer_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
 {
@@ -467,6 +481,7 @@ s3backer_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, voi
                 memset(dest, 0, config->block_size);
             else
                 memcpy(dest, binfo->u.data, config->block_size);
+            priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
         }
@@ -474,6 +489,7 @@ s3backer_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, voi
         /* In WRITTEN state: special case: zero block */
         if (memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) == 0) {
             memset(dest, 0, config->block_size);
+            priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
         }
@@ -499,6 +515,7 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
     struct block_info *binfo;
     uint64_t current_time;
     MD5_CTX md5ctx;
+    uint64_t delay;
     int r;
 
     /* Sanity check */
@@ -509,6 +526,7 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
     if (priv->zero_block == NULL) {
         pthread_mutex_lock(&priv->mutex);
         if ((priv->zero_block = calloc(1, config->block_size)) == NULL) {
+            priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
             return ENOMEM;
         }
@@ -519,6 +537,7 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
     if (config->assume_empty && priv->non_zero == NULL) {
         pthread_mutex_lock(&priv->mutex);
         if (priv->non_zero == NULL && (priv->non_zero = calloc(1, (config->num_blocks + 7) / 8)) == NULL) {
+            priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
             return ENOMEM;
         }
@@ -561,16 +580,18 @@ again:
         /* If we have reached max cache capacity, wait until there's more room */
         if (g_hash_table_size(priv->hashtable) >= config->cache_size) {
             if ((binfo = priv->list.head) != NULL)
-                s3backer_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
+                delay = s3backer_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
-                s3backer_sleep_until(priv, &priv->space_cond, 0);
+                delay = s3backer_sleep_until(priv, &priv->space_cond, 0);
+            priv->stats.cache_full_delay += delay;
             goto again;
         }
 
         /* Create new entry in WRITING state */
         if ((binfo = calloc(1, sizeof(*binfo))) == NULL) {
+            priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
-            return errno;
+            return ENOMEM;
         }
         binfo->block_num = block_num;
         binfo->u.data = src;
@@ -607,7 +628,8 @@ writeit:
      * but that's OK.
      */
     if (binfo->timestamp == 0) {
-        s3backer_sleep_until(priv, NULL, current_time + config->min_write_delay);
+        delay = s3backer_sleep_until(priv, NULL, current_time + config->min_write_delay);
+        priv->stats.repeated_write_delay += delay;
         goto again;
     }
 
@@ -615,7 +637,8 @@ writeit:
      * WRITTEN case: wait until at least 'min_write_time' milliseconds has passed since previous write.
      */
     if (current_time < binfo->timestamp + config->min_write_delay) {
-        s3backer_sleep_until(priv, NULL, binfo->timestamp + config->min_write_delay);
+        delay = s3backer_sleep_until(priv, NULL, binfo->timestamp + config->min_write_delay);
+        priv->stats.repeated_write_delay += delay;
         goto again;
     }
 
@@ -647,6 +670,8 @@ s3backer_do_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 
         pthread_mutex_lock(&priv->mutex);
         if (priv->non_zero == NULL || (priv->non_zero[byte] & bit) == 0) {
+            priv->stats.empty_blocks_read++;
+            priv->stats.total_blocks_read++;
             pthread_mutex_unlock(&priv->mutex);
             memset(dest, 0, config->block_size);
             return 0;
@@ -690,6 +715,15 @@ s3backer_do_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
         (*config->log)(LOG_WARNING, "read of block #%u returned %lu < %lu bytes",
           block_num, (u_long)(config->block_size - s3b_io.bufs.rdremain), (u_long)config->block_size);
         memset((char *)dest + config->block_size - s3b_io.bufs.rdremain, 0, s3b_io.bufs.rdremain);
+    }
+
+    /* Update stats */
+    if (r == 0 || r == ENOENT) {
+        pthread_mutex_lock(&priv->mutex);
+        if (r == ENOENT)
+            priv->stats.zero_blocks_read++;
+        priv->stats.total_blocks_read++;
+        pthread_mutex_unlock(&priv->mutex);
     }
 
     /* Treat `404 Not Found' all zeroes */
@@ -746,6 +780,8 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
         pthread_mutex_lock(&priv->mutex);
         if ((priv->non_zero[byte] & bit) == 0) {
             if (src == NULL) {
+                priv->stats.empty_blocks_written++;
+                priv->stats.total_blocks_written++;
                 pthread_mutex_unlock(&priv->mutex);
                 return 0;
             }
@@ -797,6 +833,15 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
 
     /* Perform operation */
     r = s3backer_perform_io(priv, &s3b_io, s3b_write_prepper);
+
+    /* Update stats */
+    if (r == 0) {
+        pthread_mutex_lock(&priv->mutex);
+        if (src == NULL)
+            priv->stats.zero_blocks_written++;
+        priv->stats.total_blocks_written++;
+        pthread_mutex_unlock(&priv->mutex);
+    }
 
     /*  Clean up */
     curl_slist_free_all(s3b_io.headers);
@@ -854,6 +899,18 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             return EIO;
         (*prepper)(curl, s3b_io);
 
+        /* Update stats */
+        pthread_mutex_lock(&priv->mutex);
+        if (strcmp(s3b_io->method, HTTP_GET) == 0)
+            priv->stats.http_gets++;
+        else if (strcmp(s3b_io->method, HTTP_PUT) == 0)
+            priv->stats.http_puts++;
+        else if (strcmp(s3b_io->method, HTTP_DELETE) == 0)
+            priv->stats.http_deletes++;
+        if (attempt > 0)
+            priv->stats.num_retries++;
+        pthread_mutex_unlock(&priv->mutex);
+
         /* Perform HTTP operation and check result */
         if (attempt > 0)
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, s3b_io->method, s3b_io->url);
@@ -888,6 +945,9 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
         switch (curl_code) {
         case CURLE_OPERATION_TIMEDOUT:
             (*config->log)(LOG_NOTICE, "operation timeout: %s %s", s3b_io->method, s3b_io->url);
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.curl_timeouts++;
+            pthread_mutex_unlock(&priv->mutex);
             s3backer_release_curl(priv, curl, 0);
             break;
         case CURLE_HTTP_RETURNED_ERROR:
@@ -895,6 +955,9 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             /* Get the HTTP return code */
             if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0) {
                 (*config->log)(LOG_ERR, "unknown HTTP error: %s %s", s3b_io->method, s3b_io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_other_error++;
+                pthread_mutex_unlock(&priv->mutex);
                 s3backer_release_curl(priv, curl, 0);
                 return EIO;
             }
@@ -910,21 +973,59 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
                 return ENOENT;
             case HTTP_UNAUTHORIZED:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, s3b_io->method, s3b_io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_unauthorized++;
+                pthread_mutex_unlock(&priv->mutex);
                 return EACCES;
             case HTTP_FORBIDDEN:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, s3b_io->method, s3b_io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_forbidden++;
+                pthread_mutex_unlock(&priv->mutex);
                 return EPERM;
             case HTTP_PRECONDITION_FAILED:
                 (*config->log)(LOG_INFO, "rec'd stale content: %s %s", s3b_io->method, s3b_io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_stale++;
+                pthread_mutex_unlock(&priv->mutex);
                 break;
             default:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, s3b_io->method, s3b_io->url);
+                pthread_mutex_lock(&priv->mutex);
+                switch (http_code / 100) {
+                case 4:
+                    priv->stats.http_4xx_error++;
+                    break;
+                case 5:
+                    priv->stats.http_5xx_error++;
+                    break;
+                default:
+                    priv->stats.http_other_error++;
+                    break;
+                }
+                pthread_mutex_unlock(&priv->mutex);
                 break;
             }
             break;
         default:
             (*config->log)(LOG_ERR, "operation failed: %s (%s)", curl_easy_strerror(curl_code),
               total_pause >= config->max_retry_pause ? "final attempt" : "will retry");
+            pthread_mutex_lock(&priv->curls_mutex);
+            switch (curl_code) {
+            case CURLE_OUT_OF_MEMORY:
+                priv->stats.curl_out_of_memory++;
+                break;
+            case CURLE_COULDNT_CONNECT:
+                priv->stats.curl_connect_failed++;
+                break;
+            case CURLE_COULDNT_RESOLVE_HOST:
+                priv->stats.curl_host_unknown++;
+                break;
+            default:
+                priv->stats.curl_other_error++;
+                break;
+            }
+            pthread_mutex_unlock(&priv->curls_mutex);
             break;
         }
 
@@ -936,7 +1037,10 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             retry_pause = config->max_retry_pause - total_pause;
         delay.tv_sec = retry_pause / 1000;
         delay.tv_nsec = (retry_pause % 1000) * 1000000;
-        nanosleep(&delay, NULL);
+        nanosleep(&delay, NULL);            // TODO: check for EINTR
+        pthread_mutex_lock(&priv->curls_mutex);
+        priv->stats.retry_delay += retry_pause;
+        pthread_mutex_unlock(&priv->curls_mutex);
     }
 
     /* Give up */
@@ -1224,12 +1328,18 @@ s3backer_acquire_curl(struct s3backer_private *priv)
     if (holder != NULL) {
         curl = holder->curl;
         priv->curls = holder->next;
+        priv->stats.curl_handles_reused++;
         pthread_mutex_unlock(&priv->curls_mutex);
         free(holder);
         curl_easy_reset(curl);
     } else {
+        priv->stats.curl_handles_created++;             // optimistic
         pthread_mutex_unlock(&priv->curls_mutex);
         if ((curl = curl_easy_init()) == NULL) {
+            pthread_mutex_lock(&priv->curls_mutex);
+            priv->stats.curl_handles_created--;         // undo optimistic
+            priv->stats.curl_other_error++;
+            pthread_mutex_unlock(&priv->curls_mutex);
             (*config->log)(LOG_ERR, "curl_easy_init() failed");
             return NULL;
         }
@@ -1295,6 +1405,9 @@ s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache)
 
     if (!may_cache || (holder = calloc(1, sizeof(*holder))) == NULL) {
         curl_easy_cleanup(curl);
+        pthread_mutex_lock(&priv->curls_mutex);
+        priv->stats.out_of_memory_errors++;
+        pthread_mutex_unlock(&priv->curls_mutex);
         return;
     }
     holder->curl = curl;

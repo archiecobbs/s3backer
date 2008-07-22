@@ -43,6 +43,7 @@
 #define S3BACKER_DEFAULT_PWD_FILE               ".s3backer_passwd"
 #define S3BACKER_DEFAULT_PREFIX                 ""
 #define S3BACKER_DEFAULT_FILENAME               "file"
+#define S3BACKER_DEFAULT_STATS_FILENAME         "stats"
 #define S3BACKER_DEFAULT_BLOCKSIZE              4096
 #define S3BACKER_DEFAULT_TIMEOUT                30              // 30s
 #define S3BACKER_DEFAULT_FILE_MODE              0600
@@ -100,6 +101,7 @@ static struct s3backer_conf config = {
     .prefix=                S3BACKER_DEFAULT_PREFIX,
     .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
     .filename=              S3BACKER_DEFAULT_FILENAME,
+    .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
     .user_agent=            user_agent_buf,
     .block_size=            0,
     .file_size=             0,
@@ -211,6 +213,11 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--statsFilename=%s",
+        .offset=    offsetof(struct s3backer_conf, stats_filename),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--timeout=%u",
         .offset=    offsetof(struct s3backer_conf, timeout),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -225,7 +232,7 @@ static const char *const s3backer_fuse_defaults[] = {
     "-ouse_ino",
     "-oentry_timeout=31536000",
     "-onegative_timeout=31536000",
-    "-oattr_timeout=31536000",
+    "-oattr_timeout=0",             // because statistics file length changes
     "-odefault_permissions",
     "-onodev",
     "-onosuid",
@@ -539,9 +546,13 @@ validate_config(void)
         return -1;
     }
 
-    /* Check filename */
-    if (strchr(config.filename, '/') != NULL) {
+    /* Check filenames */
+    if (strchr(config.filename, '/') != NULL || *config.filename == '\0') {
         warnx("illegal filename `%s'", config.filename);
+        return -1;
+    }
+    if (strchr(config.stats_filename, '/') != NULL) {
+        warnx("illegal stats filename `%s'", config.stats_filename);
         return -1;
     }
 
@@ -716,6 +727,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.prefix);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "filename", config.filename);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "stats_filename", config.stats_filename);
     (*config.log)(LOG_DEBUG, "%16s: %s (%u)", "block_size",
       config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
     (*config.log)(LOG_DEBUG, "%16s: %u", "block_bits", config.block_bits);
@@ -813,6 +825,7 @@ usage(void)
     fprintf(stderr, "\t--%-24s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
     fprintf(stderr, "\t--%-24s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-24s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-24s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-24s %s\n", "version", "Show version information and exit");
     fprintf(stderr, "\t--%-24s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "Default values:\n");
@@ -826,6 +839,7 @@ usage(void)
     fprintf(stderr, "\t--%-24s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "\t--%-24s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
+    fprintf(stderr, "\t--%-24s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
     fprintf(stderr, "\t--%-24s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
     fprintf(stderr, "\t--%-24s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-24s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);

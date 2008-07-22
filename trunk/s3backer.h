@@ -73,6 +73,7 @@ struct s3backer_conf {
     const char          *bucket;
     const char          *prefix;
     const char          *filename;
+    const char          *stats_filename;
     const char          *mount;
     const char          *user_agent;
     int                 debug;
@@ -99,6 +100,51 @@ struct s3backer_conf {
     // These are only used during parsing
     const char          *file_size_str;
     const char          *block_size_str;
+};
+
+/* Statistics structure */
+struct s3backer_stats {
+
+    /* Block stats */
+    u_int               total_blocks_read;
+    u_int               total_blocks_written;
+    u_int               zero_blocks_read;
+    u_int               zero_blocks_written;
+    u_int               empty_blocks_read;          // only when `--assumeEmpty'
+    u_int               empty_blocks_written;       // only when `--assumeEmpty'
+
+    /* HTTP transfer stats */
+    u_int               http_gets;                  // total attempted
+    u_int               http_puts;                  // total attempted
+    u_int               http_deletes;               // total attempted
+    u_int               http_unauthorized;
+    u_int               http_forbidden;
+    u_int               http_stale;
+    u_int               http_5xx_error;
+    u_int               http_4xx_error;
+    u_int               http_other_error;
+
+    /* CURL stats */
+    u_int               curl_handles_created;
+    u_int               curl_handles_reused;
+    u_int               curl_timeouts;
+    u_int               curl_connect_failed;
+    u_int               curl_host_unknown;
+    u_int               curl_out_of_memory;
+    u_int               curl_other_error;
+
+    /* Retry stats */
+    u_int               num_retries;
+    uint64_t            retry_delay;
+
+    /* Cache stats */
+    u_int               current_cache_size;
+    u_int               cache_data_hits;
+    uint64_t            cache_full_delay;
+    uint64_t            repeated_write_delay;
+
+    /* Misc */
+    u_int               out_of_memory_errors;
 };
 
 /* Backing store instance structure */
@@ -130,6 +176,11 @@ struct s3backer_store {
      *  Other   Other error
      */
     int         (*detect_sizes)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+
+    /*
+     * Get a statistics snapshot.
+     */
+    void        (*get_stats)(struct s3backer_store *s3b, struct s3backer_stats *stats);
 
     /*
      * Destroy this instance.
