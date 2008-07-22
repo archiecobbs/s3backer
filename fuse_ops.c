@@ -433,6 +433,7 @@ fuse_op_stats_create(struct s3backer_store *s3b)
 {
     struct s3backer_stats stats;
     struct s3b_stats_file *sfile;
+    u_int total_ops;
 
     if ((sfile = calloc(1, sizeof(*sfile))) == NULL)
         return NULL;
@@ -443,9 +444,13 @@ fuse_op_stats_create(struct s3backer_store *s3b)
     fuse_op_stats_printf(sfile, "%-24s %u\n", "zero_blocks_written", stats.zero_blocks_written);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "empty_blocks_read", stats.empty_blocks_read);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "empty_blocks_written", stats.empty_blocks_written);
+    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_heads", stats.http_heads);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_gets", stats.http_gets);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_puts", stats.http_puts);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_deletes", stats.http_deletes);
+    total_ops = stats.http_heads + stats.http_gets + stats.http_puts + stats.http_deletes;
+    fuse_op_stats_printf(sfile, "%-24s %.3f\n", "http_average_time",
+      total_ops > 0 ? stats.http_total_time / total_ops : 0.0);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_unauthorized", stats.http_unauthorized);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_forbidden", stats.http_forbidden);
     fuse_op_stats_printf(sfile, "%-24s %u\n", "http_stale", stats.http_stale);
