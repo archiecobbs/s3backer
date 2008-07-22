@@ -899,18 +899,6 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             return EIO;
         (*prepper)(curl, s3b_io);
 
-        /* Update stats */
-        pthread_mutex_lock(&priv->mutex);
-        if (strcmp(s3b_io->method, HTTP_GET) == 0)
-            priv->stats.http_gets++;
-        else if (strcmp(s3b_io->method, HTTP_PUT) == 0)
-            priv->stats.http_puts++;
-        else if (strcmp(s3b_io->method, HTTP_DELETE) == 0)
-            priv->stats.http_deletes++;
-        if (attempt > 0)
-            priv->stats.num_retries++;
-        pthread_mutex_unlock(&priv->mutex);
-
         /* Perform HTTP operation and check result */
         if (attempt > 0)
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, s3b_io->method, s3b_io->url);
@@ -918,6 +906,7 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
 
         /* Handle success */
         if (curl_code == 0) {
+            double curl_time;
             int r = 0;
 
 #ifndef NDEBUG
@@ -925,6 +914,12 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
             if (config->debug)
                 (*config->log)(LOG_DEBUG, "success: %s %s", s3b_io->method, s3b_io->url);
 #endif
+
+            /* Extract timing info */
+            if ((curl_code = curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curl_time)) != CURLE_OK) {
+                (*config->log)(LOG_ERR, "can't get cURL timing: %s", curl_easy_strerror(curl_code));
+                curl_time = 0.0;
+            }
 
             /* Extract content-length (if required) */
             if (s3b_io->content_lengthp != NULL) {
@@ -935,6 +930,19 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
                     r = ENXIO;
                 }
             }
+
+            /* Update stats */
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.http_total_time += curl_time;
+            if (strcmp(s3b_io->method, HTTP_GET) == 0)
+                priv->stats.http_gets++;
+            else if (strcmp(s3b_io->method, HTTP_PUT) == 0)
+                priv->stats.http_puts++;
+            else if (strcmp(s3b_io->method, HTTP_DELETE) == 0)
+                priv->stats.http_deletes++;
+            else if (strcmp(s3b_io->method, HTTP_HEAD) == 0)
+                priv->stats.http_heads++;
+            pthread_mutex_unlock(&priv->mutex);
 
             /* Done */
             s3backer_release_curl(priv, curl, r == 0);
@@ -1038,7 +1046,10 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
         delay.tv_sec = retry_pause / 1000;
         delay.tv_nsec = (retry_pause % 1000) * 1000000;
         nanosleep(&delay, NULL);            // TODO: check for EINTR
+
+        /* Update retry stats */
         pthread_mutex_lock(&priv->curls_mutex);
+        priv->stats.num_retries++;
         priv->stats.retry_delay += retry_pause;
         pthread_mutex_unlock(&priv->curls_mutex);
     }

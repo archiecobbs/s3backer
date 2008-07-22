@@ -114,9 +114,11 @@ struct s3backer_stats {
     u_int               empty_blocks_written;       // only when `--assumeEmpty'
 
     /* HTTP transfer stats */
-    u_int               http_gets;                  // total attempted
-    u_int               http_puts;                  // total attempted
-    u_int               http_deletes;               // total attempted
+    u_int               http_heads;                 // total successful
+    u_int               http_gets;                  // total successful
+    u_int               http_puts;                  // total successful
+    u_int               http_deletes;               // total successful
+    double              http_total_time;            // successful operations
     u_int               http_unauthorized;
     u_int               http_forbidden;
     u_int               http_stale;
