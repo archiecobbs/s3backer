@@ -3,6 +3,5 @@ TODO
 - compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
 - interrupt active write when new write happens (instead of waiting)
 - enable small block cache when block size != getpagesize()
-- add new file "stats" containing lots of statistics, similar to /proc/meminfo, etc.
 
 $Id$

@@ -251,12 +251,12 @@ and
 .Fl f
 FUSE flags imply this flag.
 .It Fl \-filename=NAME
-Specify the name of the single file that appears in the
+Specify the name of the backed file that appears in the
 .Nm
 filesystem.
 Default is `file'.
 .It Fl \-fileMode=MODE
-Specify the UNIX permission bits for the single file that appears in the
+Specify the UNIX permission bits for the backed file that appears in the
 .Nm
 filesystem.
 Default is 0600, unless
@@ -310,7 +310,7 @@ Assume the filesystem is going to be mounted read-only, and return
 in response to any attempt to write.
 This flag also changes the default mode of the backed file from 0600 to 0400.
 .It Fl \-size=SIZE
-Specify the size (in bytes) of the single file to be exported by the filesystem.
+Specify the size (in bytes) of the backed file to be exported by the filesystem.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'P' for petabytes, or 'E' for exabytes.
 .Nm
 will attempt to auto-detect the block size by reading block number zero.
@@ -320,6 +320,12 @@ If this option is specified but disagrees with the auto-detected value,
 will exit with an error unless
 .Fl \-force
 is also given.
+.It Fl \-statsFilename=NAME
+Specify the name of the human-readable statistics file that appears in the
+.Nm
+filesystem.
+A value of empty string disables the appearance of this file.
+Default is `stats'.
 .It Fl \-timeout=SECONDS
 Specify a time limit in seconds for one HTTP operation attempt.
 This limits the entire operation including connection time (if not already connected) and data transfer time.
