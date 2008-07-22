@@ -512,9 +512,14 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
         return errno;
 
     /* Allocate empty block array if necessary */
-    if (config->assume_empty && priv->non_zero == NULL
-      && (priv->non_zero = calloc(1, (config->num_blocks + 7) / 8)) == NULL)
-        return errno;
+    if (config->assume_empty && priv->non_zero == NULL) {
+        pthread_mutex_lock(&priv->mutex);
+        if (priv->non_zero == NULL && (priv->non_zero = calloc(1, (config->num_blocks + 7) / 8)) == NULL) {
+            pthread_mutex_unlock(&priv->mutex);
+            return ENOMEM;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+    }
 
     /* Special case handling for all-zeroes blocks */
     if (memcmp(src, priv->zero_block, config->block_size) == 0)
@@ -630,6 +635,20 @@ s3backer_do_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     struct s3b_io s3b_io;
     char datebuf[64];
     int r;
+
+    /* Read zero blocks when 'assume_empty' until non-zero content is written */
+    if (config->assume_empty) {
+        const int byte = block_num / 8;
+        const int bit = 1 << (block_num % 8);
+
+        pthread_mutex_lock(&priv->mutex);
+        if (priv->non_zero == NULL || (priv->non_zero[byte] & bit) == 0) {
+            pthread_mutex_unlock(&priv->mutex);
+            memset(dest, 0, config->block_size);
+            return 0;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+    }
 
     /* Initialize I/O info */
     memset(&s3b_io, 0, sizeof(s3b_io));

@@ -186,7 +186,7 @@ The value must be one of `private', `public-read', `public-read-write', or `auth
 Default is `private'.
 .It Fl \-assumeEmpty
 Assume that no blocks exist in S3 yet.
-This enables an optimization whereby zero writes to a block are omitted until there is a non-zero write to the same block.
+This enables optimizations whereby, for each block, reads return zeroes and zeroed writes are omitted until there is a non-zero write to the block.
 This is only valid when the S3 objects do not yet exist, and is useful for example when initializing a large backed file
 from a local copy (such as a Mac OS disk image) that contains mostly zeroes.
 If auto-detection finds that there is in fact a block zero stored in S3, this option will cause
