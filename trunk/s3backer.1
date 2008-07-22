@@ -198,7 +198,7 @@ is also given.
 Specify the base URL. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockSize=SIZE
 Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.
-The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes, or 'Y' for yottabytes.
 .Nm
 supports partial block operations, though for writes this may require a read and then a write;
 proper alignment of the
@@ -437,5 +437,7 @@ and/or
 .Fl \-timeout
 settings allow HTTP retries to take longer than this value.
 A warning is emitted on startup in this case.
+.Pp
+Filesystem size is limited by the maximum allowable size of a single file.
 .Sh AUTHOR
 .An Archie L. Cobbs Aq archie@dellroad.org
