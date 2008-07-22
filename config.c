@@ -272,6 +272,14 @@ static const struct size_suffix size_suffixes[] = {
         .suffix=    "e",
         .bits=      60
     },
+    {
+        .suffix=    "z",
+        .bits=      70
+    },
+    {
+        .suffix=    "y",
+        .bits=      80
+    },
 };
 
 /****************************************************************************
@@ -344,6 +352,8 @@ parse_size_string(const char *s, uintmax_t *valp)
         int i;
 
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
+            if (size_suffixes[i].bits >= sizeof(off_t) * 8)
+                break;
             if (strcasecmp(suffix, size_suffixes[i].suffix) == 0)
                 *valp <<= size_suffixes[i].bits;
         }
@@ -358,6 +368,8 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
     int i;
 
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
+        if (size_suffixes[i].bits >= sizeof(off_t) * 8)
+            break;
         unit = (uintmax_t)1 << size_suffixes[i].bits;
         if (value % unit == 0) {
             snprintf(buf, bmax, "%ju%s", value / unit, size_suffixes[i].suffix);
