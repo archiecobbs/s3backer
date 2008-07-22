@@ -506,9 +506,14 @@ s3backer_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, co
         return EINVAL;
 
     /* Allocate zero block if necessary */
-    if (priv->zero_block == NULL
-      && (priv->zero_block = calloc(1, config->block_size)) == NULL)
-        return errno;
+    if (priv->zero_block == NULL) {
+        pthread_mutex_lock(&priv->mutex);
+        if ((priv->zero_block = calloc(1, config->block_size)) == NULL) {
+            pthread_mutex_unlock(&priv->mutex);
+            return ENOMEM;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+    }
 
     /* Allocate empty block array if necessary */
     if (config->assume_empty && priv->non_zero == NULL) {
