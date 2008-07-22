@@ -25,6 +25,13 @@
 #include "s3backer.h"
 
 /****************************************************************************
+ *                              DEFINITIONS                                 *
+ ****************************************************************************/
+
+#define ROOT_INODE      1
+#define FILE_INODE      2
+
+/****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
 
@@ -103,7 +110,7 @@ fuse_op_getattr(const char *path, struct stat *st)
     if (strcmp(path, "/") == 0) {
         st->st_mode = S_IFDIR | 0755;
         st->st_nlink = 2;
-        st->st_ino = 1;
+        st->st_ino = ROOT_INODE;
         st->st_uid = config->uid;
         st->st_gid = config->gid;
         st->st_atime = config->start_time;
@@ -114,7 +121,7 @@ fuse_op_getattr(const char *path, struct stat *st)
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         st->st_mode = S_IFREG | config->file_mode;
         st->st_nlink = 1;
-        st->st_ino = 2;
+        st->st_ino = FILE_INODE;
         st->st_uid = config->uid;
         st->st_gid = config->gid;
         st->st_size = config->file_size;
@@ -162,7 +169,6 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     size_t num_blocks;
     int r;
 
-    //(*config->log)(LOG_DEBUG, "***  READ: off=0x%jx size=0x%jx (block #%lu, %lu blocks)", (uintmax_t)offset, (uintmax_t)size, (unsigned long)(offset >> config->block_bits), (unsigned long)(size >> config->block_bits));
 
     /* Check for out of range */
     if (offset + size > config->file_size) {
@@ -224,7 +230,6 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     size_t num_blocks;
     int r;
 
-    //(*config->log)(LOG_DEBUG, "*** WRITE: off=0x%jx size=0x%jx (block #%lu, %lu blocks)", (uintmax_t)offset, (uintmax_t)size, (unsigned long)(offset >> config->block_bits), (unsigned long)(size >> config->block_bits));
 
     /* Check for out of range */
     if (offset + size > config->file_size) {
