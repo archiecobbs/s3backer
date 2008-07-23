@@ -22,8 +22,6 @@
  * $Id$
  */
 
-#include <sys/types.h>
-
 #include "s3backer.h"
 
 /* HTTP definitions */
@@ -77,12 +75,12 @@
  *
  * Blocks we are currently tracking can be in the following states:
  *
- * State    Meaning                     Hash table  List    Other invariants
- * -----    -------                     ----------  ----    ----------------
+ * State    Meaning                  Hash table  List  Other invariants
+ * -----    -------                  ----------  ----  ----------------
  *
- * CLEAN    initial state               No          No
- * WRITING  currently being written     Yes         No      timestamp == 0
- * WRITTEN  written and MD5 cached      Yes         Yes     timestamp != 0
+ * CLEAN    initial state            No          No
+ * WRITING  currently being written  Yes         No    timestamp == 0, u.data valid
+ * WRITTEN  written and MD5 cached   Yes         Yes   timestamp != 0, u.md5 valid
  *
  * The steady state for a block is CLEAN. WRITING means the block is currently
  * being sent; concurrent attempts to write will simply sleep until the first one
@@ -110,10 +108,9 @@
  * so the entries that will expire first are at the front of the list.
  */
 struct block_info {
-    s3b_block_t         block_num;              // block number
-    uint64_t            timestamp;              // time PUT/DELETE completed (if WRITTEN)
-    struct block_info   *next;                  // next entry in list (if WRITTEN)
-    struct block_info   **prev;                 // previous entry in list (if WRITTEN)
+    s3b_block_t             block_num;          // block number - MUST BE FIRST!
+    uint64_t                timestamp;          // time PUT/DELETE completed (if WRITTEN)
+    TAILQ_ENTRY(block_info) link;               // list entry link
     union {
         const void      *data;                  // blocks actual content (if WRITING)
         u_char          md5[MD5_DIGEST_LENGTH]; // block's content MD5 (if WRITTEN)
@@ -121,28 +118,20 @@ struct block_info {
 };
 
 /* Internal definitions */
-struct s3backer_curl_holder {
+struct curl_holder {
     CURL                        *curl;
-    struct s3backer_curl_holder *next;
+    LIST_ENTRY(curl_holder)     link;
 };
-
-/* Simple list structure */
-struct s3backer_list {
-    struct block_info           *head;
-    struct block_info           **tail;
-};
-#define IS_EMPTY(list)          ((list)->head == NULL)
-#define IN_LIST(list, binfo)    ((binfo)->next != NULL || (list)->tail == &(binfo)->next)
 
 /* Internal state */
 struct s3backer_private {
     struct s3backer_conf        *config;
-    struct s3backer_curl_holder *curls;
     struct s3backer_stats       stats;
-    pthread_mutex_t             curls_mutex;
     GHashTable                  *hashtable;
-    struct s3backer_list        list;
+    TAILQ_HEAD(, block_info)    list;
+    LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
+    pthread_mutex_t             curls_mutex;
     pthread_cond_t              space_cond;     // signaled when cache space available
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
     char                        *zero_block;
@@ -210,8 +199,6 @@ static CURL *s3backer_acquire_curl(struct s3backer_private *priv);
 static void s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache);
 
 /* Data structure manipulation */
-static void s3backer_list_append(struct s3backer_list *list, struct block_info *binfo);
-static void s3backer_list_remove(struct s3backer_list *list, struct block_info *binfo);
 static struct block_info *s3backer_hash_get(struct s3backer_private *priv, s3b_block_t block_num);
 static void s3backer_hash_put(struct s3backer_private *priv, struct block_info *binfo);
 static void s3backer_hash_remove(struct s3backer_private *priv, s3b_block_t block_num);
@@ -283,7 +270,8 @@ s3backer_create(struct s3backer_conf *config)
         goto fail4;
     if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
         goto fail5;
-    priv->list.tail = &priv->list.head;
+    LIST_INIT(&priv->curls);
+    TAILQ_INIT(&priv->list);
     if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
         r = errno;
         goto fail6;
@@ -345,6 +333,7 @@ static void
 s3backer_destroy(struct s3backer_store *const s3b)
 {
     struct s3backer_private *const priv = s3b->data;
+    struct curl_holder *holder;
 
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
@@ -359,11 +348,9 @@ s3backer_destroy(struct s3backer_store *const s3b)
     CRYPTO_set_id_callback(NULL);
 
     /* Clean up cURL */
-    while (priv->curls != NULL) {
-        struct s3backer_curl_holder *holder = priv->curls;
-
+    while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
-        priv->curls = holder->next;
+        LIST_REMOVE(holder, link);
         free(holder);
     }
     curl_global_cleanup();
@@ -579,7 +566,7 @@ again:
 
         /* If we have reached max cache capacity, wait until there's more room */
         if (g_hash_table_size(priv->hashtable) >= config->cache_size) {
-            if ((binfo = priv->list.head) != NULL)
+            if ((binfo = TAILQ_FIRST(&priv->list)) != NULL)
                 delay = s3backer_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
                 delay = s3backer_sleep_until(priv, &priv->space_cond, 0);
@@ -616,7 +603,7 @@ writeit:
         /* Move to state WRITTEN */
         binfo->timestamp = s3backer_get_time();
         memcpy(binfo->u.md5, md5, MD5_DIGEST_LENGTH);
-        s3backer_list_append(&priv->list, binfo);
+        TAILQ_INSERT_TAIL(&priv->list, binfo, link);
         pthread_mutex_unlock(&priv->mutex);
         return 0;
     }
@@ -647,7 +634,7 @@ writeit:
      */
     binfo->timestamp = 0;
     binfo->u.data = src;
-    s3backer_list_remove(&priv->list, binfo);
+    TAILQ_REMOVE(&priv->list, binfo, link);
     goto writeit;
 }
 
@@ -1152,8 +1139,8 @@ s3backer_scrub_expired_writtens(struct s3backer_private *priv, uint64_t current_
     struct block_info *binfo;
     int num_removed = 0;
 
-    while ((binfo = priv->list.head) != NULL && current_time >= binfo->timestamp + config->cache_time) {
-        s3backer_list_remove(&priv->list, binfo);
+    while ((binfo = TAILQ_FIRST(&priv->list)) != NULL && current_time >= binfo->timestamp + config->cache_time) {
+        TAILQ_REMOVE(&priv->list, binfo, link);
         s3backer_hash_remove(priv, binfo->block_num);
         free(binfo);
         num_removed++;
@@ -1237,7 +1224,7 @@ s3backer_check_invariants(struct s3backer_private *priv)
     struct check_info info;
 
     memset(&info, 0, sizeof(info));
-    for (binfo = priv->list.head; binfo != NULL; binfo = binfo->next) {
+    for (binfo = TAILQ_FIRST(&priv->list); binfo != NULL; binfo = TAILQ_NEXT(binfo, link)) {
         assert(binfo->timestamp != 0);
         assert(s3backer_hash_get(priv, binfo->block_num) == binfo);
         info.num_in_list++;
@@ -1247,40 +1234,6 @@ s3backer_check_invariants(struct s3backer_private *priv)
     assert(info.written + info.writing == g_hash_table_size(priv->hashtable));
 }
 #endif
-
-/*
- * Append a 'struct block_info' to the tail of the list.
- */
-static void
-s3backer_list_append(struct s3backer_list *list, struct block_info *binfo)
-{
-    assert(binfo != NULL);
-    assert(binfo->next == NULL);
-    assert(binfo->prev == NULL);
-    assert(*list->tail == NULL);
-    assert(!IN_LIST(list, binfo));
-    binfo->prev = list->tail;
-    *list->tail = binfo;
-    list->tail = &binfo->next;
-}
-
-/*
- * Remove the 'struct block_info' pointed to by binfo from the list.
- */
-static void
-s3backer_list_remove(struct s3backer_list *list, struct block_info *binfo)
-{
-    assert(binfo != NULL);
-    assert(*list->tail == NULL);
-    assert(IN_LIST(list, binfo));
-    *binfo->prev = binfo->next;
-    if (binfo->next != NULL)
-        binfo->next->prev = binfo->prev;
-    else
-        list->tail = binfo->prev;
-    binfo->next = NULL;
-    binfo->prev = NULL;
-}
 
 /*
  * Find a 'struct block_info' in the hash table.
@@ -1331,14 +1284,13 @@ static CURL *
 s3backer_acquire_curl(struct s3backer_private *priv)
 {
     struct s3backer_conf *const config = priv->config;
-    struct s3backer_curl_holder *holder;
+    struct curl_holder *holder;
     CURL *curl;
 
     pthread_mutex_lock(&priv->curls_mutex);
-    holder = priv->curls;
-    if (holder != NULL) {
+    if ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl = holder->curl;
-        priv->curls = holder->next;
+        LIST_REMOVE(holder, link);
         priv->stats.curl_handles_reused++;
         pthread_mutex_unlock(&priv->curls_mutex);
         free(holder);
@@ -1412,7 +1364,7 @@ s3backer_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 static void
 s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache)
 {
-    struct s3backer_curl_holder *holder;
+    struct curl_holder *holder;
 
     if (!may_cache || (holder = calloc(1, sizeof(*holder))) == NULL) {
         curl_easy_cleanup(curl);
@@ -1423,8 +1375,7 @@ s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache)
     }
     holder->curl = curl;
     pthread_mutex_lock(&priv->curls_mutex);
-    holder->next = priv->curls;
-    priv->curls = holder;
+    LIST_INSERT_HEAD(&priv->curls, holder, link);
     pthread_mutex_unlock(&priv->curls_mutex);
 }
 
