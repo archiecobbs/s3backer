@@ -108,7 +108,7 @@
  * so the entries that will expire first are at the front of the list.
  */
 struct block_info {
-    s3b_block_t             block_num;          // block number - MUST BE FIRST!
+    s3b_block_t             block_num;          // block number
     uint64_t                timestamp;          // time PUT/DELETE completed (if WRITTEN)
     TAILQ_ENTRY(block_info) link;               // list entry link
     union {
@@ -244,6 +244,13 @@ s3backer_create(struct s3backer_conf *config)
     if (openssl_locks != NULL) {
         (*config->log)(LOG_ERR, "s3backer_create() called twice?");
         r = EALREADY;
+        goto fail0;
+    }
+
+    /* Sanity check: we use block numbers as g_hash_table keys */
+    if (sizeof(s3b_block_t) > sizeof(gpointer)) {
+        (*config->log)(LOG_ERR, "sizeof(s3b_block_t) = %d is too big!", (int)sizeof(s3b_block_t));
+        r = EINVAL;
         goto fail0;
     }
 
