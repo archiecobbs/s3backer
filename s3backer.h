@@ -26,6 +26,21 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/queue.h>
+
+/* Add some queue.h definitions missing on Linux */
+#ifndef LIST_FIRST
+#define LIST_FIRST(head)        ((head)->lh_first)
+#endif
+#ifndef LIST_NEXT
+#define LIST_NEXT(item, field)  ((item)->field.le_next)
+#endif
+#ifndef TAILQ_FIRST
+#define TAILQ_FIRST(head)       ((head)->tqh_first)
+#endif
+#ifndef TAILQ_NEXT
+#define TAILQ_NEXT(item, field) ((item)->field.tqe_next)
+#endif
 
 #include <assert.h>
 #include <ctype.h>
