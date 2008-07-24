@@ -131,7 +131,6 @@ struct s3backer_private {
     TAILQ_HEAD(, block_info)    list;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
-    pthread_mutex_t             curls_mutex;
     pthread_cond_t              space_cond;     // signaled when cache space available
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
     char                        *zero_block;
@@ -270,19 +269,17 @@ s3backer_create(struct s3backer_conf *config)
         goto fail1;
     }
     priv->config = config;
-    if ((r = pthread_mutex_init(&priv->curls_mutex, NULL)) != 0)
-        goto fail2;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
-        goto fail3;
+        goto fail2;
     if ((r = pthread_cond_init(&priv->space_cond, NULL)) != 0)
-        goto fail4;
+        goto fail3;
     if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
-        goto fail5;
+        goto fail4;
     LIST_INIT(&priv->curls);
     TAILQ_INIT(&priv->list);
     if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
         r = errno;
-        goto fail6;
+        goto fail5;
     }
     s3b->data = priv;
 
@@ -290,13 +287,13 @@ s3backer_create(struct s3backer_conf *config)
     num_openssl_locks = CRYPTO_num_locks();
     if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
         r = errno;
-        goto fail7;
+        goto fail6;
     }
     for (nlocks = 0; nlocks < num_openssl_locks; nlocks++) {
         if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0) {
             while (nlocks > 0)
                 pthread_mutex_destroy(&openssl_locks[--nlocks]);
-            goto fail8;
+            goto fail7;
         }
     }
     CRYPTO_set_locking_callback(s3backer_openssl_locker);
@@ -310,20 +307,18 @@ s3backer_create(struct s3backer_conf *config)
     (*config->log)(LOG_INFO, "created s3backer using %s%s", config->baseURL, config->bucket);
     return s3b;
 
-fail8:
+fail7:
     free(openssl_locks);
     openssl_locks = NULL;
     num_openssl_locks = 0;
-fail7:
-    g_hash_table_destroy(priv->hashtable);
 fail6:
-    pthread_cond_destroy(&priv->never_cond);
+    g_hash_table_destroy(priv->hashtable);
 fail5:
-    pthread_cond_destroy(&priv->space_cond);
+    pthread_cond_destroy(&priv->never_cond);
 fail4:
-    pthread_mutex_destroy(&priv->mutex);
+    pthread_cond_destroy(&priv->space_cond);
 fail3:
-    pthread_mutex_destroy(&priv->curls_mutex);
+    pthread_mutex_destroy(&priv->mutex);
 fail2:
     free(priv);
 fail1:
@@ -364,7 +359,6 @@ s3backer_destroy(struct s3backer_store *const s3b)
     curl_global_cleanup();
 
     /* Free structures */
-    pthread_mutex_destroy(&priv->curls_mutex);
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
     pthread_cond_destroy(&priv->never_cond);
@@ -1015,7 +1009,7 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
         default:
             (*config->log)(LOG_ERR, "operation failed: %s (%s)", curl_easy_strerror(curl_code),
               total_pause >= config->max_retry_pause ? "final attempt" : "will retry");
-            pthread_mutex_lock(&priv->curls_mutex);
+            pthread_mutex_lock(&priv->mutex);
             switch (curl_code) {
             case CURLE_OUT_OF_MEMORY:
                 priv->stats.curl_out_of_memory++;
@@ -1030,7 +1024,7 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
                 priv->stats.curl_other_error++;
                 break;
             }
-            pthread_mutex_unlock(&priv->curls_mutex);
+            pthread_mutex_unlock(&priv->mutex);
             break;
         }
 
@@ -1045,10 +1039,10 @@ s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b_io, s3b_cu
         nanosleep(&delay, NULL);            // TODO: check for EINTR
 
         /* Update retry stats */
-        pthread_mutex_lock(&priv->curls_mutex);
+        pthread_mutex_lock(&priv->mutex);
         priv->stats.num_retries++;
         priv->stats.retry_delay += retry_pause;
-        pthread_mutex_unlock(&priv->curls_mutex);
+        pthread_mutex_unlock(&priv->mutex);
     }
 
     /* Give up */
@@ -1297,22 +1291,22 @@ s3backer_acquire_curl(struct s3backer_private *priv)
     struct curl_holder *holder;
     CURL *curl;
 
-    pthread_mutex_lock(&priv->curls_mutex);
+    pthread_mutex_lock(&priv->mutex);
     if ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl = holder->curl;
         LIST_REMOVE(holder, link);
         priv->stats.curl_handles_reused++;
-        pthread_mutex_unlock(&priv->curls_mutex);
+        pthread_mutex_unlock(&priv->mutex);
         free(holder);
         curl_easy_reset(curl);
     } else {
         priv->stats.curl_handles_created++;             // optimistic
-        pthread_mutex_unlock(&priv->curls_mutex);
+        pthread_mutex_unlock(&priv->mutex);
         if ((curl = curl_easy_init()) == NULL) {
-            pthread_mutex_lock(&priv->curls_mutex);
+            pthread_mutex_lock(&priv->mutex);
             priv->stats.curl_handles_created--;         // undo optimistic
             priv->stats.curl_other_error++;
-            pthread_mutex_unlock(&priv->curls_mutex);
+            pthread_mutex_unlock(&priv->mutex);
             (*config->log)(LOG_ERR, "curl_easy_init() failed");
             return NULL;
         }
@@ -1378,15 +1372,15 @@ s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache)
 
     if (!may_cache || (holder = calloc(1, sizeof(*holder))) == NULL) {
         curl_easy_cleanup(curl);
-        pthread_mutex_lock(&priv->curls_mutex);
+        pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
-        pthread_mutex_unlock(&priv->curls_mutex);
+        pthread_mutex_unlock(&priv->mutex);
         return;
     }
     holder->curl = curl;
-    pthread_mutex_lock(&priv->curls_mutex);
+    pthread_mutex_lock(&priv->mutex);
     LIST_INSERT_HEAD(&priv->curls, holder, link);
-    pthread_mutex_unlock(&priv->curls_mutex);
+    pthread_mutex_unlock(&priv->mutex);
 }
 
 static void
