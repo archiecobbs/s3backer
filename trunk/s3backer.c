@@ -193,7 +193,8 @@ static int s3backer_perform_io(struct s3backer_private *priv, struct s3b_io *s3b
 static size_t s3backer_curl_reader(void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t s3backer_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t s3backer_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
-static struct curl_slist *s3backer_add_header(struct curl_slist *headers, const char *fmt, ...);
+static struct curl_slist *s3backer_add_header(struct curl_slist *headers, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 2, 3)));
 static void s3backer_get_date(char *buf, size_t bufsiz);
 static CURL *s3backer_acquire_curl(struct s3backer_private *priv);
 static void s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache);
@@ -815,8 +816,10 @@ s3backer_do_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     }
 
     /* Add file size meta-data to zero'th block */
-    if (block_num == 0)
-        s3b_io.headers = s3backer_add_header(s3b_io.headers, "%s: %ju", FILE_SIZE_HEADER, config->file_size);
+    if (block_num == 0) {
+        s3b_io.headers = s3backer_add_header(s3b_io.headers, "%s: %ju",
+          FILE_SIZE_HEADER, (uintmax_t)config->file_size);
+    }
 
     /* Add Authorization header */
     if (config->accessId != NULL) {
