@@ -78,6 +78,9 @@
  */
 typedef uint32_t    s3b_block_t;
 
+/* Logging function type */
+typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
+
 /* Configuration info structure */
 struct s3backer_conf {
     const char          *accessId;
@@ -110,7 +113,7 @@ struct s3backer_conf {
     u_int               cache_time;
     u_int               cache_size;
     struct fuse_args    fuse_args;
-    void                (*log)(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
+    log_func_t          *log;
 
     // These are only used during parsing
     const char          *file_size_str;
