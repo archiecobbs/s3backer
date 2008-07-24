@@ -352,10 +352,12 @@ parse_size_string(const char *s, uintmax_t *valp)
         int i;
 
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
-            if (size_suffixes[i].bits >= sizeof(off_t) * 8)
+            const struct size_suffix *const ss = &size_suffixes[i];
+
+            if (ss->bits >= sizeof(off_t) * 8)
                 break;
-            if (strcasecmp(suffix, size_suffixes[i].suffix) == 0)
-                *valp <<= size_suffixes[i].bits;
+            if (strcasecmp(suffix, ss->suffix) == 0)
+                *valp <<= ss->bits;
         }
     }
     return 0;
@@ -368,11 +370,13 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
     int i;
 
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
-        if (size_suffixes[i].bits >= sizeof(off_t) * 8)
-            break;
-        unit = (uintmax_t)1 << size_suffixes[i].bits;
+        const struct size_suffix *const ss = &size_suffixes[i];
+
+        if (ss->bits >= sizeof(off_t) * 8)
+            continue;
+        unit = (uintmax_t)1 << ss->bits;
         if (value % unit == 0) {
-            snprintf(buf, bmax, "%ju%s", value / unit, size_suffixes[i].suffix);
+            snprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
             return;
         }
     }
