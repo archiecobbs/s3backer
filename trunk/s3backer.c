@@ -1370,7 +1370,11 @@ s3backer_release_curl(struct s3backer_private *priv, CURL *curl, int may_cache)
 {
     struct curl_holder *holder;
 
-    if (!may_cache || (holder = calloc(1, sizeof(*holder))) == NULL) {
+    if (!may_cache) {
+        curl_easy_cleanup(curl);
+        return;
+    }
+    if ((holder = calloc(1, sizeof(*holder))) == NULL) {
         curl_easy_cleanup(curl);
         pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
