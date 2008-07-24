@@ -23,6 +23,10 @@
  */
 
 #include "s3backer.h"
+#include "ec_protect.h"
+#include "fuse_ops.h"
+#include "http_io.h"
+#include "s3b_config.h"
 
 /****************************************************************************
  *                          DEFINITIONS                                     *
@@ -68,6 +72,9 @@
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
 
+static create_s3b_t s3b_config_create_s3b;
+static print_stats_t s3b_config_print_stats;
+
 static int parse_size_string(const char *s, uintmax_t *valp);
 static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
 static int search_access_for(const char *file, const char *accessId, const char **idptr, const char **pwptr);
@@ -92,26 +99,39 @@ static const char *const s3_acls[] = {
 
 /* Configuration structure */
 static char user_agent_buf[64];
-static struct s3backer_conf config = {
-    .accessId=              NULL,
-    .accessKey=             NULL,
-    .accessFile=            NULL,
-    .baseURL=               S3BACKER_DEFAULT_BASE_URL,
-    .bucket=                NULL,
-    .prefix=                S3BACKER_DEFAULT_PREFIX,
-    .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
-    .filename=              S3BACKER_DEFAULT_FILENAME,
-    .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
-    .user_agent=            user_agent_buf,
+static struct s3b_config config = {
+
+    /* HTTP config */
+    .http_io= {
+        .accessId=              NULL,
+        .accessKey=             NULL,
+        .baseURL=               S3BACKER_DEFAULT_BASE_URL,
+        .bucket=                NULL,
+        .prefix=                S3BACKER_DEFAULT_PREFIX,
+        .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
+        .user_agent=            user_agent_buf,
+        .timeout=               S3BACKER_DEFAULT_TIMEOUT,
+        .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
+        .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+    },
+
+    /* "Eventual consistency" protection config */
+    .ec_protect= {
+        .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
+        .cache_time=            S3BACKER_DEFAULT_CACHE_TIME,
+        .cache_size=            S3BACKER_DEFAULT_CACHE_SIZE,
+    },
+
+    /* FUSE operations config */
+    .fuse_ops= {
+        .filename=              S3BACKER_DEFAULT_FILENAME,
+        .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
+        .file_mode=             -1,             /* default depends on 'read_only' */
+    },
+
+    /* Common stuff */
     .block_size=            0,
     .file_size=             0,
-    .file_mode=             -1,             /* default depends on 'read_only' */
-    .timeout=               S3BACKER_DEFAULT_TIMEOUT,
-    .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
-    .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
-    .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
-    .cache_time=            S3BACKER_DEFAULT_CACHE_TIME,
-    .cache_size=            S3BACKER_DEFAULT_CACHE_SIZE,
     .log=                   syslog_logger
 };
 
@@ -119,107 +139,107 @@ static struct s3backer_conf config = {
 static const struct fuse_opt option_list[] = {
     {
         .templ=     "--accessFile=%s",
-        .offset=    offsetof(struct s3backer_conf, accessFile),
+        .offset=    offsetof(struct s3b_config, accessFile),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--accessId=%s",
-        .offset=    offsetof(struct s3backer_conf, accessId),
+        .offset=    offsetof(struct s3b_config, http_io.accessId),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--accessKey=%s",
-        .offset=    offsetof(struct s3backer_conf, accessKey),
+        .offset=    offsetof(struct s3b_config, http_io.accessKey),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--accessType=%s",
-        .offset=    offsetof(struct s3backer_conf, accessType),
+        .offset=    offsetof(struct s3b_config, http_io.accessType),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--assumeEmpty",
-        .offset=    offsetof(struct s3backer_conf, assume_empty),
+        .offset=    offsetof(struct s3b_config, http_io.assume_empty),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--baseURL=%s",
-        .offset=    offsetof(struct s3backer_conf, baseURL),
+        .offset=    offsetof(struct s3b_config, http_io.baseURL),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--blockSize=%s",
-        .offset=    offsetof(struct s3backer_conf, block_size_str),
+        .offset=    offsetof(struct s3b_config, block_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--cacheSize=%u",
-        .offset=    offsetof(struct s3backer_conf, cache_size),
+        .offset=    offsetof(struct s3b_config, ec_protect.cache_size),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--cacheTime=%u",
-        .offset=    offsetof(struct s3backer_conf, cache_time),
+        .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--debug",
-        .offset=    offsetof(struct s3backer_conf, debug),
+        .offset=    offsetof(struct s3b_config, debug),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--fileMode=%o",
-        .offset=    offsetof(struct s3backer_conf, file_mode),
+        .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--filename=%s",
-        .offset=    offsetof(struct s3backer_conf, filename),
+        .offset=    offsetof(struct s3b_config, fuse_ops.filename),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--force",
-        .offset=    offsetof(struct s3backer_conf, force),
+        .offset=    offsetof(struct s3b_config, force),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--initialRetryPause=%u",
-        .offset=    offsetof(struct s3backer_conf, initial_retry_pause),
+        .offset=    offsetof(struct s3b_config, http_io.initial_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--maxRetryPause=%u",
-        .offset=    offsetof(struct s3backer_conf, max_retry_pause),
+        .offset=    offsetof(struct s3b_config, http_io.max_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--minWriteDelay=%u",
-        .offset=    offsetof(struct s3backer_conf, min_write_delay),
+        .offset=    offsetof(struct s3b_config, ec_protect.min_write_delay),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--prefix=%s",
-        .offset=    offsetof(struct s3backer_conf, prefix),
+        .offset=    offsetof(struct s3b_config, http_io.prefix),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--readOnly",
-        .offset=    offsetof(struct s3backer_conf, read_only),
+        .offset=    offsetof(struct s3b_config, fuse_ops.read_only),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--size=%s",
-        .offset=    offsetof(struct s3backer_conf, file_size_str),
+        .offset=    offsetof(struct s3b_config, file_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--statsFilename=%s",
-        .offset=    offsetof(struct s3backer_conf, stats_filename),
+        .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
         .templ=     "--timeout=%u",
-        .offset=    offsetof(struct s3backer_conf, timeout),
+        .offset=    offsetof(struct s3b_config, http_io.timeout),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     FUSE_OPT_END
@@ -282,22 +302,22 @@ static const struct size_suffix size_suffixes[] = {
     },
 };
 
+/* s3backer_store layers */
+struct s3backer_store *ec_protect_store;
+struct s3backer_store *http_io_store;
+
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
-struct s3backer_conf *
+struct s3b_config *
 s3backer_get_config(int argc, char **argv)
 {
     int i;
 
-    /* One time only */
-    assert(config.start_time == 0);
-
-    /* Remember user creds and start time */
-    config.uid = getuid();
-    config.gid = getgid();
-    config.start_time = time(NULL);
+    /* Remember user creds */
+    config.fuse_ops.uid = getuid();
+    config.fuse_ops.gid = getgid();
 
     /* Set user-agent */
     snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/r%d", PACKAGE, VERSION, s3backer_svnrev);
@@ -316,16 +336,17 @@ s3backer_get_config(int argc, char **argv)
     }
 
     /* Parse command line flags */
-    if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0) {
-        usage();
+    if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0)
         return NULL;
-    }
 
     /* Validate configuration */
-    if (validate_config() != 0) {
-        usage();
+    if (validate_config() != 0)
         return NULL;
-    }
+
+    /* Set up fuse_ops callbacks */
+    config.fuse_ops.create_s3b = s3b_config_create_s3b;
+    config.fuse_ops.print_stats = s3b_config_print_stats;
+    config.fuse_ops.arg = &config;
 
     /* Debug */
     if (config.debug)
@@ -335,9 +356,96 @@ s3backer_get_config(int argc, char **argv)
     return &config;
 }
 
+struct s3backer_store *
+s3backer_create_store(struct s3b_config *conf)
+{
+    struct s3backer_store *store;
+
+    /* Sanity check */
+    if (http_io_store != NULL)
+        return NULL;
+
+    /* Create HTTP layer */
+    if ((http_io_store = http_io_create(&conf->http_io)) == NULL)
+        return NULL;
+    store = http_io_store;
+
+    /* Create eventual consistency protection layer (if desired) */
+    if (conf->ec_protect.cache_size > 0) {
+        if ((ec_protect_store = ec_protect_create(&conf->ec_protect, http_io_store)) == NULL) {
+            (*http_io_store->destroy)(http_io_store);
+            http_io_store = NULL;
+            return NULL;
+        }
+        store = ec_protect_store;
+    }
+
+    /* Done */
+    return store;
+}
+
 /****************************************************************************
  *                    INTERNAL FUNCTION DEFINITIONS                         *
  ****************************************************************************/
+
+static struct s3backer_store *
+s3b_config_create_s3b(void *arg)
+{
+    struct s3b_config *const conf = arg;
+
+    return s3backer_create_store(conf);
+}
+
+static void
+s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
+{
+    struct http_io_stats http_io_stats;
+    struct ec_protect_stats ec_protect_stats;
+    u_int total_ops;
+
+    /* Get HTTP stats */
+    http_io_get_stats(http_io_store, &http_io_stats);
+
+    /* Get EC protection stats */
+    if (ec_protect_store != NULL)
+        ec_protect_get_stats(ec_protect_store, &ec_protect_stats);
+
+    /* Print stats in human-readable form */
+    (*printer)(prarg, "%-24s %u\n", "normal_blocks_read", http_io_stats.normal_blocks_read);
+    (*printer)(prarg, "%-24s %u\n", "normal_blocks_written", http_io_stats.normal_blocks_written);
+    (*printer)(prarg, "%-24s %u\n", "zero_blocks_read", http_io_stats.zero_blocks_read);
+    (*printer)(prarg, "%-24s %u\n", "zero_blocks_written", http_io_stats.zero_blocks_written);
+    (*printer)(prarg, "%-24s %u\n", "empty_blocks_read", http_io_stats.empty_blocks_read);
+    (*printer)(prarg, "%-24s %u\n", "empty_blocks_written", http_io_stats.empty_blocks_written);
+    (*printer)(prarg, "%-24s %u\n", "http_heads", http_io_stats.http_heads);
+    (*printer)(prarg, "%-24s %u\n", "http_gets", http_io_stats.http_gets);
+    (*printer)(prarg, "%-24s %u\n", "http_puts", http_io_stats.http_puts);
+    (*printer)(prarg, "%-24s %u\n", "http_deletes", http_io_stats.http_deletes);
+    total_ops = http_io_stats.http_heads + http_io_stats.http_gets + http_io_stats.http_puts + http_io_stats.http_deletes;
+    (*printer)(prarg, "%-24s %.3f\n", "http_average_time",
+      total_ops > 0 ? http_io_stats.http_total_time / total_ops : 0.0);
+    (*printer)(prarg, "%-24s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
+    (*printer)(prarg, "%-24s %u\n", "http_forbidden", http_io_stats.http_forbidden);
+    (*printer)(prarg, "%-24s %u\n", "http_stale", http_io_stats.http_stale);
+    (*printer)(prarg, "%-24s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
+    (*printer)(prarg, "%-24s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
+    (*printer)(prarg, "%-24s %u\n", "http_other_error", http_io_stats.http_other_error);
+    (*printer)(prarg, "%-24s %u\n", "curl_handles_created", http_io_stats.curl_handles_created);
+    (*printer)(prarg, "%-24s %u\n", "curl_handles_reused", http_io_stats.curl_handles_reused);
+    (*printer)(prarg, "%-24s %u\n", "curl_timeouts", http_io_stats.curl_timeouts);
+    (*printer)(prarg, "%-24s %u\n", "curl_connect_failed", http_io_stats.curl_connect_failed);
+    (*printer)(prarg, "%-24s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
+    (*printer)(prarg, "%-24s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
+    (*printer)(prarg, "%-24s %u\n", "curl_other_error", http_io_stats.curl_other_error);
+    (*printer)(prarg, "%-24s %u\n", "num_retries", http_io_stats.num_retries);
+    (*printer)(prarg, "%-24s %ju\n", "total_retry_delay", (uintmax_t)http_io_stats.retry_delay);
+    (*printer)(prarg, "%-24s %u\n", "current_cache_size", ec_protect_stats.current_cache_size);
+    (*printer)(prarg, "%-24s %u\n", "cache_data_hits", ec_protect_stats.cache_data_hits);
+    (*printer)(prarg, "%-24s %ju\n", "cache_full_delay", (uintmax_t)ec_protect_stats.cache_full_delay);
+    (*printer)(prarg, "%-24s %ju\n", "repeated_write_delay", (uintmax_t)ec_protect_stats.repeated_write_delay);
+    (*printer)(prarg, "%-24s %u\n", "out_of_memory_errors",
+      http_io_stats.out_of_memory_errors + ec_protect_stats.out_of_memory_errors);
+}
 
 static int
 parse_size_string(const char *s, uintmax_t *valp)
@@ -420,8 +528,8 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
     }
 
     /* Get bucket parameter */
-    if (config.bucket == NULL) {
-        if ((config.bucket = strdup(arg)) == NULL)
+    if (config.http_io.bucket == NULL) {
+        if ((config.http_io.bucket = strdup(arg)) == NULL)
             err(1, "strdup");
         return 0;
     }
@@ -496,49 +604,51 @@ validate_config(void)
     }
 
     /* Auto-set file mode in read_only if not explicitly set */
-    if (config.file_mode == -1)
-        config.file_mode = config.read_only ? S3BACKER_DEFAULT_FILE_MODE_READ_ONLY : S3BACKER_DEFAULT_FILE_MODE;
+    if (config.fuse_ops.file_mode == -1) {
+        config.fuse_ops.file_mode = config.fuse_ops.read_only ?
+          S3BACKER_DEFAULT_FILE_MODE_READ_ONLY : S3BACKER_DEFAULT_FILE_MODE;
+    }
 
     /* If no accessId specified, default to first in accessFile */
-    if (config.accessId == NULL && config.accessFile != NULL)
-        search_access_for(config.accessFile, NULL, &config.accessId, NULL);
-    if (config.accessId != NULL && *config.accessId == '\0')
-        config.accessId = NULL;
-    if (config.accessId == NULL && strcmp(config.baseURL, S3_BASE_URL) == 0 && !config.read_only) {
+    if (config.http_io.accessId == NULL && config.accessFile != NULL)
+        search_access_for(config.accessFile, NULL, &config.http_io.accessId, NULL);
+    if (config.http_io.accessId != NULL && *config.http_io.accessId == '\0')
+        config.http_io.accessId = NULL;
+    if (config.http_io.accessId == NULL && strcmp(config.http_io.baseURL, S3_BASE_URL) == 0 && !config.fuse_ops.read_only) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
 
     /* Find key in file if not specified explicitly */
-    if (config.accessId == NULL && config.accessKey != NULL) {
+    if (config.http_io.accessId == NULL && config.http_io.accessKey != NULL) {
         warnx("an `accessKey' was specified but no `accessId' was specified");
         return -1;
     }
-    if (config.accessId != NULL) {
-        if (config.accessKey == NULL && config.accessFile != NULL)
-            search_access_for(config.accessFile, config.accessId, NULL, &config.accessKey);
-        if (config.accessKey == NULL) {
+    if (config.http_io.accessId != NULL) {
+        if (config.http_io.accessKey == NULL && config.accessFile != NULL)
+            search_access_for(config.accessFile, config.http_io.accessId, NULL, &config.http_io.accessKey);
+        if (config.http_io.accessKey == NULL) {
             warnx("no `accessKey' specified");
             return -1;
         }
     }
 
     /* Check bucket */
-    if (config.bucket == NULL) {
-        warnx("no S3 bucket specified");
+    if (config.http_io.bucket == NULL) {
+        warnx("no bucket specified");
         return -1;
     }
-    if (*config.bucket == '\0' || *config.bucket == '/' || strchr(config.bucket, '/') != 0) {
-        warnx("invalid S3 bucket `%s'", config.bucket);
+    if (*config.http_io.bucket == '\0' || *config.http_io.bucket == '/' || strchr(config.http_io.bucket, '/') != 0) {
+        warnx("invalid S3 bucket `%s'", config.http_io.bucket);
         return -1;
     }
 
     /* Check base URL */
     s = NULL;
-    if (strncmp(config.baseURL, "http://", 7) == 0)
-        s = config.baseURL + 7;
-    else if (strncmp(config.baseURL, "https://", 8) == 0)
-        s = config.baseURL + 8;
+    if (strncmp(config.http_io.baseURL, "http://", 7) == 0)
+        s = config.http_io.baseURL + 7;
+    else if (strncmp(config.http_io.baseURL, "https://", 8) == 0)
+        s = config.http_io.baseURL + 8;
     if (s != NULL && (*s == '/' || *s == '\0'))
         s = NULL;
     if (s != NULL && (s = strchr(s, '/')) == NULL)
@@ -548,44 +658,44 @@ validate_config(void)
         s = NULL;
     }
     if (s == NULL) {
-        warnx("invalid base URL `%s'", config.baseURL);
+        warnx("invalid base URL `%s'", config.http_io.baseURL);
         return -1;
     }
 
     /* Check S3 access privilege */
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++) {
-        if (strcmp(config.accessType, s3_acls[i]) == 0)
+        if (strcmp(config.http_io.accessType, s3_acls[i]) == 0)
             break;
     }
     if (i == sizeof(s3_acls) / sizeof(*s3_acls)) {
-        warnx("illegal access type `%s'", config.accessType);
+        warnx("illegal access type `%s'", config.http_io.accessType);
         return -1;
     }
 
     /* Check filenames */
-    if (strchr(config.filename, '/') != NULL || *config.filename == '\0') {
-        warnx("illegal filename `%s'", config.filename);
+    if (strchr(config.fuse_ops.filename, '/') != NULL || *config.fuse_ops.filename == '\0') {
+        warnx("illegal filename `%s'", config.fuse_ops.filename);
         return -1;
     }
-    if (strchr(config.stats_filename, '/') != NULL) {
-        warnx("illegal stats filename `%s'", config.stats_filename);
+    if (strchr(config.fuse_ops.stats_filename, '/') != NULL) {
+        warnx("illegal stats filename `%s'", config.fuse_ops.stats_filename);
         return -1;
     }
 
     /* Check time/cache values */
-    if (config.cache_size == 0 && config.cache_time > 0) {
+    if (config.ec_protect.cache_size == 0 && config.ec_protect.cache_time > 0) {
         warnx("`cacheTime' must zero when cache is disabled");
         return -1;
     }
-    if (config.cache_size == 0 && config.min_write_delay > 0) {
+    if (config.ec_protect.cache_size == 0 && config.ec_protect.min_write_delay > 0) {
         warnx("`minWriteDelay' must zero when cache is disabled");
         return -1;
     }
-    if (config.cache_time < config.min_write_delay) {
+    if (config.ec_protect.cache_time < config.ec_protect.min_write_delay) {
         warnx("`cacheTime' must be at least `minWriteDelay'");
         return -1;
     }
-    if (config.initial_retry_pause > config.max_retry_pause) {
+    if (config.http_io.initial_retry_pause > config.http_io.max_retry_pause) {
         warnx("`maxRetryPause' must be at least `initialRetryPause'");
         return -1;
     }
@@ -606,12 +716,22 @@ validate_config(void)
         config.file_size = value;
     }
 
+    /* Check bucket and mount point provided */
+    if (config.http_io.bucket == NULL) {
+        warnx("no S3 bucket specified");
+        return -1;
+    }
+    if (config.mount == NULL) {
+        warnx("no mount point specified");
+        return -1;
+    }
+
     /*
      * Read the first block (if any) to determine existing file and block size,
      * and compare with configured sizes (if given).
      */
-    if ((s3b = s3backer_create(&config)) == NULL)
-        err(1, "s3backer_create");
+    if ((s3b = http_io_create(&config.http_io)) == NULL)
+        err(1, "http_io_create");
     warnx("auto-detecting block size and total file size...");
     switch ((r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size))) {
     case 0:
@@ -644,7 +764,7 @@ validate_config(void)
             } else
                 errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
-        if (config.assume_empty) {
+        if (config.http_io.assume_empty) {
             if (config.force) {
                 warnx("warning: `--assumeEmpty' was specified but filesystem is not empty,\n"
                   "but you said `--force' so I'll proceed anyway even though your data will\n"
@@ -676,8 +796,7 @@ validate_config(void)
     (*s3b->destroy)(s3b);
 
     /* Check computed block and file sizes */
-    config.block_bits = ffs(config.block_size) - 1;
-    if (config.block_size != (1 << config.block_bits)) {
+    if (config.block_size != (1 << (ffs(config.block_size) - 1))) {
         warnx("block size must be a power of 2");
         return -1;
     }
@@ -686,7 +805,7 @@ validate_config(void)
         return -1;
     }
     config.num_blocks = config.file_size / config.block_size;
-    if (config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {    // cf. struct defer_info.block_num
+    if (config.num_blocks >= ((off_t)1 << (sizeof(s3b_block_t) * 8))) {    // cf. struct defer_info.block_num
         warnx("more than 2^%d blocks: decrease file size or increase block size", sizeof(s3b_block_t) * 8);
         return -1;
     }
@@ -703,12 +822,12 @@ validate_config(void)
          * We have to use the same exponential backoff algorithm.
          */
         for (total_pause = 0; 1; total_pause += retry_pause) {
-            total_time += config.timeout * 1000;
-            if (total_pause >= config.max_retry_pause)
+            total_time += config.http_io.timeout * 1000;
+            if (total_pause >= config.http_io.max_retry_pause)
                 break;
-            retry_pause = retry_pause > 0 ? retry_pause * 2 : config.initial_retry_pause;
-            if (total_pause + retry_pause > config.max_retry_pause)
-                retry_pause = config.max_retry_pause - total_pause;
+            retry_pause = retry_pause > 0 ? retry_pause * 2 : config.http_io.initial_retry_pause;
+            if (total_pause + retry_pause > config.http_io.max_retry_pause)
+                retry_pause = config.http_io.max_retry_pause - total_pause;
             total_time += retry_pause;
         }
 
@@ -723,6 +842,18 @@ validate_config(void)
     }
 #endif  /* __APPLE__ */
 
+    /* Copy common stuff into sub-module configs */
+    config.http_io.debug = config.debug;
+    config.http_io.block_size = config.block_size;
+    config.http_io.num_blocks = config.num_blocks;
+    config.http_io.log = config.log;
+    config.ec_protect.block_size = config.block_size;
+    config.ec_protect.num_blocks = config.num_blocks;
+    config.ec_protect.log = config.log;
+    config.fuse_ops.block_size = config.block_size;
+    config.fuse_ops.num_blocks = config.num_blocks;
+    config.fuse_ops.log = config.log;
+
     /* Done */
     return 0;
 }
@@ -733,31 +864,30 @@ dump_config(void)
     int i;
 
     (*config.log)(LOG_DEBUG, "s3backer config:");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.accessId != NULL ? config.accessId : "");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.accessKey != NULL ? "****" : "");
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessFile", config.accessFile);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.accessType);
-    (*config.log)(LOG_DEBUG, "%16s: %s", "assume_empty", config.assume_empty ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.baseURL);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "bucket", config.bucket);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.prefix);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.http_io.accessType);
+    (*config.log)(LOG_DEBUG, "%16s: %s", "assume_empty", config.http_io.assume_empty ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.http_io.baseURL);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "bucket", config.http_io.bucket);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.http_io.prefix);
     (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "mount", config.mount);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "filename", config.filename);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "stats_filename", config.stats_filename);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "filename", config.fuse_ops.filename);
+    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
     (*config.log)(LOG_DEBUG, "%16s: %s (%u)", "block_size",
       config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
-    (*config.log)(LOG_DEBUG, "%16s: %u", "block_bits", config.block_bits);
     (*config.log)(LOG_DEBUG, "%16s: %s (%jd)", "file_size",
       config.file_size_str != NULL ? config.file_size_str : "-", (intmax_t)config.file_size);
     (*config.log)(LOG_DEBUG, "%16s: %jd", "num_blocks", (intmax_t)config.num_blocks);
-    (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.file_mode);
-    (*config.log)(LOG_DEBUG, "%16s: %s", "read_only", config.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%16s: %us", "timeout", config.timeout);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.initial_retry_pause);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.max_retry_pause);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.min_write_delay);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "cache_time", config.cache_time);
-    (*config.log)(LOG_DEBUG, "%16s: %u entries", "cache_size", config.cache_size);
+    (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.fuse_ops.file_mode);
+    (*config.log)(LOG_DEBUG, "%16s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%16s: %us", "timeout", config.http_io.timeout);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "cache_time", config.ec_protect.cache_time);
+    (*config.log)(LOG_DEBUG, "%16s: %u entries", "cache_size", config.ec_protect.cache_size);
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);

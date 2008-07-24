@@ -23,6 +23,10 @@
  */
 
 #include "s3backer.h"
+#include "ec_protect.h"
+#include "fuse_ops.h"
+#include "http_io.h"
+#include "s3b_config.h"
 
 /* Definitions */
 #define NUM_THREADS     10
@@ -40,7 +44,7 @@ static u_char *md5s;
 static void *zero_block;
 static u_char zero_md5[MD5_DIGEST_LENGTH];
 static pthread_mutex_t locks[NUM_LOCKS];
-static struct s3backer_conf *config;
+static struct s3b_config *config;
 static struct s3backer_store *store;
 
 int
@@ -56,8 +60,8 @@ main(int argc, char **argv)
         exit(1);
 
     /* Open store */
-    if ((store = s3backer_create(config)) == NULL)
-        err(1, "s3backer_create");
+    if ((store = s3backer_create_store(config)) == NULL)
+        err(1, "s3backer_create_store");
 
     /* Compute MD5 of zero block */
     if ((zero_block = calloc(1, config->block_size)) == NULL)
@@ -80,9 +84,9 @@ main(int argc, char **argv)
 
     /* Zero all blocks */
     for (i = 0; i < config->num_blocks; i++) {
-	fprintf(stderr, "zeroing block #%u\n", i);
-	if ((r = (*store->write_block)(store, i, zero_block)) != 0)
-	    warnx("write error: %s", strerror(r));
+        fprintf(stderr, "zeroing block #%u\n", i);
+        if ((r = (*store->write_block)(store, i, zero_block, NULL)) != 0)
+            warnx("write error: %s", strerror(r));
     }
 
     /* Create threads */
@@ -124,7 +128,7 @@ thread_main(void *arg)
         pthread_mutex_lock(&locks[lockid]);
         if ((random() % READ_FACTOR) != 0) {
             fprintf(stderr, "[%2d] rd #%u START\n", id, block_num);
-            if ((r = (*store->read_block)(store, block_num, data)) != 0) {
+            if ((r = (*store->read_block)(store, block_num, data, NULL)) != 0) {
                 warnx("[%2d] read error: %s", id, strerror(r));
                 continue;
             }
@@ -148,7 +152,7 @@ thread_main(void *arg)
             MD5_Init(&ctx);
             MD5_Update(&ctx, data, config->block_size);
             MD5_Final(md5, &ctx);
-            if ((r = (*store->write_block)(store, block_num, data)) != 0)
+            if ((r = (*store->write_block)(store, block_num, data, NULL)) != 0)
                 warnx("[%2d] write error: %s", id, strerror(r));
             else
                 memcpy(&md5s[block_num * MD5_DIGEST_LENGTH], md5, MD5_DIGEST_LENGTH);

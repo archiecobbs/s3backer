@@ -81,91 +81,10 @@ typedef uint32_t    s3b_block_t;
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
-/* Configuration info structure */
-struct s3backer_conf {
-    const char          *accessId;
-    const char          *accessKey;
-    const char          *accessFile;
-    const char          *accessType;
-    const char          *baseURL;
-    const char          *bucket;
-    const char          *prefix;
-    const char          *filename;
-    const char          *stats_filename;
-    const char          *mount;
-    const char          *user_agent;
-    int                 debug;
-    int                 force;
-    int                 assume_empty;
-    int                 read_only;
-    uid_t               uid;
-    gid_t               gid;
-    time_t              start_time;
-    u_int               block_size;
-    u_int               block_bits;
-    off_t               file_size;
-    off_t               num_blocks;
-    int                 file_mode;
-    u_int               timeout;
-    u_int               initial_retry_pause;
-    u_int               max_retry_pause;
-    u_int               min_write_delay;
-    u_int               cache_time;
-    u_int               cache_size;
-    struct fuse_args    fuse_args;
-    log_func_t          *log;
-
-    // These are only used during parsing
-    const char          *file_size_str;
-    const char          *block_size_str;
-};
-
-/* Statistics structure */
-struct s3backer_stats {
-
-    /* Block stats */
-    u_int               total_blocks_read;
-    u_int               total_blocks_written;
-    u_int               zero_blocks_read;
-    u_int               zero_blocks_written;
-    u_int               empty_blocks_read;          // only when `--assumeEmpty'
-    u_int               empty_blocks_written;       // only when `--assumeEmpty'
-
-    /* HTTP transfer stats */
-    u_int               http_heads;                 // total successful
-    u_int               http_gets;                  // total successful
-    u_int               http_puts;                  // total successful
-    u_int               http_deletes;               // total successful
-    double              http_total_time;            // successful operations
-    u_int               http_unauthorized;
-    u_int               http_forbidden;
-    u_int               http_stale;
-    u_int               http_5xx_error;
-    u_int               http_4xx_error;
-    u_int               http_other_error;
-
-    /* CURL stats */
-    u_int               curl_handles_created;
-    u_int               curl_handles_reused;
-    u_int               curl_timeouts;
-    u_int               curl_connect_failed;
-    u_int               curl_host_unknown;
-    u_int               curl_out_of_memory;
-    u_int               curl_other_error;
-
-    /* Retry stats */
-    u_int               num_retries;
-    uint64_t            retry_delay;
-
-    /* Cache stats */
-    u_int               current_cache_size;
-    u_int               cache_data_hits;
-    uint64_t            cache_full_delay;
-    uint64_t            repeated_write_delay;
-
-    /* Misc */
-    u_int               out_of_memory_errors;
-};
+/* Structure decl's */
+struct fuse_ops_config;
+struct ec_protect_config;
+struct http_io_config;
 
 /* Backing store instance structure */
 struct s3backer_store {
@@ -175,7 +94,7 @@ struct s3backer_store {
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest);
+    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 
     /*
      * Write one block. Blocks that are all zeroes are actually deleted instead
@@ -183,7 +102,7 @@ struct s3backer_store {
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src);
+    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
 
     /*
      * Auto-detect block size and total size based on the first block.
@@ -198,11 +117,6 @@ struct s3backer_store {
     int         (*detect_sizes)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 
     /*
-     * Get a statistics snapshot.
-     */
-    void        (*get_stats)(struct s3backer_store *s3b, struct s3backer_stats *stats);
-
-    /*
      * Destroy this instance.
      */
     void        (*destroy)(struct s3backer_store *s3b);
@@ -212,15 +126,6 @@ struct s3backer_store {
      */
     void        *data;
 };
-
-/* s3backer.c */
-extern struct s3backer_store *s3backer_create(struct s3backer_conf *config);
-
-/* fuse_ops.c */
-const struct fuse_operations *s3backer_get_fuse_ops(struct s3backer_conf *config);
-
-/* config.c */
-struct s3backer_conf *s3backer_get_config(int argc, char **argv);
 
 /* svnrev.c */
 extern const int s3backer_svnrev;

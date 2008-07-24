@@ -23,6 +23,7 @@
  */
 
 #include "s3backer.h"
+#include "fuse_ops.h"
 
 /****************************************************************************
  *                              DEFINITIONS                                 *
@@ -33,11 +34,19 @@
 #define STATS_INODE     3
 
 /* Represents an open 'stats' file */
-struct s3b_stats_file {
+struct stat_file {
     char    *buf;           // note: not necessarily nul-terminated
     size_t  len;            // length of string in 'buf'
     size_t  bufsiz;         // size allocated for 'buf'
     int     memerr;         // we got a memory error
+};
+
+/* Private information */
+struct fuse_ops_private {
+    struct s3backer_store   *s3b;
+    u_int                   block_bits;
+    off_t                   file_size;
+    time_t                  start_time;
 };
 
 /****************************************************************************
@@ -63,14 +72,13 @@ static int fuse_op_flush(const char *path, struct fuse_file_info *fi);
 static int fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi);
 
 /* Attribute functions */
-static void fuse_op_getattr_file(struct stat *st);
-static void fuse_op_getattr_stats(struct s3b_stats_file *sfile, struct stat *st);
+static void fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st);
+static void fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_file *sfile, struct stat *st);
 
 /* Stats functions */
-static struct s3b_stats_file *fuse_op_stats_create(struct s3backer_store *s3b);
-static void fuse_op_stats_destroy(struct s3b_stats_file *sfile);
-static void fuse_op_stats_printf(struct s3b_stats_file *sfile, const char *fmt, ...)
-  __attribute__ ((__format__ (__printf__, 2, 3)));
+static struct stat_file *fuse_op_stats_create(struct fuse_ops_private *priv);
+static void fuse_op_stats_destroy(struct stat_file *sfile);
+static printer_t fuse_op_stats_printer;
 
 /****************************************************************************
  *                          VARIABLE DEFINITIONS                            *
@@ -93,18 +101,21 @@ const struct fuse_operations s3backer_fuse_ops = {
     .release    = fuse_op_release,
 };
 
-/* Configuration */
-static struct s3backer_conf *config;
+/* Configuration and underlying s3backer_store */
+static struct fuse_ops_conf *config;
 
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
 const struct fuse_operations *
-s3backer_get_fuse_ops(struct s3backer_conf *the_config)
+fuse_ops_create(struct fuse_ops_conf *config0)
 {
-    assert(config == NULL);
-    config = the_config;
+    if (config != NULL) {
+        (*config0->log)(LOG_ERR, "s3backer_get_fuse_ops(): duplicate invocation");
+        return NULL;
+    }
+    config = config0;
     return &s3backer_fuse_ops;
 }
 
@@ -115,21 +126,41 @@ s3backer_get_fuse_ops(struct s3backer_conf *the_config)
 static void *
 fuse_op_init(struct fuse_conn_info *conn)
 {
-    return s3backer_create(config);
+    struct fuse_ops_private *priv;
+
+    /* Create private structure */
+    if ((priv = calloc(1, sizeof(*priv))) == NULL) {
+        (*config->log)(LOG_ERR, "fuse_op_init(): %s", strerror(errno));
+        return NULL;
+    }
+    priv->block_bits = ffs(config->block_size) - 1;
+    priv->start_time = time(NULL);
+    priv->file_size = config->num_blocks * config->block_size;
+
+    /* Create backing store */
+    if ((priv->s3b = (*config->create_s3b)(config->arg)) == NULL) {
+        (*config->log)(LOG_ERR, "fuse_op_init(): can't create s3backer_store: %s", strerror(errno));
+        free(priv);
+        return NULL;
+    }
+
+    /* Done */
+    return priv;
 }
 
 static void
 fuse_op_destroy(void *data)
 {
-    struct s3backer_store *const s3b = data;
+    struct fuse_ops_private *const priv = data;
 
-    (*s3b->destroy)(s3b);
+    (*priv->s3b->destroy)(priv->s3b);
+    free(priv);
 }
 
 static int
 fuse_op_getattr(const char *path, struct stat *st)
 {
-    struct s3backer_store *const s3b = (struct s3backer_store *)fuse_get_context()->private_data;
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
     memset(st, 0, sizeof(*st));
     if (strcmp(path, "/") == 0) {
@@ -138,21 +169,21 @@ fuse_op_getattr(const char *path, struct stat *st)
         st->st_ino = ROOT_INODE;
         st->st_uid = config->uid;
         st->st_gid = config->gid;
-        st->st_atime = config->start_time;
-        st->st_mtime = config->start_time;
-        st->st_ctime = config->start_time;
+        st->st_atime = priv->start_time;
+        st->st_mtime = priv->start_time;
+        st->st_ctime = priv->start_time;
         return 0;
     }
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
-        fuse_op_getattr_file(st);
+        fuse_op_getattr_file(priv, st);
         return 0;
     }
-    if (*path == '/' && strcmp(path + 1, config->stats_filename) == 0) {
-        struct s3b_stats_file *sfile;
+    if (*path == '/' && config->print_stats != NULL && strcmp(path + 1, config->stats_filename) == 0) {
+        struct stat_file *sfile;
 
-        if ((sfile = fuse_op_stats_create(s3b)) == NULL)
+        if ((sfile = fuse_op_stats_create(priv)) == NULL)
             return -ENOMEM;
-        fuse_op_getattr_stats(sfile, st);
+        fuse_op_getattr_stats(priv, sfile, st);
         fuse_op_stats_destroy(sfile);
         return 0;
     }
@@ -162,33 +193,35 @@ fuse_op_getattr(const char *path, struct stat *st)
 static int
 fuse_op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *fi)
 {
-    if (fi->fh != 0) {
-        struct s3b_stats_file *const sfile = (struct s3b_stats_file *)(uintptr_t)fi->fh;
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
-        fuse_op_getattr_stats(sfile, st);
+    if (fi->fh != 0) {
+        struct stat_file *const sfile = (struct stat_file *)(uintptr_t)fi->fh;
+
+        fuse_op_getattr_stats(priv, sfile, st);
     } else
-        fuse_op_getattr_file(st);
+        fuse_op_getattr_file(priv, st);
     return 0;
 }
 
 static void
-fuse_op_getattr_file(struct stat *st)
+fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st)
 {
     st->st_mode = S_IFREG | config->file_mode;
     st->st_nlink = 1;
     st->st_ino = FILE_INODE;
     st->st_uid = config->uid;
     st->st_gid = config->gid;
-    st->st_size = config->file_size;
+    st->st_size = priv->file_size;
     st->st_blksize = config->block_size;
-    st->st_blocks = config->file_size / config->block_size;
-    st->st_atime = config->start_time;
-    st->st_mtime = config->start_time;
-    st->st_ctime = config->start_time;
+    st->st_blocks = config->num_blocks;
+    st->st_atime = priv->start_time;
+    st->st_mtime = priv->start_time;
+    st->st_ctime = priv->start_time;
 }
 
 static void
-fuse_op_getattr_stats(struct s3b_stats_file *sfile, struct stat *st)
+fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_file *sfile, struct stat *st)
 {
     st->st_mode = S_IFREG | S_IRUSR | S_IRGRP | S_IROTH;
     st->st_nlink = 1;
@@ -197,10 +230,10 @@ fuse_op_getattr_stats(struct s3b_stats_file *sfile, struct stat *st)
     st->st_gid = config->gid;
     st->st_size = sfile->len;
     st->st_blksize = config->block_size;
-    st->st_blocks = (sfile->len + config->block_size - 1) / config->block_size;
-    st->st_atime = config->start_time;
-    st->st_mtime = config->start_time;
-    st->st_ctime = config->start_time;
+    st->st_blocks = 0;
+    st->st_atime = priv->start_time;
+    st->st_mtime = priv->start_time;
+    st->st_ctime = priv->start_time;
 }
 
 static int
@@ -214,7 +247,7 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, ".", NULL, 0);
     filler(buf, "..", NULL, 0);
     filler(buf, config->filename, NULL, 0);
-    if (*config->stats_filename != '\0')
+    if (config->print_stats != NULL && config->stats_filename != NULL)
         filler(buf, config->stats_filename, NULL, 0);
     return 0;
 }
@@ -222,19 +255,19 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int
 fuse_op_open(const char *path, struct fuse_file_info *fi)
 {
-    struct s3backer_store *const s3b = (struct s3backer_store *)fuse_get_context()->private_data;
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
     /* Backed file */
-    if (path[0] == '/' && strcmp(path + 1, config->filename) == 0) {
+    if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         fi->fh = 0;
         return 0;
     }
 
     /* Stats file */
-    if (path[0] == '/' && *config->stats_filename != '\0' && strcmp(path + 1, config->stats_filename) == 0) {
-        struct s3b_stats_file *sfile;
+    if (*path == '/' && config->print_stats != NULL && strcmp(path + 1, config->stats_filename) == 0) {
+        struct stat_file *sfile;
 
-        if ((sfile = fuse_op_stats_create(s3b)) == NULL)
+        if ((sfile = fuse_op_stats_create(priv)) == NULL)
             return -ENOMEM;
         fi->fh = (uint64_t)(uintptr_t)sfile;
         return 0;
@@ -248,7 +281,7 @@ static int
 fuse_op_release(const char *path, struct fuse_file_info *fi)
 {
     if (fi->fh != 0) {
-        struct s3b_stats_file *const sfile = (struct s3b_stats_file *)(uintptr_t)fi->fh;
+        struct stat_file *const sfile = (struct stat_file *)(uintptr_t)fi->fh;
 
         fuse_op_stats_destroy(sfile);
     }
@@ -259,7 +292,7 @@ static int
 fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
-    struct s3backer_store *const s3b = (struct s3backer_store *)fuse_get_context()->private_data;
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
     const size_t orig_size = size;
     char *fragment = NULL;
@@ -269,7 +302,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 
     /* Handle stats file */
     if (fi->fh != 0) {
-        struct s3b_stats_file *const sfile = (struct s3b_stats_file *)(uintptr_t)fi->fh;
+        struct stat_file *const sfile = (struct stat_file *)(uintptr_t)fi->fh;
 
         if (offset > sfile->len)
             return 0;
@@ -280,7 +313,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     }
 
     /* Check for out of range */
-    if (offset + size > config->file_size) {
+    if (offset + size > priv->file_size) {
         (*config->log)(LOG_ERR, "read offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
     }
@@ -292,9 +325,9 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 
         if (fraglen > size)
             fraglen = size;
-        block_num = offset >> config->block_bits;
+        block_num = offset >> priv->block_bits;
         fragment = alloca(config->block_size);
-        if ((r = (*s3b->read_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
         memcpy(buf, fragment + fragoff, fraglen);
         buf += fraglen;
@@ -303,12 +336,12 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     }
 
     /* Get block number and count */
-    block_num = offset >> config->block_bits;
-    num_blocks = size >> config->block_bits;
+    block_num = offset >> priv->block_bits;
+    num_blocks = size >> priv->block_bits;
 
     /* Read intermediate complete blocks */
     while (num_blocks-- > 0) {
-        if ((r = (*s3b->read_block)(s3b, block_num++, buf)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num++, buf, NULL)) != 0)
             return -r;
         buf += config->block_size;
     }
@@ -319,7 +352,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 
         if (fragment == NULL)
             fragment = alloca(config->block_size);
-        if ((r = (*s3b->read_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
         memcpy(buf, fragment, fraglen);
     }
@@ -331,7 +364,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 static int fuse_op_write(const char *path, const char *buf, size_t size,
     off_t offset, struct fuse_file_info *fi)
 {
-    struct s3backer_store *const s3b = (struct s3backer_store *)fuse_get_context()->private_data;
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
     const size_t orig_size = size;
     char *fragment = NULL;
@@ -339,12 +372,16 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     size_t num_blocks;
     int r;
 
+    /* Handle read-only flag */
+    if (config->read_only)
+        return -EROFS;
+
     /* Handle stats file */
     if (fi->fh != 0)
         return -EINVAL;
 
     /* Check for out of range */
-    if (offset + size > config->file_size) {
+    if (offset + size > priv->file_size) {
         (*config->log)(LOG_ERR, "write offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
     }
@@ -356,12 +393,12 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
 
         if (fraglen > size)
             fraglen = size;
-        block_num = offset >> config->block_bits;
+        block_num = offset >> priv->block_bits;
         fragment = alloca(config->block_size);
-        if ((r = (*s3b->read_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
         memcpy(fragment + fragoff, buf, fraglen);
-        if ((r = (*s3b->write_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
         buf += fraglen;
         offset += fraglen;
@@ -369,12 +406,12 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     }
 
     /* Get block number and count */
-    block_num = offset >> config->block_bits;
-    num_blocks = size >> config->block_bits;
+    block_num = offset >> priv->block_bits;
+    num_blocks = size >> priv->block_bits;
 
     /* Write intermediate complete blocks */
     while (num_blocks-- > 0) {
-        if ((r = (*s3b->write_block)(s3b, block_num++, buf)) != 0)
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, buf, NULL)) != 0)
             return -r;
         buf += config->block_size;
     }
@@ -385,10 +422,10 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
 
         if (fragment == NULL)
             fragment = alloca(config->block_size);
-        if ((r = (*s3b->read_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
         memcpy(fragment, buf, fraglen);
-        if ((r = (*s3b->write_block)(s3b, block_num, fragment)) != 0)
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num, fragment, NULL)) != 0)
             return -r;
     }
 
@@ -401,7 +438,7 @@ fuse_op_statfs(const char *path, struct statvfs *st)
 {
     st->f_bsize = config->block_size;
     st->f_frsize = config->block_size;
-    st->f_blocks = config->file_size / config->block_size;
+    st->f_blocks = config->num_blocks;
     st->f_bfree = 0;
     st->f_bavail = 0;
     st->f_files = 3;
@@ -428,49 +465,14 @@ fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
     return 0;
 }
 
-static struct s3b_stats_file *
-fuse_op_stats_create(struct s3backer_store *s3b)
+static struct stat_file *
+fuse_op_stats_create(struct fuse_ops_private *priv)
 {
-    struct s3backer_stats stats;
-    struct s3b_stats_file *sfile;
-    u_int total_ops;
+    struct stat_file *sfile;
 
     if ((sfile = calloc(1, sizeof(*sfile))) == NULL)
         return NULL;
-    (*s3b->get_stats)(s3b, &stats);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "total_blocks_read", stats.total_blocks_read);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "total_blocks_written", stats.total_blocks_written);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "zero_blocks_read", stats.zero_blocks_read);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "zero_blocks_written", stats.zero_blocks_written);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "empty_blocks_read", stats.empty_blocks_read);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "empty_blocks_written", stats.empty_blocks_written);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_heads", stats.http_heads);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_gets", stats.http_gets);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_puts", stats.http_puts);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_deletes", stats.http_deletes);
-    total_ops = stats.http_heads + stats.http_gets + stats.http_puts + stats.http_deletes;
-    fuse_op_stats_printf(sfile, "%-24s %.3f\n", "http_average_time",
-      total_ops > 0 ? stats.http_total_time / total_ops : 0.0);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_unauthorized", stats.http_unauthorized);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_forbidden", stats.http_forbidden);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_stale", stats.http_stale);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_5xx_error", stats.http_5xx_error);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_4xx_error", stats.http_4xx_error);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "http_other_error", stats.http_other_error);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_handles_created", stats.curl_handles_created);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_handles_reused", stats.curl_handles_reused);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_timeouts", stats.curl_timeouts);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_connect_failed", stats.curl_connect_failed);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_host_unknown", stats.curl_host_unknown);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_out_of_memory", stats.curl_out_of_memory);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "curl_other_error", stats.curl_other_error);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "num_retries", stats.num_retries);
-    fuse_op_stats_printf(sfile, "%-24s %ju\n", "retry_delay", (uintmax_t)stats.retry_delay);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "current_cache_size", stats.current_cache_size);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "cache_data_hits", stats.cache_data_hits);
-    fuse_op_stats_printf(sfile, "%-24s %ju\n", "cache_full_delay", (uintmax_t)stats.cache_full_delay);
-    fuse_op_stats_printf(sfile, "%-24s %ju\n", "repeated_write_delay", (uintmax_t)stats.repeated_write_delay);
-    fuse_op_stats_printf(sfile, "%-24s %u\n", "out_of_memory_errors", stats.out_of_memory_errors);
+    (*config->print_stats)(config->arg, sfile, fuse_op_stats_printer);
     if (sfile->memerr != 0) {
         fuse_op_stats_destroy(sfile);
         return NULL;
@@ -479,15 +481,16 @@ fuse_op_stats_create(struct s3backer_store *s3b)
 }
 
 static void
-fuse_op_stats_destroy(struct s3b_stats_file *sfile)
+fuse_op_stats_destroy(struct stat_file *sfile)
 {
     free(sfile->buf);
     free(sfile);
 }
 
 static void
-fuse_op_stats_printf(struct s3b_stats_file *sfile, const char *fmt, ...)
+fuse_op_stats_printer(void *prarg, const char *fmt, ...)
 {
+    struct stat_file *const sfile = prarg;
     va_list args;
     char *new_buf;
     size_t new_bufsiz;

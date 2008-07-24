@@ -22,27 +22,26 @@
  * $Id$
  */
 
-#include "s3backer.h"
-#include "ec_protect.h"
-#include "fuse_ops.h"
-#include "http_io.h"
-#include "s3b_config.h"
+/* Configuration info structure for ec_protect store */
+struct ec_protect_conf {
+    u_int               block_size;
+    off_t               num_blocks;
+    u_int               min_write_delay;
+    u_int               cache_time;
+    u_int               cache_size;
+    log_func_t          *log;
+};
 
-int
-main(int argc, char **argv)
-{
-    const struct fuse_operations *fuse_ops;
-    struct s3b_config *config;
+/* Statistics structure for ec_protect store */
+struct ec_protect_stats {
+    u_int               current_cache_size;
+    u_int               cache_data_hits;
+    uint64_t            cache_full_delay;
+    uint64_t            repeated_write_delay;
+    u_int               out_of_memory_errors;
+};
 
-    /* Get configuration */
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
-        exit(1);
-
-    /* Get FUSE operation hooks */
-    fuse_ops = fuse_ops_create(&config->fuse_ops);
-
-    /* Start */
-    (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL);
-}
+/* ec_protect.c */
+extern struct s3backer_store *ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner);
+extern void ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats);
 
