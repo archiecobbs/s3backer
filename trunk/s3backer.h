@@ -81,11 +81,6 @@ typedef uint32_t    s3b_block_t;
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
-/* Structure decl's */
-struct fuse_ops_config;
-struct ec_protect_config;
-struct http_io_config;
-
 /* Backing store instance structure */
 struct s3backer_store {
 
