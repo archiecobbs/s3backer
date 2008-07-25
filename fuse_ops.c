@@ -244,11 +244,16 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     (void)fi;
     if (strcmp(path, "/") != 0)
         return -ENOENT;
-    filler(buf, ".", NULL, 0);
-    filler(buf, "..", NULL, 0);
-    filler(buf, config->filename, NULL, 0);
-    if (config->print_stats != NULL && config->stats_filename != NULL)
-        filler(buf, config->stats_filename, NULL, 0);
+    if (filler(buf, ".", NULL, 0) != 0)
+        return -ENOMEM;
+    if (filler(buf, "..", NULL, 0) != 0)
+        return -ENOMEM;
+    if (filler(buf, config->filename, NULL, 0) != 0)
+        return -ENOMEM;
+    if (config->print_stats != NULL && config->stats_filename != NULL) {
+        if (filler(buf, config->stats_filename, NULL, 0) != 0)
+            return -ENOMEM;
+    }
     return 0;
 }
 
