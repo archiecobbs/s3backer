@@ -129,7 +129,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
 {
     struct s3backer_store *s3b;
     struct block_cache_private *priv;
-    int i;
+    pthread_t thread;
     int r;
 
     /* Sanity check: we use block numbers as g_hash_table keys */
@@ -179,16 +179,13 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     S3BCACHE_CHECK_INVARIANTS(priv);
 
     /* Create threads */
-    for (i = 0; i < config->num_threads; i++) {
-        pthread_t thread;
-
+    for (priv->num_threads = 0; priv->num_threads < config->num_threads; priv->num_threads++) {
         if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0) {
             priv->stopping = 1;
             pthread_cond_broadcast(&priv->new_dirty);
             while (priv->num_threads > 0)
                 pthread_cond_wait(&priv->stopped, &priv->mutex);
         }
-        priv->num_threads++;
     }
 
     /* Done */
@@ -227,11 +224,12 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* Wait for worker threads to exit */
+    /* Wait for all dirty blocks to be flushed and all worker threads to exit */
     priv->stopping = 1;
-    pthread_cond_broadcast(&priv->new_dirty);
-    while (priv->num_threads > 0)
+    while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
+        pthread_cond_broadcast(&priv->new_dirty);
         pthread_cond_wait(&priv->stopped, &priv->mutex);
+    }
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
@@ -439,7 +437,7 @@ block_cache_worker_main(void *arg)
     S3BCACHE_CHECK_INVARIANTS(priv);
 
     /* Repeatedly do stuff until told to stop */
-    while (!priv->stopping) {
+    while (1) {
 
         /* See if there is a block that needs writing */
         if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL) {
@@ -467,14 +465,17 @@ block_cache_worker_main(void *arg)
             pthread_cond_broadcast(&priv->entry_avail);
         }
 
+        /* Are we supposed to stop? */
+        if (priv->stopping != 0)
+            break;
+
         /* Sleep until there is more to do */
         pthread_cond_wait(&priv->new_dirty, &priv->mutex);
         S3BCACHE_CHECK_INVARIANTS(priv);
     }
 
-    /* Notify main thread if we're the last to go */
-    if (--priv->num_threads == 0)
-        pthread_cond_signal(&priv->stopped);
+    /* Notify main thread that we're exiting */
+    pthread_cond_signal(&priv->stopped);
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
