@@ -26,7 +26,7 @@ bin_PROGRAMS=       s3backer
 
 noinst_PROGRAMS=    tester
 
-noinst_HEADERS=     s3backer.h
+noinst_HEADERS=     s3backer.h block_cache.h ec_protect.h fuse_ops.h http_io.h s3b_config.h
 
 man_MANS=           s3backer.1
 
