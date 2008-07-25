@@ -23,6 +23,7 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"
@@ -33,30 +34,33 @@
  ****************************************************************************/
 
 /* S3 URL */
-#define S3_BASE_URL                             "http://s3.amazonaws.com/"
+#define S3_BASE_URL                                 "http://s3.amazonaws.com/"
 
 /* S3 access permission strings */
-#define S3_ACCESS_PRIVATE                       "private"
-#define S3_ACCESS_PUBLIC_READ                   "public-read"
-#define S3_ACCESS_PUBLIC_READ_WRITE             "public-read-write"
-#define S3_ACCESS_AUTHENTICATED_READ            "authenticated-read"
+#define S3_ACCESS_PRIVATE                           "private"
+#define S3_ACCESS_PUBLIC_READ                       "public-read"
+#define S3_ACCESS_PUBLIC_READ_WRITE                 "public-read-write"
+#define S3_ACCESS_AUTHENTICATED_READ                "authenticated-read"
 
 /* Default values for some configuration parameters */
-#define S3BACKER_DEFAULT_ACCESS_TYPE            S3_ACCESS_PRIVATE
-#define S3BACKER_DEFAULT_BASE_URL               S3_BASE_URL
-#define S3BACKER_DEFAULT_PWD_FILE               ".s3backer_passwd"
-#define S3BACKER_DEFAULT_PREFIX                 ""
-#define S3BACKER_DEFAULT_FILENAME               "file"
-#define S3BACKER_DEFAULT_STATS_FILENAME         "stats"
-#define S3BACKER_DEFAULT_BLOCKSIZE              4096
-#define S3BACKER_DEFAULT_TIMEOUT                30              // 30s
-#define S3BACKER_DEFAULT_FILE_MODE              0600
-#define S3BACKER_DEFAULT_FILE_MODE_READ_ONLY    0400
-#define S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE    200             // 200ms
-#define S3BACKER_DEFAULT_MAX_RETRY_PAUSE        30000           // 30s
-#define S3BACKER_DEFAULT_MIN_WRITE_DELAY        500             // 500ms
-#define S3BACKER_DEFAULT_CACHE_TIME             10000           // 10s
-#define S3BACKER_DEFAULT_CACHE_SIZE             10000
+#define S3BACKER_DEFAULT_ACCESS_TYPE                S3_ACCESS_PRIVATE
+#define S3BACKER_DEFAULT_BASE_URL                   S3_BASE_URL
+#define S3BACKER_DEFAULT_PWD_FILE                   ".s3backer_passwd"
+#define S3BACKER_DEFAULT_PREFIX                     ""
+#define S3BACKER_DEFAULT_FILENAME                   "file"
+#define S3BACKER_DEFAULT_STATS_FILENAME             "stats"
+#define S3BACKER_DEFAULT_BLOCKSIZE                  4096
+#define S3BACKER_DEFAULT_TIMEOUT                    30              // 30s
+#define S3BACKER_DEFAULT_FILE_MODE                  0600
+#define S3BACKER_DEFAULT_FILE_MODE_READ_ONLY        0400
+#define S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE        200             // 200ms
+#define S3BACKER_DEFAULT_MAX_RETRY_PAUSE            30000           // 30s
+#define S3BACKER_DEFAULT_MIN_WRITE_DELAY            500             // 500ms
+#define S3BACKER_DEFAULT_MD5_CACHE_TIME             10000           // 10s
+#define S3BACKER_DEFAULT_MD5_CACHE_SIZE             10000
+#define S3BACKER_DEFAULT_BLOCK_CACHE_SIZE           1000
+#define S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS    20
+#define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    0
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -118,8 +122,15 @@ static struct s3b_config config = {
     /* "Eventual consistency" protection config */
     .ec_protect= {
         .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
-        .cache_time=            S3BACKER_DEFAULT_CACHE_TIME,
-        .cache_size=            S3BACKER_DEFAULT_CACHE_SIZE,
+        .cache_time=            S3BACKER_DEFAULT_MD5_CACHE_TIME,
+        .cache_size=            S3BACKER_DEFAULT_MD5_CACHE_SIZE,
+    },
+
+    /* Block cache config */
+    .block_cache= {
+        .cache_size=            S3BACKER_DEFAULT_BLOCK_CACHE_SIZE,
+        .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
+        .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
     },
 
     /* FUSE operations config */
@@ -168,17 +179,32 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--blockCacheSize=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.cache_size),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--blockCacheThreads=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.num_threads),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--blockCacheWriteDelay=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.write_delay),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--cacheSize=%u",
+        .templ=     "--md5CacheSize=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.cache_size),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--cacheTime=%u",
+        .templ=     "--md5CacheTime=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -303,6 +329,7 @@ static const struct size_suffix size_suffixes[] = {
 };
 
 /* s3backer_store layers */
+struct s3backer_store *block_cache_store;
 struct s3backer_store *ec_protect_store;
 struct s3backer_store *http_io_store;
 
@@ -372,12 +399,23 @@ s3backer_create_store(struct s3b_config *conf)
 
     /* Create eventual consistency protection layer (if desired) */
     if (conf->ec_protect.cache_size > 0) {
-        if ((ec_protect_store = ec_protect_create(&conf->ec_protect, http_io_store)) == NULL) {
-            (*http_io_store->destroy)(http_io_store);
+        if ((ec_protect_store = ec_protect_create(&conf->ec_protect, store)) == NULL) {
+            (*store->destroy)(store);
             http_io_store = NULL;
             return NULL;
         }
         store = ec_protect_store;
+    }
+
+    /* Create block cache layer (if desired) */
+    if (conf->block_cache.cache_size > 0) {
+        if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL) {
+            (*store->destroy)(store);
+            ec_protect_store = NULL;
+            http_io_store = NULL;
+            return NULL;
+        }
+        store = block_cache_store;
     }
 
     /* Done */
@@ -401,6 +439,8 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
 {
     struct http_io_stats http_io_stats;
     struct ec_protect_stats ec_protect_stats;
+    struct block_cache_stats block_cache_stats;
+    u_int total_oom = 0;
     u_int total_ops;
 
     /* Get HTTP stats */
@@ -410,41 +450,69 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
     if (ec_protect_store != NULL)
         ec_protect_get_stats(ec_protect_store, &ec_protect_stats);
 
+    /* Get block cache stats */
+    if (block_cache_store != NULL)
+        block_cache_get_stats(block_cache_store, &block_cache_stats);
+
     /* Print stats in human-readable form */
-    (*printer)(prarg, "%-24s %u\n", "normal_blocks_read", http_io_stats.normal_blocks_read);
-    (*printer)(prarg, "%-24s %u\n", "normal_blocks_written", http_io_stats.normal_blocks_written);
-    (*printer)(prarg, "%-24s %u\n", "zero_blocks_read", http_io_stats.zero_blocks_read);
-    (*printer)(prarg, "%-24s %u\n", "zero_blocks_written", http_io_stats.zero_blocks_written);
-    (*printer)(prarg, "%-24s %u\n", "empty_blocks_read", http_io_stats.empty_blocks_read);
-    (*printer)(prarg, "%-24s %u\n", "empty_blocks_written", http_io_stats.empty_blocks_written);
-    (*printer)(prarg, "%-24s %u\n", "http_heads", http_io_stats.http_heads);
-    (*printer)(prarg, "%-24s %u\n", "http_gets", http_io_stats.http_gets);
-    (*printer)(prarg, "%-24s %u\n", "http_puts", http_io_stats.http_puts);
-    (*printer)(prarg, "%-24s %u\n", "http_deletes", http_io_stats.http_deletes);
+    (*printer)(prarg, "%-26s %u\n", "normal_blocks_read", http_io_stats.normal_blocks_read);
+    (*printer)(prarg, "%-26s %u\n", "normal_blocks_written", http_io_stats.normal_blocks_written);
+    (*printer)(prarg, "%-26s %u\n", "zero_blocks_read", http_io_stats.zero_blocks_read);
+    (*printer)(prarg, "%-26s %u\n", "zero_blocks_written", http_io_stats.zero_blocks_written);
+    (*printer)(prarg, "%-26s %u\n", "empty_blocks_read", http_io_stats.empty_blocks_read);
+    (*printer)(prarg, "%-26s %u\n", "empty_blocks_written", http_io_stats.empty_blocks_written);
+    (*printer)(prarg, "%-26s %u\n", "http_heads", http_io_stats.http_heads);
+    (*printer)(prarg, "%-26s %u\n", "http_gets", http_io_stats.http_gets);
+    (*printer)(prarg, "%-26s %u\n", "http_puts", http_io_stats.http_puts);
+    (*printer)(prarg, "%-26s %u\n", "http_deletes", http_io_stats.http_deletes);
     total_ops = http_io_stats.http_heads + http_io_stats.http_gets + http_io_stats.http_puts + http_io_stats.http_deletes;
-    (*printer)(prarg, "%-24s %.3f\n", "http_average_time",
+    (*printer)(prarg, "%-26s %.3f\n", "http_average_time",
       total_ops > 0 ? http_io_stats.http_total_time / total_ops : 0.0);
-    (*printer)(prarg, "%-24s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
-    (*printer)(prarg, "%-24s %u\n", "http_forbidden", http_io_stats.http_forbidden);
-    (*printer)(prarg, "%-24s %u\n", "http_stale", http_io_stats.http_stale);
-    (*printer)(prarg, "%-24s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
-    (*printer)(prarg, "%-24s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
-    (*printer)(prarg, "%-24s %u\n", "http_other_error", http_io_stats.http_other_error);
-    (*printer)(prarg, "%-24s %u\n", "curl_handles_created", http_io_stats.curl_handles_created);
-    (*printer)(prarg, "%-24s %u\n", "curl_handles_reused", http_io_stats.curl_handles_reused);
-    (*printer)(prarg, "%-24s %u\n", "curl_timeouts", http_io_stats.curl_timeouts);
-    (*printer)(prarg, "%-24s %u\n", "curl_connect_failed", http_io_stats.curl_connect_failed);
-    (*printer)(prarg, "%-24s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
-    (*printer)(prarg, "%-24s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
-    (*printer)(prarg, "%-24s %u\n", "curl_other_error", http_io_stats.curl_other_error);
-    (*printer)(prarg, "%-24s %u\n", "num_retries", http_io_stats.num_retries);
-    (*printer)(prarg, "%-24s %ju\n", "total_retry_delay", (uintmax_t)http_io_stats.retry_delay);
-    (*printer)(prarg, "%-24s %u\n", "current_cache_size", ec_protect_stats.current_cache_size);
-    (*printer)(prarg, "%-24s %u\n", "cache_data_hits", ec_protect_stats.cache_data_hits);
-    (*printer)(prarg, "%-24s %ju\n", "cache_full_delay", (uintmax_t)ec_protect_stats.cache_full_delay);
-    (*printer)(prarg, "%-24s %ju\n", "repeated_write_delay", (uintmax_t)ec_protect_stats.repeated_write_delay);
-    (*printer)(prarg, "%-24s %u\n", "out_of_memory_errors",
-      http_io_stats.out_of_memory_errors + ec_protect_stats.out_of_memory_errors);
+    (*printer)(prarg, "%-26s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
+    (*printer)(prarg, "%-26s %u\n", "http_forbidden", http_io_stats.http_forbidden);
+    (*printer)(prarg, "%-26s %u\n", "http_stale", http_io_stats.http_stale);
+    (*printer)(prarg, "%-26s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
+    (*printer)(prarg, "%-26s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
+    (*printer)(prarg, "%-26s %u\n", "http_other_error", http_io_stats.http_other_error);
+    (*printer)(prarg, "%-26s %u\n", "curl_handles_created", http_io_stats.curl_handles_created);
+    (*printer)(prarg, "%-26s %u\n", "curl_handles_reused", http_io_stats.curl_handles_reused);
+    (*printer)(prarg, "%-26s %u\n", "curl_timeouts", http_io_stats.curl_timeouts);
+    (*printer)(prarg, "%-26s %u\n", "curl_connect_failed", http_io_stats.curl_connect_failed);
+    (*printer)(prarg, "%-26s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
+    (*printer)(prarg, "%-26s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
+    (*printer)(prarg, "%-26s %u\n", "curl_other_error", http_io_stats.curl_other_error);
+    (*printer)(prarg, "%-26s %u\n", "num_retries", http_io_stats.num_retries);
+    (*printer)(prarg, "%-26s %ju\n", "total_retry_delay", (uintmax_t)http_io_stats.retry_delay);
+    total_oom += http_io_stats.out_of_memory_errors;
+    if (block_cache_store != NULL) {
+        double read_hit_ratio = 0.0;
+        double write_hit_ratio = 0.0;
+        u_int total_reads;
+        u_int total_writes;
+
+        total_reads = block_cache_stats.read_hits + block_cache_stats.read_misses;
+        if (total_reads != 0)
+            read_hit_ratio = (double)block_cache_stats.read_hits / (double)total_reads;
+        total_writes = block_cache_stats.write_hits + block_cache_stats.write_misses;
+        if (total_writes != 0)
+            write_hit_ratio = (double)block_cache_stats.write_hits / (double)total_writes;
+        (*printer)(prarg, "%-26s %u\n", "current_block_cache_size", block_cache_stats.current_size);
+        (*printer)(prarg, "%-26s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
+        (*printer)(prarg, "%-26s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
+        (*printer)(prarg, "%-26s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
+        (*printer)(prarg, "%-26s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
+        (*printer)(prarg, "%-26s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
+        (*printer)(prarg, "%-26s %.4f\n", "block_cache_read_hit_ratio", write_hit_ratio);
+        total_oom += ec_protect_stats.out_of_memory_errors;
+    }
+    if (ec_protect_store != NULL) {
+        (*printer)(prarg, "%-26s %u\n", "current_md5_cache_size", ec_protect_stats.current_cache_size);
+        (*printer)(prarg, "%-26s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
+        (*printer)(prarg, "%-26s %ju\n", "md5_cache_full_delay", (uintmax_t)ec_protect_stats.cache_full_delay);
+        (*printer)(prarg, "%-26s %ju\n", "repeated_write_delay", (uintmax_t)ec_protect_stats.repeated_write_delay);
+        total_oom += block_cache_stats.out_of_memory_errors;
+    }
+    (*printer)(prarg, "%-26s %u\n", "out_of_memory_errors", total_oom);
 }
 
 static int
@@ -684,15 +752,15 @@ validate_config(void)
 
     /* Check time/cache values */
     if (config.ec_protect.cache_size == 0 && config.ec_protect.cache_time > 0) {
-        warnx("`cacheTime' must zero when cache is disabled");
+        warnx("`md5CacheTime' must zero when MD5 cache is disabled");
         return -1;
     }
     if (config.ec_protect.cache_size == 0 && config.ec_protect.min_write_delay > 0) {
-        warnx("`minWriteDelay' must zero when cache is disabled");
+        warnx("`minWriteDelay' must zero when MD5 cache is disabled");
         return -1;
     }
     if (config.ec_protect.cache_time < config.ec_protect.min_write_delay) {
-        warnx("`cacheTime' must be at least `minWriteDelay'");
+        warnx("`md5CacheTime' must be at least `minWriteDelay'");
         return -1;
     }
     if (config.http_io.initial_retry_pause > config.http_io.max_retry_pause) {
@@ -714,6 +782,12 @@ validate_config(void)
             return -1;
         }
         config.file_size = value;
+    }
+
+    /* Check block cache config */
+    if (config.block_cache.cache_size > 0 && config.block_cache.num_threads <= 0) {
+        warnx("invalid block cache thread pool size %u", config.block_cache.num_threads);
+        return -1;
     }
 
     /* Check bucket and mount point provided */
@@ -843,6 +917,8 @@ validate_config(void)
 #endif  /* __APPLE__ */
 
     /* Copy common stuff into sub-module configs */
+    config.block_cache.block_size = config.block_size;
+    config.block_cache.log = config.log;
     config.http_io.debug = config.debug;
     config.http_io.block_size = config.block_size;
     config.http_io.num_blocks = config.num_blocks;
@@ -886,8 +962,11 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
     (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "cache_time", config.ec_protect.cache_time);
-    (*config.log)(LOG_DEBUG, "%16s: %u entries", "cache_size", config.ec_protect.cache_size);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "md5_cache_time", config.ec_protect.cache_time);
+    (*config.log)(LOG_DEBUG, "%16s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
+    (*config.log)(LOG_DEBUG, "%16s: %u entries", "block_cache_size", config.block_cache.cache_size);
+    (*config.log)(LOG_DEBUG, "%16s: %u threads", "block_cache_threads", config.block_cache.num_threads);
+    (*config.log)(LOG_DEBUG, "%16s: %u threads", "block_cache_write_delay", config.block_cache.write_delay);
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -957,9 +1036,12 @@ usage(void)
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-24s %s\n", "assumeEmpty", "Assume no blocks exist yet (skip DELETE until PUT)");
     fprintf(stderr, "\t--%-24s %s\n", "baseURL=URL", "Base URL for all requests");
+    fprintf(stderr, "\t--%-24s %s\n", "blockCacheSize=NUM", "Block cache size");
+    fprintf(stderr, "\t--%-24s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
+    fprintf(stderr, "\t--%-24s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
     fprintf(stderr, "\t--%-24s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-24s %s\n", "cacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
-    fprintf(stderr, "\t--%-24s %s\n", "cacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
+    fprintf(stderr, "\t--%-24s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
+    fprintf(stderr, "\t--%-24s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-24s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-24s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-24s %s\n", "filename=NAME", "Name of backed file in filesystem");
@@ -979,9 +1061,12 @@ usage(void)
     fprintf(stderr, "\t--%-24s %s\n", "accessId", "The first one listed in `accessFile'");
     fprintf(stderr, "\t--%-24s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
+    fprintf(stderr, "\t--%-24s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
+    fprintf(stderr, "\t--%-24s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);
+    fprintf(stderr, "\t--%-24s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
     fprintf(stderr, "\t--%-24s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
-    fprintf(stderr, "\t--%-24s %u\n", "cacheSize", S3BACKER_DEFAULT_CACHE_SIZE);
-    fprintf(stderr, "\t--%-24s %u\n", "cacheTime", S3BACKER_DEFAULT_CACHE_TIME);
+    fprintf(stderr, "\t--%-24s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
+    fprintf(stderr, "\t--%-24s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
     fprintf(stderr, "\t--%-24s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "\t--%-24s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
     fprintf(stderr, "\t--%-24s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);

@@ -36,9 +36,9 @@ doc_DATA=           CHANGES COPYING README INSTALL TODO
 
 EXTRA_DIST=         CHANGES s3backer.1
 
-s3backer_SOURCES=   main.c ec_protect.c fuse_ops.c http_io.c s3b_config.c svnrev.c
+s3backer_SOURCES=   main.c block_cache.c ec_protect.c fuse_ops.c http_io.c s3b_config.c svnrev.c
 
-tester_SOURCES=     tester.c ec_protect.c http_io.c s3b_config.c svnrev.c
+tester_SOURCES=     tester.c block_cache.c ec_protect.c http_io.c s3b_config.c svnrev.c
 
 AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
 

@@ -23,6 +23,7 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"

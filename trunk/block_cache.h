@@ -22,28 +22,26 @@
  * $Id$
  */
 
-#include "s3backer.h"
-#include "block_cache.h"
-#include "ec_protect.h"
-#include "fuse_ops.h"
-#include "http_io.h"
-#include "s3b_config.h"
+/* Configuration info structure for block_cache */
+struct block_cache_conf {
+    u_int               block_size;
+    u_int               cache_size;
+    u_int               write_delay;
+    u_int               num_threads;
+    log_func_t          *log;
+};
 
-int
-main(int argc, char **argv)
-{
-    const struct fuse_operations *fuse_ops;
-    struct s3b_config *config;
+/* Statistics structure for block_cache */
+struct block_cache_stats {
+    u_int               current_size;
+    u_int               read_hits;
+    u_int               read_misses;
+    u_int               write_hits;
+    u_int               write_misses;
+    u_int               out_of_memory_errors;
+};
 
-    /* Get configuration */
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
-        exit(1);
-
-    /* Get FUSE operation hooks */
-    fuse_ops = fuse_ops_create(&config->fuse_ops);
-
-    /* Start */
-    (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL);
-}
+/* block_cache.c */
+extern struct s3backer_store *block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner);
+extern void block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stats);
 

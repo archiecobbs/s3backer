@@ -26,6 +26,7 @@
 struct s3b_config {
 
     /* Various sub-module configurations */
+    struct block_cache_conf     block_cache;
     struct fuse_ops_conf        fuse_ops;
     struct ec_protect_conf      ec_protect;
     struct http_io_conf         http_io;
