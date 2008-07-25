@@ -966,7 +966,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%16s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
     (*config.log)(LOG_DEBUG, "%16s: %u entries", "block_cache_size", config.block_cache.cache_size);
     (*config.log)(LOG_DEBUG, "%16s: %u threads", "block_cache_threads", config.block_cache.num_threads);
-    (*config.log)(LOG_DEBUG, "%16s: %u threads", "block_cache_write_delay", config.block_cache.write_delay);
+    (*config.log)(LOG_DEBUG, "%16s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
