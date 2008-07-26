@@ -346,6 +346,11 @@ This value must be set to zero when
 .Fl \-md5CacheSize
 is set to zero (MD5 cache disabled).
 Default value is 10 seconds.
+.It Fl \-noAutoDetect
+Disable block and file size auto-detection at startup.
+If this flag is given, then the block size defaults to 4096 and the
+.Fl \-size
+flag is required.
 .It Fl \-prefix=STRING
 Specify a prefix to prepend to the resource names within bucket that identify each block.
 Default is the empty string.
