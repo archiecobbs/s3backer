@@ -278,6 +278,7 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     /* If cache entry exists, we're home free */
     if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
 
+hit:
         /* Copy cached data */
         assert(entry->block_num == block_num);
         memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
@@ -299,8 +300,8 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     S3BCACHE_CHECK_INVARIANTS(priv);
 
     /* Check the cache again; another operation on the same block could have occurred */
-    if (block_cache_hash_get(priv, block_num) != NULL)
-        goto done;
+    if ((entry = block_cache_hash_get(priv, block_num)) != NULL)
+        goto hit;
 
     /* Get a cache entry; if none available, no big deal */
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0 || entry == NULL)
