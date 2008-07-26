@@ -93,12 +93,12 @@ struct block_cache_private {
     TAILQ_HEAD(, cache_entry)       cleans;         // list of clean blocks (LRU order)
     TAILQ_HEAD(, cache_entry)       dirties;        // list of dirty blocks (write order)
     GHashTable                      *hashtable;     // hashtable of all cached blocks
-    u_int                           num_threads;    // number of worker threads
+    u_int                           num_threads;    // number of alive worker threads
     int                             stopping;       // signals worker threads to exit
     pthread_mutex_t                 mutex;          // my mutex
     pthread_cond_t                  new_dirty;      // there is a new dirty cache entry
     pthread_cond_t                  new_clean;      // there is a new clean cache entry
-    pthread_cond_t                  stopped;        // all worker threads have exited
+    pthread_cond_t                  worker_exit;    // a worker thread has exited
 };
 
 /* s3backer_store functions */
@@ -168,7 +168,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail3;
     if ((r = pthread_cond_init(&priv->new_clean, NULL)) != 0)
         goto fail4;
-    if ((r = pthread_cond_init(&priv->stopped, NULL)) != 0)
+    if ((r = pthread_cond_init(&priv->worker_exit, NULL)) != 0)
         goto fail5;
     TAILQ_INIT(&priv->cleans);
     TAILQ_INIT(&priv->dirties);
@@ -184,20 +184,24 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
 
     /* Create threads */
     for (priv->num_threads = 0; priv->num_threads < config->num_threads; priv->num_threads++) {
-        if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0) {
-            priv->stopping = 1;
-            pthread_cond_broadcast(&priv->new_dirty);
-            while (priv->num_threads > 0)
-                pthread_cond_wait(&priv->stopped, &priv->mutex);
-        }
+        if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
+            goto fail7;
     }
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return s3b;
 
+fail7:
+    priv->stopping = 1;
+    pthread_cond_broadcast(&priv->new_dirty);
+    while (priv->num_threads > 0) {
+        pthread_cond_broadcast(&priv->new_dirty);
+        pthread_cond_wait(&priv->worker_exit, &priv->mutex);
+    }
+    g_hash_table_destroy(priv->hashtable);
 fail6:
-    pthread_cond_destroy(&priv->stopped);
+    pthread_cond_destroy(&priv->worker_exit);
 fail5:
     pthread_cond_destroy(&priv->new_clean);
 fail4:
@@ -230,14 +234,14 @@ block_cache_destroy(struct s3backer_store *const s3b)
     priv->stopping = 1;
     while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
         pthread_cond_broadcast(&priv->new_dirty);
-        pthread_cond_wait(&priv->stopped, &priv->mutex);
+        pthread_cond_wait(&priv->worker_exit, &priv->mutex);
     }
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->new_clean);
     pthread_cond_destroy(&priv->new_dirty);
-    pthread_cond_destroy(&priv->stopped);
+    pthread_cond_destroy(&priv->worker_exit);
     g_hash_table_foreach(priv->hashtable, block_cache_free_one, NULL);
     g_hash_table_destroy(priv->hashtable);
     free(priv);
@@ -444,6 +448,9 @@ block_cache_worker_main(void *arg)
     char *buf;
     int r;
 
+    /* Grab lock */
+    pthread_mutex_lock(&priv->mutex);
+
     /*
      * Allocate buffer for outgoing block data. We have to copy it before
      * we send it in case another write to this block comes in and updates
@@ -452,11 +459,8 @@ block_cache_worker_main(void *arg)
      */
     if ((buf = malloc(block_size)) == NULL) {
         (*config->log)(LOG_ERR, "block_cache worker can't alloc buffer, exiting: %s", strerror(errno));
-        return NULL;
+        goto done;
     }
-
-    /* Grab lock */
-    pthread_mutex_lock(&priv->mutex);
 
     /* Repeatedly do stuff until told to stop */
     while (1) {
@@ -509,12 +513,16 @@ block_cache_worker_main(void *arg)
         pthread_cond_wait(&priv->new_dirty, &priv->mutex);
     }
 
-    /* Notify main thread that we're exiting */
-    pthread_cond_signal(&priv->stopped);
+done:
+    /* Decrement live worker thread count */
+    priv->num_threads--;
+    pthread_cond_signal(&priv->worker_exit);
+
+    /* Free block data buffer */
+    free(buf);
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
-    free(buf);
     return NULL;
 }
 
