@@ -1,9 +1,9 @@
 
 Version 1.1.0
 
-    - Added a block cache.
-    - Add new `stats' file containing tracked statistics.
-    - Added `--noAutoDetect' flag.
+    - Added a block cache with parallel writes which vastly improves performance.
+    - Added a new `stats' file to the filesystem containing various statistics.
+    - Added `--noAutoDetect' flag to disable auto-detection at startup.
     - Fixed a few small race conditions and memory leaks.
     - Return zeroes for unwritten blocks with `assumeEmpty'.
 
