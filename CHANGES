@@ -1,9 +1,11 @@
 
 Version 1.1.0
 
+    - Added a block cache.
+    - Add new `stats' file containing tracked statistics.
+    - Added `--noAutoDetect' flag.
     - Fixed a few small race conditions and memory leaks.
     - Return zeroes for unwritten blocks with `assumeEmpty'.
-    - Add new `stats' file containing tracked statistics.
 
 Version 1.0.5 (r111) released 15 July 2008
 

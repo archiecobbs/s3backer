@@ -143,6 +143,7 @@ static struct s3b_config config = {
     /* Common stuff */
     .block_size=            0,
     .file_size=             0,
+    .no_auto_detect=        0,
     .log=                   syslog_logger
 };
 
@@ -226,6 +227,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--force",
         .offset=    offsetof(struct s3b_config, force),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--noAutoDetect",
+        .offset=    offsetof(struct s3b_config, no_auto_detect),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -806,8 +812,13 @@ validate_config(void)
      */
     if ((s3b = http_io_create(&config.http_io)) == NULL)
         err(1, "http_io_create");
-    warnx("auto-detecting block size and total file size...");
-    switch ((r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size))) {
+    if (config.no_auto_detect)
+        r = ENOENT;
+    else {
+        warnx("auto-detecting block size and total file size...");
+        r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size);
+    }
+    switch (r) {
     case 0:
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)auto_block_size);
         unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)auto_file_size);
@@ -850,15 +861,16 @@ validate_config(void)
     case ENOENT:
     case ENXIO:
     {
+        const char *why = config.no_auto_detect ? "disabled" : "failed";
         int config_block_size = config.block_size;
 
         if (config.file_size == 0)
-            errx(1, "error: auto-detection of filesystem size failed; please specify `--size'");
+            errx(1, "error: auto-detection of filesystem size %s; please specify `--size'", why);
         if (config.block_size == 0)
             config.block_size = S3BACKER_DEFAULT_BLOCKSIZE;
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)config.block_size);
         unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)config.file_size);
-        warnx("auto-detection failed; using %s block size %s and file size %s",
+        warnx("auto-detection %s; using %s block size %s and file size %s", why,
           config_block_size == 0 ? "default" : "configured", blockSizeBuf, fileSizeBuf);
         break;
     }
