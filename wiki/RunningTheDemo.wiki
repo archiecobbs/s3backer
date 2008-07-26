@@ -36,3 +36,6 @@ s3backer: auto-detected block size=4k and total size=640k
 }}}
 
 You will then see {{{demo.dmg}}} inside the {{{s3b.mnt}}} directory, which is a Mac OS disk image you can then mount normally.
+
+Depending on the speed of your Internet connection, it may take several seconds to mount the disk image.
+
