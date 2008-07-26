@@ -1,5 +1,5 @@
 
-Version 1.1.0
+Version 1.1.0 (r150) released 26 July 2008
 
     - Added a block cache with parallel writes which vastly improves performance.
     - Added a new `stats' file to the filesystem containing various statistics.
