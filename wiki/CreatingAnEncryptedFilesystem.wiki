@@ -50,11 +50,14 @@ echo "Using ${LOOP_DEVICE}..." 1>&2
 
 # Configure loopback for encryption
 echo 'setting up loopback device...' 1>&2
+sudo losetup -d "${LOOP_DEVICE}" >/dev/null 2>&1 || true
 sudo losetup -e "${ENCRYPTION}" "${LOOP_DEVICE}" "${S3B_MOUNT_DIR}"/file
 
 # Create filesystem
 echo 'initializing filesystem...' 1>&2
 sudo mke2fs -b 4096 "${LOOP_DEVICE}"
+# or for reiserfs...
+# sudo mkreiserfs -f -b 4096 -s 513 -l 's3disk' "${LOOP_DEVICE}"
 
 # Done
 sudo losetup -d "${LOOP_DEVICE}"
