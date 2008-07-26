@@ -620,15 +620,19 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
             /* Update stats */
             pthread_mutex_lock(&priv->mutex);
-            priv->stats.http_total_time += curl_time;
-            if (strcmp(io->method, HTTP_GET) == 0)
-                priv->stats.http_gets++;
-            else if (strcmp(io->method, HTTP_PUT) == 0)
-                priv->stats.http_puts++;
-            else if (strcmp(io->method, HTTP_DELETE) == 0)
-                priv->stats.http_deletes++;
-            else if (strcmp(io->method, HTTP_HEAD) == 0)
-                priv->stats.http_heads++;
+            if (strcmp(io->method, HTTP_GET) == 0) {
+                priv->stats.http_gets.count++;
+                priv->stats.http_gets.time += curl_time;
+            } else if (strcmp(io->method, HTTP_PUT) == 0) {
+                priv->stats.http_puts.count++;
+                priv->stats.http_puts.time += curl_time;
+            } else if (strcmp(io->method, HTTP_DELETE) == 0) {
+                priv->stats.http_deletes.count++;
+                priv->stats.http_deletes.time += curl_time;
+            } else if (strcmp(io->method, HTTP_HEAD) == 0) {
+                priv->stats.http_heads.count++;
+                priv->stats.http_heads.time += curl_time;
+            }
             pthread_mutex_unlock(&priv->mutex);
 
             /* Done */
