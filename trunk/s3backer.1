@@ -108,6 +108,7 @@ As a simple optimization,
 .Nm
 does not store blocks containing all zeroes; instead, they are simply deleted.
 Conversely, reads of non-existent blocks will contain all zeroes.
+In other words, the backed file is always maximally sparse.
 .Pp
 As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new filesystem.
 .Ss File and Block Size Auto-Detection
