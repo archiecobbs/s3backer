@@ -467,7 +467,6 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
     (*printer)(prarg, "%-26s %u\n", "zero_blocks_written", http_io_stats.zero_blocks_written);
     (*printer)(prarg, "%-26s %u\n", "empty_blocks_read", http_io_stats.empty_blocks_read);
     (*printer)(prarg, "%-26s %u\n", "empty_blocks_written", http_io_stats.empty_blocks_written);
-    (*printer)(prarg, "%-26s %u\n", "http_heads", http_io_stats.http_heads);
     (*printer)(prarg, "%-26s %u\n", "http_gets", http_io_stats.http_gets);
     (*printer)(prarg, "%-26s %u\n", "http_puts", http_io_stats.http_puts);
     (*printer)(prarg, "%-26s %u\n", "http_deletes", http_io_stats.http_deletes);
@@ -508,7 +507,7 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         (*printer)(prarg, "%-26s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
         (*printer)(prarg, "%-26s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-26s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
-        (*printer)(prarg, "%-26s %.4f\n", "block_cache_read_hit_ratio", write_hit_ratio);
+        (*printer)(prarg, "%-26s %.4f\n", "block_cache_write_hit_ratio", write_hit_ratio);
         total_oom += ec_protect_stats.out_of_memory_errors;
     }
     if (ec_protect_store != NULL) {
