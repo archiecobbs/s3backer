@@ -277,18 +277,30 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 
     /* If cache entry exists, we're home free */
     if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
+
+        /* Copy cached data */
         assert(entry->block_num == block_num);
         memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
         priv->stats.read_hits++;
+
+        /* If CLEAN, move to the end of the list to maintain LRU ordering */
+        if (ENTRY_GET_STATE(entry) == CLEAN) {
+            TAILQ_REMOVE(&priv->cleans, entry, link);
+            TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+        }
         goto done;
     }
     priv->stats.read_misses++;
 
-    /* Read the block (duplicate reads for the same block are OK) */
+    /* Read the block from the underlying s3backer_store */
     pthread_mutex_unlock(&priv->mutex);
     r = (*priv->inner->read_block)(priv->inner, block_num, dest, expect_md5);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Check the cache again; another operation on the same block could have occurred */
+    if (block_cache_hash_get(priv, block_num) != NULL)
+        goto done;
 
     /* Get a cache entry; if none available, no big deal */
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0 || entry == NULL)
@@ -376,7 +388,8 @@ done:
 
 /*
  * Acquire a new cache entry. If the cache is full, and there is at least
- * one CLEAN entry, evict it first. Otherwise, return NULL entry.
+ * one CLEAN entry, evict it first. Otherwise, return NULL entry. The new
+ * entry will be uninitialized.
  *
  * This assumes the mutex is held.
  *
