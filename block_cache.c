@@ -34,16 +34,23 @@
  *  CLEAN       Data is consistent with underlying s3backer_store
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
  *  WRITING     Data is being written to underlying s3backer_store
- *
- * Blocks in the DIRTY state are linked in a list in the order they should be written.
- * A pool of worker threads picks them off and writes them through to the underlying
- * s3backer_store; while being written they are in state WRITING; if the write is
- * successful, they move to CLEAN, otherwise back to DIRTY.
+ *  WRITING2    Same as WRITING, but a subsequent write has stored new data
  *
  * Blocks in the CLEAN state are linked in a list in order from least recently used
  * to most recently used (where 'used' means either read or written).
  *
- * Blocks in the WRITING state are not in either list.
+ * Blocks in the DIRTY state are linked in a list in the order they should be written.
+ * A pool of worker threads picks them off and writes them through to the underlying
+ * s3backer_store; while being written they are in state WRITING, or WRITING2 if another
+ * write to the same block happens during that time. If the write is unsuccessful, the
+ * block goes back to DIRTY and to the end of the DIRTY list: the result is that failed
+ * writes of DIRTY blocks will retry indefinitely. If the write is successful, the
+ * block moves to CLEAN if still in state WRITING, of DIRTY if in WRITING2.
+ *
+ * Because we allow writes to update the data in a block while that block is being
+ * written, the worker threads must make a copy of the data before they send it.
+ *
+ * Blocks in the WRITING and WRITING2 states are not in either list.
  *
  * Only CLEAN blocks are eligible to be evicted from the cache.
  */
@@ -70,8 +77,8 @@ struct cache_entry {
 };
 #define ENTRY_IS_DIRTY(entry)               (((intptr_t)(entry)->_data & 1) != 0)
 #define ENTRY_SET_DIRTY(entry)              do { (*((intptr_t *)&(entry)->_data)) |= (intptr_t)1; } while (0)
-#define ENTRY_SET_CLEAN(entry)              do { (*((intptr_t *)&(entry)->_data)) &= (intptr_t)~1; } while (0)
-#define ENTRY_GET_DATA(entry)               ((void *)((intptr_t)(entry)->_data & (intptr_t)~1))
+#define ENTRY_SET_CLEAN(entry)              do { (*((intptr_t *)&(entry)->_data)) &= ~(intptr_t)1; } while (0)
+#define ENTRY_GET_DATA(entry)               ((void *)((intptr_t)(entry)->_data & ~(intptr_t)1))
 #define ENTRY_SET_DATA(entry, data, state)  do { (entry)->_data = (state) == CLEAN ? (void *)(data) \
                                               : (void *)((intptr_t)(data) | (intptr_t)1); } while (0)
 #define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_next != NULL || (entry)->link.tqe_prev != NULL)
@@ -90,8 +97,7 @@ struct block_cache_private {
     int                             stopping;       // signals worker threads to exit
     pthread_mutex_t                 mutex;          // my mutex
     pthread_cond_t                  new_dirty;      // there is a new dirty cache entry
-    pthread_cond_t                  entry_avail;    // some cache entry is newly available
-    pthread_cond_t                  write_done;     // a write of some block has completed
+    pthread_cond_t                  new_clean;      // there is a new clean cache entry
     pthread_cond_t                  stopped;        // all worker threads have exited
 };
 
@@ -160,17 +166,15 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail2;
     if ((r = pthread_cond_init(&priv->new_dirty, NULL)) != 0)
         goto fail3;
-    if ((r = pthread_cond_init(&priv->entry_avail, NULL)) != 0)
+    if ((r = pthread_cond_init(&priv->new_clean, NULL)) != 0)
         goto fail4;
-    if ((r = pthread_cond_init(&priv->write_done, NULL)) != 0)
-        goto fail5;
     if ((r = pthread_cond_init(&priv->stopped, NULL)) != 0)
-        goto fail6;
+        goto fail5;
     TAILQ_INIT(&priv->cleans);
     TAILQ_INIT(&priv->dirties);
     if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
         r = errno;
-        goto fail7;
+        goto fail6;
     }
     s3b->data = priv;
 
@@ -192,12 +196,10 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     pthread_mutex_unlock(&priv->mutex);
     return s3b;
 
-fail7:
-    pthread_cond_destroy(&priv->stopped);
 fail6:
-    pthread_cond_destroy(&priv->write_done);
+    pthread_cond_destroy(&priv->stopped);
 fail5:
-    pthread_cond_destroy(&priv->entry_avail);
+    pthread_cond_destroy(&priv->new_clean);
 fail4:
     pthread_cond_destroy(&priv->new_dirty);
 fail3:
@@ -233,9 +235,8 @@ block_cache_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
-    pthread_cond_destroy(&priv->entry_avail);
+    pthread_cond_destroy(&priv->new_clean);
     pthread_cond_destroy(&priv->new_dirty);
-    pthread_cond_destroy(&priv->write_done);
     pthread_cond_destroy(&priv->stopped);
     g_hash_table_foreach(priv->hashtable, block_cache_free_one, NULL);
     g_hash_table_destroy(priv->hashtable);
@@ -313,6 +314,7 @@ hit:
     ENTRY_SET_DATA(entry, data, CLEAN);
     block_cache_hash_put(priv, entry);
     TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+    //pthread_cond_broadcast(&priv->new_clean);         /* this is not necessary */
 
 done:
     /* Release lock */
@@ -326,60 +328,54 @@ block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
+    void *data;
     int r = 0;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
 
 again:
     /* Find cache entry */
+    S3BCACHE_CHECK_INVARIANTS(priv);
     if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
         assert(entry->block_num == block_num);
         switch (ENTRY_GET_STATE(entry)) {
         case CLEAN:                 /* change to DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
-            memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
-            ENTRY_SET_DIRTY(entry);
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             pthread_cond_signal(&priv->new_dirty);
-            priv->stats.write_hits++;
-            break;
-        case DIRTY:                 /* just update data */
+            // FALLTHROUGH
+        case WRITING:               /* update dirty data and move to WRITING2 */
+        case DIRTY:                 /* just update the dirty data */
             memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
+            ENTRY_SET_DIRTY(entry); /* if DIRTY, no change; if WRITING, -> WRITING2 */
             priv->stats.write_hits++;
             break;
-        case WRITING:               /* wait for previous write to complete */
-            pthread_cond_wait(&priv->write_done, &priv->mutex);
-            S3BCACHE_CHECK_INVARIANTS(priv);
-            goto again;
         default:
             assert(0);
             break;
         }
-    } else {
-        void *data;
-
-        /* Get a cache entry */
-        if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
-            goto done;
-
-        /* If none available, wait for one */
-        if (entry == NULL) {
-            pthread_cond_wait(&priv->entry_avail, &priv->mutex);
-            S3BCACHE_CHECK_INVARIANTS(priv);
-            goto again;
-        }
-
-        /* Initialize new DIRTY cache entry */
-        priv->stats.write_misses++;
-        entry->block_num = block_num;
-        ENTRY_SET_DATA(entry, data, DIRTY);
-        memcpy(data, src, config->block_size);
-        block_cache_hash_put(priv, entry);
-        TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
-        pthread_cond_signal(&priv->new_dirty);
+        goto done;
     }
+
+    /* Get a cache entry, evicting a CLEAN entry if necessary */
+    if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
+        goto done;
+
+    /* If none available, wait for one */
+    if (entry == NULL) {
+        pthread_cond_wait(&priv->new_clean, &priv->mutex);
+        goto again;
+    }
+
+    /* Initialize a new DIRTY cache entry */
+    priv->stats.write_misses++;
+    entry->block_num = block_num;
+    ENTRY_SET_DATA(entry, data, DIRTY);
+    memcpy(data, src, config->block_size);
+    block_cache_hash_put(priv, entry);
+    TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+    pthread_cond_signal(&priv->new_dirty);
 
 done:
     /* Done */
@@ -388,9 +384,8 @@ done:
 }
 
 /*
- * Acquire a new cache entry. If the cache is full, and there is at least
- * one CLEAN entry, evict it first. Otherwise, return NULL entry. The new
- * entry will be uninitialized.
+ * Acquire a new cache entry. If the cache is full, and there is at least one
+ * CLEAN entry, evict and return it (uninitialized). Otherwise, return NULL entry.
  *
  * This assumes the mutex is held.
  *
@@ -443,15 +438,31 @@ static void *
 block_cache_worker_main(void *arg)
 {
     struct block_cache_private *const priv = arg;
+    struct block_cache_conf *const config = priv->config;
+    const u_int block_size = config->block_size;
     struct cache_entry *entry;
+    char *buf;
     int r;
+
+    /*
+     * Allocate buffer for outgoing block data. We have to copy it before
+     * we send it in case another write to this block comes in and updates
+     * the buffer associated with the cache entry. Prefer heap space (because
+     * it will likely be page-aligned), falling back to stack if that fails.
+     */
+    if ((buf = malloc(block_size)) == NULL) {
+        (*config->log)(LOG_ERR, "block_cache worker can't alloc buffer, exiting: %s", strerror(errno));
+        return NULL;
+    }
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
 
     /* Repeatedly do stuff until told to stop */
     while (1) {
+
+        /* Sanity check */
+        S3BCACHE_CHECK_INVARIANTS(priv);
 
         /* See if there is a block that needs writing */
         if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL) {
@@ -460,23 +471,34 @@ block_cache_worker_main(void *arg)
             assert(ENTRY_IS_DIRTY(entry));
             TAILQ_REMOVE(&priv->dirties, entry, link);
             ENTRY_RESET_LINK(entry);
+            ENTRY_SET_CLEAN(entry);
+
+            /* Copy data to private buffer */
+            memcpy(buf, ENTRY_GET_DATA(entry), block_size);
 
             /* Attempt to write the block */
             pthread_mutex_unlock(&priv->mutex);
-            r = (*priv->inner->write_block)(priv->inner, entry->block_num, ENTRY_GET_DATA(entry), NULL);
+            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, NULL);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv);
 
-            /* If that failed, go back to the DIRTY state and try again later */
+            /* If that failed, go back to the DIRTY state and try again */
             if (r != 0) {
                 TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+                ENTRY_SET_DIRTY(entry);
                 continue;
             }
 
-            /* Move block to the CLEAN state */
-            ENTRY_SET_CLEAN(entry);
-            TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
-            pthread_cond_broadcast(&priv->entry_avail);
+            /* If block was not modified while being written, it is now CLEAN */
+            if (!ENTRY_IS_DIRTY(entry)) {
+                TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+                pthread_cond_broadcast(&priv->new_clean);
+                continue;
+            }
+
+            /* Block was modified while being written, so it's still DIRTY */
+            TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+            continue;
         }
 
         /* Are we supposed to stop? */
@@ -485,7 +507,6 @@ block_cache_worker_main(void *arg)
 
         /* Sleep until there is more to do */
         pthread_cond_wait(&priv->new_dirty, &priv->mutex);
-        S3BCACHE_CHECK_INVARIANTS(priv);
     }
 
     /* Notify main thread that we're exiting */
@@ -493,6 +514,7 @@ block_cache_worker_main(void *arg)
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
+    free(buf);
     return NULL;
 }
 
