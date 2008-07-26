@@ -36,8 +36,9 @@ DESCRIPTION
          mechanism.
 
      o   Since S3 data is accessed over the network, local caching is also very important for performance reasons.  Since s3backer
-         presents the equivalent of a virtual hard disk to the kernel, all of the filesystem caching can be done where it should
-         be: in the kernel, via the kernel's page cache.  s3backer itself does not cache any file data, nor does it need to.
+         presents the equivalent of a virtual hard disk to the kernel, most of the filesystem caching can be done where it should
+         be: in the kernel, via the kernel's page cache.  However s3backer also includes its own internal block cache for increased
+         performance, using asynchronous worker threads to take advantage of the parallelism inherent in the network.
 
    Consistency Guarantees
      Amazon S3 makes relatively weak guarantees relating to the timing and consistency of reads vs. writes (collectively known as
@@ -51,12 +52,12 @@ DESCRIPTION
      2.  s3backer maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks
          returned by GET operations.
 
-     This logic is configured by the following command line options: --cacheSize, --cacheTime, --minWriteDelay,
+     This logic is configured by the following command line options: --md5CacheSize, --md5CacheTime, --minWriteDelay,
      --initialRetryPause, and --maxRetryPause, all of which have default values.
 
    Zeroed Block Optimization
      As a simple optimization, s3backer does not store blocks containing all zeroes; instead, they are simply deleted.  Conversely,
-     reads of non-existent blocks will contain all zeroes.
+     reads of non-existent blocks will contain all zeroes.  In other words, the backed file is always maximally sparse.
 
      As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new
      filesystem.
@@ -65,7 +66,19 @@ DESCRIPTION
      As a convenience, whenever the first block of the backed file is written, s3backer includes as meta-data (in the ``x-amz-meta-
      s3backer-filesize'' header) the total size of the file.  Along with the size of the block itself, this value can be checked
      and/or auto-detected later when the filesystem is remounted, eliminating the need for the --blockSize or --size flags to be
-     explicitly provided and avoiding accidental mis-interpretation of an existing filesystem (see below).
+     explicitly provided and avoiding accidental mis-interpretation of an existing filesystem.
+
+   Block Cache
+     s3backer includes support for an internal block cache to increase performance.  The block cache cache is completely separate
+     from the MD5 cache which only stores MD5 checksums transiently and whose sole purpose is to mitigate ``eventual consistency''.
+     The block cache is a traditional cache containing cached data blocks.  When enabled, reads of cached blocks return immediately
+     with no network traffic.  Writes to the cache also return immediately and trigger an asynchronous write operation to the net-
+     work via a separate worker thread.  Because the kernel typically writes blocks through FUSE filesystems one at a time, per-
+     forming writes asynchronously allows s3backer to take advantage of the parallelism inherent in the network, vastly improving
+     write performance.
+
+     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheThreads and
+     --blockCacheWriteDelay.
 
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  Of course a filesystem must already exist and have S3 objects
@@ -77,6 +90,9 @@ DESCRIPTION
      Although it functions over the network, the s3backer filesystem is not a distributed filesystem and does not support simulta-
      neous read/write mounts.  (This is not something you would normally do with a hard-disk partition either.)  s3backer does not
      detect this situation; it is up to the user to ensure that it doesn't happen.
+
+   Statistics File
+     s3backer populates the filesystem with a human-readable statistics file.  See --statsFilename below.
 
    Logging
      In normal operation s3backer will log via syslog(3).  When run with the -d or -f flags, s3backer will log to standard error.
@@ -104,49 +120,52 @@ OPTIONS
              lic-read', `public-read-write', or `authenticated-read'.  Default is `private'.
 
      --assumeEmpty
-             Assume that no blocks exist in S3 yet.  This enables an optimization whereby zero writes to a block are omitted until
-             there is a non-zero write to the same block.  This is only valid when the S3 objects do not yet exist, and is useful
-             for example when initializing a large backed file from a local copy (such as a Mac OS disk image) that contains mostly
-             zeroes.  If auto-detection finds that there is in fact a block zero stored in S3, this option will cause s3backer to
-             exit with an error unless --force is also given.
+             Assume that no blocks exist in S3 yet.  This enables optimizations whereby, for each block, reads return zeroes and
+             zeroed writes are omitted until there is a non-zero write to the block.  This is only valid when the S3 objects do not
+             yet exist, and is useful for example when initializing a large backed file from a local copy (such as a Mac OS disk
+             image) that contains mostly zeroes.  If auto-detection finds that there is in fact a block zero stored in S3, this
+             option will cause s3backer to exit with an error unless --force is also given.
 
      --baseURL=URL
              Specify the base URL. Default is `http://s3.amazonaws.com/'.
 
+     --blockCacheSize=SIZE
+             Specify the block cache size (in number of blocks).  Each entry in the cache will consume approximately block size
+             plus 20 bytes.  A value of zero disables the block cache.  Default value is 1000.
+
+     --blockCacheThreads=NUM
+             Set the size of the thread pool associated with the block cache (if enabled).  This bounds the number of simultaneous
+             writes that can occur to the network.  Default value is 20.
+
+     --blockCacheWriteDelay=MILLIS
+             Specify the maximum time a dirty block can remain in the block cache before it must be written out to the network.
+             Blocks may be written sooner when there is cache pressure.  A value of zero configures a ``write-through'' policy;
+             greater values configure a ``write-back'' policy.  Larger values increase performance when a small number of blocks
+             are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.
+
+             Currently this option is ignored; variable write delay in the block cache is not yet implemented and the value is
+             effectively hard-coded to zero.
+
      --blockSize=SIZE
-             Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.  The
-             size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.  s3backer supports partial block opera-
-             tions, though for writes this may require a read and then a write; proper alignment of the s3backer block size with
-             the intended use (e.g., the block size of the `upper' filesystem) will minimize or eliminate the extra reads.
-             s3backer will attempt to auto-detect the block size by reading block number zero.  If this option is not specified,
-             the auto-detected value will be used.  If this option is specified but disagrees with the auto-detected value,
-             s3backer will exit with an error unless --force is also given.  If auto-detection fails because block number zero does
-             not exist, and this option is not specified, then the default value of 4K (4096) is used.
-
-     --cacheSize=SIZE
-             Specify the size of the MD5 checksum cache (in blocks).  If the cache is full when a new block is written, the write
-             will block until there is room.  Therefore, it is important to configure --cacheTime and --cacheSize according to the
-             frequency of writes to the filesystem overall and to the same block repeatedly.  Alternately, a value equal to the
-             number of blocks in the filesystem eliminates this problem but consumes the most memory when full (each entry in the
-             cache is approximately 40 bytes).  A value of zero disables the cache.  Default value is 1000.
-
-     --cacheTime=MILLIS
-             Specify in milliseconds the time after a block has been successfully written for which the MD5 checksum of the block's
-             contents should be cached, for the purpose of detecting stale data during subsequent reads.  A value of zero means
-             `infinite' and provides a guarantee against reading stale data; however, you should only do this when --cacheSize is
-             configured to be equal to the number of blocks; otherwise deadlock will (eventually) occur.  This value must be at
-             least as big as --minWriteDelay. This value must be set to zero when --cacheSize is set to zero (cache disabled).
-             Default value is 10 seconds.
+             Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.  In
+             fact in almost all cases it should equal the kernel page size.  The size may have an optional suffix 'K' for kilo-
+             bytes, 'M' for megabytes, etc.  s3backer supports partial block operations, though for writes this may require a read
+             and then a write; proper alignment of the s3backer block size with the intended use (e.g., the block size of the
+             `upper' filesystem) will minimize or eliminate the extra reads.  s3backer will attempt to auto-detect the block size
+             by reading block number zero.  If this option is not specified, the auto-detected value will be used.  If this option
+             is specified but disagrees with the auto-detected value, s3backer will exit with an error unless --force is also
+             given.  If auto-detection fails because block number zero does not exist, and this option is not specified, then the
+             default value of 4K (4096) is used.
 
      --debug
              Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE.  Both the -d and
              -f FUSE flags imply this flag.
 
      --filename=NAME
-             Specify the name of the single file that appears in the s3backer filesystem.  Default is `file'.
+             Specify the name of the backed file that appears in the s3backer filesystem.  Default is `file'.
 
      --fileMode=MODE
-             Specify the UNIX permission bits for the single file that appears in the s3backer filesystem.  Default is 0600, unless
+             Specify the UNIX permission bits for the backed file that appears in the s3backer filesystem.  Default is 0600, unless
              --readOnly is specified, in which case the default is 0400.
 
      --force
@@ -172,7 +191,27 @@ OPTIONS
 
      --minWriteDelay=MILLIS
              Specify a minimum time in milliseconds between the successful completion of a write and the initiation of another
-             write to the same block. This delay ensures that S3 doesn't receive the writes out of order.  Default value is 500ms.
+             write to the same block. This delay ensures that S3 doesn't receive the writes out of order.  This value must be set
+             to zero when --md5CacheSize is set to zero (MD5 cache disabled).  Default value is 500ms.
+
+     --md5CacheSize=SIZE
+             Specify the size of the MD5 checksum cache (in number of blocks).  If the cache is full when a new block is written,
+             the write will block until there is room.  Therefore, it is important to configure --md5CacheTime and --md5CacheSize
+             according to the frequency of writes to the filesystem overall and to the same block repeatedly.  Alternately, a value
+             equal to the number of blocks in the filesystem eliminates this problem but consumes the most memory when full (each
+             entry in the cache is approximately 40 bytes).  A value of zero disables the MD5 cache.  Default value is 1000.
+
+     --md5CacheTime=MILLIS
+             Specify in milliseconds the time after a block has been successfully written for which the MD5 checksum of the block's
+             contents should be cached, for the purpose of detecting stale data during subsequent reads.  A value of zero means
+             `infinite' and provides a guarantee against reading stale data; however, you should only do this when --md5CacheSize
+             is configured to be equal to the number of blocks; otherwise deadlock will (eventually) occur.  This value must be at
+             least as big as --minWriteDelay. This value must be set to zero when --md5CacheSize is set to zero (MD5 cache dis-
+             abled).  Default value is 10 seconds.
+
+     --noAutoDetect
+             Disable block and file size auto-detection at startup.  If this flag is given, then the block size defaults to 4096
+             and the --size flag is required.
 
      --prefix=STRING
              Specify a prefix to prepend to the resource names within bucket that identify each block.  Default is the empty
@@ -183,11 +222,15 @@ OPTIONS
              flag also changes the default mode of the backed file from 0600 to 0400.
 
      --size=SIZE
-             Specify the size (in bytes) of the single file to be exported by the filesystem.  The size may have an optional suffix
-             'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, or 'E' for exabytes.  s3backer will
-             attempt to auto-detect the block size by reading block number zero.  If this option is not specified, the auto-
-             detected value will be used.  If this option is specified but disagrees with the auto-detected value, s3backer will
-             exit with an error unless --force is also given.
+             Specify the size (in bytes) of the backed file to be exported by the filesystem.  The size may have an optional suffix
+             'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes, or
+             'Y' for yottabytes.  s3backer will attempt to auto-detect the block size by reading block number zero.  If this option
+             is not specified, the auto-detected value will be used.  If this option is specified but disagrees with the auto-
+             detected value, s3backer will exit with an error unless --force is also given.
+
+     --statsFilename=NAME
+             Specify the name of the human-readable statistics file that appears in the s3backer filesystem.  A value of empty
+             string disables the appearance of this file.  Default is `stats'.
 
      --timeout=SECONDS
              Specify a time limit in seconds for one HTTP operation attempt.  This limits the entire operation including connection
@@ -230,7 +273,7 @@ OPTIONS
      -o use_ino
      -o entry_timeout=31536000
      -o negative_timeout=31536000
-     -o attr_timeout=31536000
+     -o attr_timeout=0
      -o default_permissions
      -o nodev
      -o nosuid
@@ -263,6 +306,8 @@ BUGS
      On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically unmounts the filesystem
      when this limit is reached.  This can happen when a combination of --maxRetryPause and/or --timeout settings allow HTTP
      retries to take longer than this value.  A warning is emitted on startup in this case.
+
+     Filesystem size is limited by the maximum allowable size of a single file.
 
 AUTHOR
      Archie L. Cobbs <archie@dellroad.org>
