@@ -98,11 +98,8 @@ maintains an internal block MD5 checksum cache, which enables automatic detectio
 This logic is configured by the following command line options:
 .Fl \-md5CacheSize ,
 .Fl \-md5CacheTime ,
-.Fl \-minWriteDelay ,
-.Fl \-initialRetryPause ,
 and
-.Fl \-maxRetryPause ,
-all of which have default values.
+.Fl \-minWriteDelay .
 .Ss Zeroed Block Optimization
 As a simple optimization,
 .Nm
@@ -141,7 +138,7 @@ and
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
 .Nm .
-Of course a filesystem must already exist and have S3 objects with ACL's configured for public read access
+The filesystem must already exist and have S3 objects with ACL's configured for public read access
 (see
 .Fl \-accessType
 below);
