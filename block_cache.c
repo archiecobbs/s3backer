@@ -493,14 +493,14 @@ block_cache_worker_main(void *arg)
                 continue;
             }
 
-            /* If block was not modified while being written, it is now CLEAN */
+            /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!ENTRY_IS_DIRTY(entry)) {
                 TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
                 pthread_cond_broadcast(&priv->new_clean);
                 continue;
             }
 
-            /* Block was modified while being written, so it's still DIRTY */
+            /* Block was modified while being written (WRITING2), so it stays DIRTY */
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             continue;
         }
