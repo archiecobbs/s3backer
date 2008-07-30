@@ -239,17 +239,19 @@ greater inconsistency with the underlying S3 data store.
 .Pp
 Currently this option is ignored; variable write delay in the block cache is not yet implemented and the value is effectively hard-coded to zero.
 .It Fl \-blockSize=SIZE
-Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.
-In fact in almost all cases it should equal the kernel page size.
+Specify the block size.
+This must be a power of two and should be a multiple of the kernel's native page size.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+.Pp
 .Nm
-supports partial block operations, though for writes this may require a read and then a write;
-proper alignment of the
+supports partial block operations, though this forces a read before each write;
+use of the block cache and proper alignment of the
 .Nm
-block size with the intended use (e.g., the block size of the `upper' filesystem) will minimize or
-eliminate the extra reads.
+block size with the intended use (e.g., the block size of the `upper' filesystem) will help minimize the extra reads.
+Note that even when filesystems are configured for large block sizes, the kernel will often still write page-sized blocks.
+.Pp
 .Nm
-will attempt to auto-detect the block size by reading block number zero.
+will attempt to auto-detect the block size by reading block number zero at startup.
 If this option is not specified, the auto-detected value will be used.
 If this option is specified but disagrees with the auto-detected value,
 .Nm
