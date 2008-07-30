@@ -818,6 +818,8 @@ validate_config(void)
      * Read the first block (if any) to determine existing file and block size,
      * and compare with configured sizes (if given).
      */
+    config.http_io.debug = config.debug;
+    config.http_io.log = config.log;
     if ((s3b = http_io_create(&config.http_io)) == NULL)
         err(1, "http_io_create");
     if (config.no_auto_detect)
