@@ -124,7 +124,9 @@ includes support for an internal block cache to increase performance.
 The block cache cache is completely separate from the MD5 cache which only stores MD5 checksums transiently and whose sole purpose is to
 mitigate ``eventual consistency''.
 The block cache is a traditional cache containing cached data blocks.
-When enabled, reads of cached blocks return immediately with no network traffic.
+When full, clean blocks are evicted as necessary in LRU order.
+.Pp
+Reads of cached blocks will return immediately with no network traffic.
 Writes to the cache also return immediately and trigger an asynchronous write operation to the network via a separate worker thread.
 Because the kernel typically writes blocks through FUSE filesystems one at a time, performing writes asynchronously allows
 .Nm
