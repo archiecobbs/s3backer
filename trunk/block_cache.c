@@ -502,7 +502,7 @@ block_cache_worker_main(void *arg)
             /* If that failed, go back to the DIRTY state and try again */
             if (r != 0) {
                 ENTRY_SET_DIRTY(entry);
-                TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+                TAILQ_INSERT_HEAD(&priv->dirties, entry, link);
                 continue;
             }
 
