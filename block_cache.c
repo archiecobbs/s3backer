@@ -607,6 +607,7 @@ struct check_info {
 static void
 block_cache_check_invariants(struct block_cache_private *priv)
 {
+    struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     struct check_info info;
     int clean_len = 0;
@@ -625,6 +626,9 @@ block_cache_check_invariants(struct block_cache_private *priv)
         assert(block_cache_hash_get(priv, entry->block_num) == entry);
         dirty_len++;
     }
+
+    /* Check hash table size */
+    assert(g_hash_table_size(priv->hashtable) <= config->cache_size);
 
     /* Check hash table entries */
     memset(&info, 0, sizeof(info));
