@@ -59,6 +59,7 @@
 #define CLEAN           0
 #define DIRTY           1
 #define WRITING         2
+#define WRITING2        3
 
 /*
  * One cache entry. In order to keep this structure as small as possible, we do
@@ -69,6 +70,16 @@
  *  2. When not linked into either list (i.e., in WRITING state), we set both members
  *     of the 'link' field to zero to indicate this. This works because at least one
  *     will always be non-zero when the structure is linked into a list.
+ *
+ * Invariants:
+ *
+ *  State       ENTRY_IN_LIST()?    ENTRY_IS_DIRTY()?
+ *  -----       ----------------    -----------------
+ *
+ *  CLEAN       YES: priv->cleans   NO
+ *  DIRTY       YES: priv->dirties  YES
+ *  WRITING     NO                  NO
+ *  WRITING2    NO                  YES
  */
 struct cache_entry {
     s3b_block_t                     block_num;      // block number
@@ -83,7 +94,9 @@ struct cache_entry {
                                               : (void *)((intptr_t)(data) | (intptr_t)1); } while (0)
 #define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_next != NULL || (entry)->link.tqe_prev != NULL)
 #define ENTRY_RESET_LINK(entry)             do { memset(&(entry)->link, 0, sizeof((entry)->link)); } while (0)
-#define ENTRY_GET_STATE(entry)              (!ENTRY_IN_LIST(entry) ? WRITING : ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN)
+#define ENTRY_GET_STATE(entry)              (ENTRY_IN_LIST(entry) ?                             \
+                                                (ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN) :       \
+                                                (ENTRY_IS_DIRTY(entry) ? WRITING2 : WRITING))
 
 /* Private data */
 struct block_cache_private {
@@ -349,10 +362,11 @@ again:
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             pthread_cond_signal(&priv->new_dirty);
             // FALLTHROUGH
+        case WRITING2:              /* update dirty data, stay in state WRITING2 */
         case WRITING:               /* update dirty data and move to WRITING2 */
-        case DIRTY:                 /* just update the dirty data */
+        case DIRTY:                 /* update dirty data, stay in state DIRTY */
             memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
-            ENTRY_SET_DIRTY(entry); /* if DIRTY, no change; if WRITING, -> WRITING2 */
+            ENTRY_SET_DIRTY(entry);
             priv->stats.write_hits++;
             break;
         default:
@@ -587,6 +601,7 @@ struct check_info {
     u_int   num_clean;
     u_int   num_dirty;
     u_int   num_writing;
+    u_int   num_writing2;
 };
 
 static void
@@ -618,7 +633,7 @@ block_cache_check_invariants(struct block_cache_private *priv)
     /* Check agreement */
     assert(info.num_clean == clean_len);
     assert(info.num_dirty == dirty_len);
-    assert(info.num_clean + info.num_dirty + info.num_writing == g_hash_table_size(priv->hashtable));
+    assert(info.num_clean + info.num_dirty + info.num_writing + info.num_writing2 == g_hash_table_size(priv->hashtable));
 }
 
 static void
@@ -630,14 +645,17 @@ block_cache_check_one(gpointer key, gpointer value, gpointer arg)
     assert(entry != NULL);
     assert(entry->block_num == (s3b_block_t)key);
     switch (ENTRY_GET_STATE(entry)) {
-    case CLEAN:                 /* change to DIRTY */
+    case CLEAN:
         info->num_clean++;
         break;
-    case DIRTY:                 /* just update data */
+    case DIRTY:
         info->num_dirty++;
         break;
-    case WRITING:               /* wait for previous write to complete */
+    case WRITING:
         info->num_writing++;
+        break;
+    case WRITING2:
+        info->num_writing2++;
         break;
     default:
         assert(0);
