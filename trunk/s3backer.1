@@ -134,7 +134,8 @@ to take advantage of the parallelism inherent in the network, vastly improving w
 .Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheSize ,
-.Fl \-blockCacheThreads
+.Fl \-blockCacheThreads ,
+.Fl \-blockCacheTimeout ,
 and
 .Fl \-blockCacheWriteDelay .
 .Ss Read-Only Access
@@ -230,14 +231,21 @@ Default value is 1000.
 Set the size of the thread pool associated with the block cache (if enabled).
 This bounds the number of simultaneous writes that can occur to the network.
 Default value is 20.
+.It Fl \-blockCacheTimeout=MILLIS
+Specify the maximum time a clean entry can remain in the block cache before it will be forcibly evicted and its associated memory freed.
+A value of zero means there is no timeout; in this case, the number of entries in the block cache will never decrease, eventually reaching
+the maximum size configured by
+.Fl \-blockCacheSize
+and staying there.
+Configure a non-zero value if the memory usage of the block cache is a concern.
+Default value is zero (no timeout).
 .It Fl \-blockCacheWriteDelay=MILLIS
 Specify the maximum time a dirty block can remain in the block cache before it must be written out to the network.
 Blocks may be written sooner when there is cache pressure.
 A value of zero configures a ``write-through'' policy; greater values configure a ``write-back'' policy.
 Larger values increase performance when a small number of blocks are accessed repeatedly, at the cost of
 greater inconsistency with the underlying S3 data store.
-.Pp
-Currently this option is ignored; variable write delay in the block cache is not yet implemented and the value is effectively hard-coded to zero.
+Default value is zero.
 .It Fl \-blockSize=SIZE
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.

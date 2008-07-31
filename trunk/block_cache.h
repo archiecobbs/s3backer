@@ -26,7 +26,10 @@
 struct block_cache_conf {
     u_int               block_size;
     u_int               cache_size;
+#if BLOCK_CACHE_TIMING
     u_int               write_delay;
+    u_int               timeout;
+#endif
     u_int               num_threads;
     log_func_t          *log;
 };

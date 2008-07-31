@@ -3,6 +3,5 @@ TODO
 - compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
 - interrupt active write when new write happens (instead of waiting)
 - Implement parallel threaded predictive read-ahead.
-- Implement `--blockCacheWriteDelay' flag.
 
 $Id$

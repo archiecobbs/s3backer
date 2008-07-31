@@ -52,8 +52,8 @@
  *
  * Blocks in the WRITING and WRITING2 states are not in either list.
  *
- * Only CLEAN blocks are eligible to be evicted from the cache. We only evict cache
- * entries when the cache is full. Therefore, once it becomes full, it stays full.
+ * Only CLEAN blocks are eligible to be evicted from the cache. We evict CLEAN entries
+ * either when they timeout or the cache is full and we need to add a new entry to it.
  */
 
 /* Cache entry states */
@@ -81,9 +81,16 @@
  *  DIRTY       YES: priv->dirties  YES
  *  WRITING     NO                  NO
  *  WRITING2    NO                  YES
+ *
+ * Timeouts: we trak time in units of TIME_UNIT_MILLIS milliseconds from when we start.
+ * This is so we can jam them into 32 bits instead of 64. It's theoretically possible
+ * for these time values to wrap, but the effect is harmless (an early write or eviction).
  */
 struct cache_entry {
     s3b_block_t                     block_num;      // block number
+#if BLOCK_CACHE_TIMING
+    uint32_t                        timeout;        // when to evict (CLEAN) or write (DIRTY)
+#endif
     TAILQ_ENTRY(cache_entry)        link;           // next in list (cleans or dirties)
     void                            *_data;         // block's data (bit zero = dirty bit)
 };
@@ -99,6 +106,9 @@ struct cache_entry {
                                                 (ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN) :       \
                                                 (ENTRY_IS_DIRTY(entry) ? WRITING2 : WRITING))
 
+/* One time unit in milliseconds */
+#define TIME_UNIT_MILLIS            16
+
 /* Private data */
 struct block_cache_private {
     struct block_cache_conf         *config;        // configuration
@@ -107,6 +117,11 @@ struct block_cache_private {
     TAILQ_HEAD(, cache_entry)       cleans;         // list of clean blocks (LRU order)
     TAILQ_HEAD(, cache_entry)       dirties;        // list of dirty blocks (write order)
     GHashTable                      *hashtable;     // hashtable of all cached blocks
+#if BLOCK_CACHE_TIMING
+    u_int64_t                       start_time;     // when we started
+    u_int32_t                       clean_timeout;  // timeout for clean entries in time units
+    u_int32_t                       dirty_timeout;  // timeout for dirty entries in time units
+#endif
     u_int                           num_threads;    // number of alive worker threads
     int                             stopping;       // signals worker threads to exit
     pthread_mutex_t                 mutex;          // my mutex
@@ -128,6 +143,11 @@ static struct cache_entry *block_cache_hash_get(struct block_cache_private *priv
 static void block_cache_hash_put(struct block_cache_private *priv, struct cache_entry *entry);
 static void block_cache_hash_remove(struct block_cache_private *priv, s3b_block_t block_num);
 static void block_cache_free_one(gpointer key, gpointer value, gpointer arg);
+#if BLOCK_CACHE_TIMING
+static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
+static uint32_t block_cache_get_time(struct block_cache_private *priv);
+static uint64_t block_cache_get_time_millis(void);
+#endif
 
 /* Invariants checking */
 #ifndef NDEBUG
@@ -176,6 +196,11 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     }
     priv->config = config;
     priv->inner = inner;
+#if BLOCK_CACHE_TIMING
+    priv->start_time = block_cache_get_time_millis();
+    priv->clean_timeout = (config->timeout + TIME_UNIT_MILLIS - 1) / TIME_UNIT_MILLIS;
+    priv->dirty_timeout = (config->write_delay + TIME_UNIT_MILLIS - 1) / TIME_UNIT_MILLIS;
+#endif
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
     if ((r = pthread_cond_init(&priv->space_avail, NULL)) != 0)
@@ -243,7 +268,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* Wait for all dirty blocks to be flushed and all worker threads to exit */
+    /* Wait for all dirty blocks to be written and all worker threads to exit */
     priv->stopping = 1;
     while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
         pthread_cond_broadcast(&priv->worker_work);
@@ -306,6 +331,9 @@ hit:
         if (ENTRY_GET_STATE(entry) == CLEAN) {
             TAILQ_REMOVE(&priv->cleans, entry, link);
             TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+#if BLOCK_CACHE_TIMING
+            entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
+#endif
         }
         goto done;
     }
@@ -327,6 +355,9 @@ hit:
 
     /* Initialize new CLEAN cache entry */
     entry->block_num = block_num;
+#if BLOCK_CACHE_TIMING
+    entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
+#endif
     memcpy(data, dest, config->block_size);
     ENTRY_SET_DATA(entry, data, CLEAN);
     block_cache_hash_put(priv, entry);
@@ -359,6 +390,9 @@ again:
         case CLEAN:                 /* change to DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+#if BLOCK_CACHE_TIMING
+            entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
+#endif
             pthread_cond_signal(&priv->worker_work);
             // FALLTHROUGH
         case WRITING2:              /* update dirty data, stay in state WRITING2 */
@@ -388,10 +422,15 @@ again:
     /* Initialize a new DIRTY cache entry */
     priv->stats.write_misses++;
     entry->block_num = block_num;
+#if BLOCK_CACHE_TIMING
+    entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
+#endif
     ENTRY_SET_DATA(entry, data, DIRTY);
     memcpy(data, src, config->block_size);
     block_cache_hash_put(priv, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+
+    /* Wake up a worker thread to go write it */
     pthread_cond_signal(&priv->worker_work);
 
 done:
@@ -458,6 +497,10 @@ block_cache_worker_main(void *arg)
     struct block_cache_conf *const config = priv->config;
     const u_int block_size = config->block_size;
     struct cache_entry *entry;
+#if BLOCK_CACHE_TIMING
+    struct cache_entry *clean_entry = NULL;
+    uint32_t now;
+#endif
     char *buf;
     int r;
 
@@ -467,8 +510,8 @@ block_cache_worker_main(void *arg)
     /*
      * Allocate buffer for outgoing block data. We have to copy it before
      * we send it in case another write to this block comes in and updates
-     * the buffer associated with the cache entry. Prefer heap space (because
-     * it will likely be page-aligned), falling back to stack if that fails.
+     * the buffer associated with the cache entry. Use heap space because
+     * it will likely be page-aligned.
      */
     if ((buf = malloc(block_size)) == NULL) {
         (*config->log)(LOG_ERR, "block_cache worker can't alloc buffer, exiting: %s", strerror(errno));
@@ -481,8 +524,28 @@ block_cache_worker_main(void *arg)
         /* Sanity check */
         S3BCACHE_CHECK_INVARIANTS(priv);
 
+#if BLOCK_CACHE_TIMING
+        /* Get current time */
+        now = block_cache_get_time(priv);
+
+        /* Evict any CLEAN blocks that have timed out (if enabled) */
+        if (priv->clean_timeout != 0) {
+            while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && clean_entry->timeout <= now) {
+                block_cache_hash_remove(priv, clean_entry->block_num);
+                TAILQ_REMOVE(&priv->cleans, clean_entry, link);
+                free(ENTRY_GET_DATA(clean_entry));
+                free(clean_entry);
+                pthread_cond_signal(&priv->space_avail);
+            }
+        }
+#endif
+
         /* See if there is a block that needs writing */
-        if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL) {
+        if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL
+#if BLOCK_CACHE_TIMING
+          && (priv->stopping || entry->timeout <= now)
+#endif
+          ) {
 
             /* Move to WRITING state */
             assert(ENTRY_IS_DIRTY(entry));
@@ -509,12 +572,18 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!ENTRY_IS_DIRTY(entry)) {
                 TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+#if BLOCK_CACHE_TIMING
+                entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
+#endif
                 pthread_cond_signal(&priv->space_avail);
                 continue;
             }
 
             /* Block was modified while being written (WRITING2), so it stays DIRTY */
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+#if BLOCK_CACHE_TIMING
+            entry->timeout = now + priv->dirty_timeout;     /* update for 2nd write timing conservatively */
+#endif
             continue;
         }
 
@@ -523,7 +592,13 @@ block_cache_worker_main(void *arg)
             break;
 
         /* Sleep until there is more to do */
+#if BLOCK_CACHE_TIMING
+        if (entry == NULL || (clean_entry != NULL && clean_entry->timeout < entry->timeout))
+            entry = clean_entry;
+        block_cache_worker_wait(priv, entry);
+#else
         pthread_cond_wait(&priv->worker_work, &priv->mutex);
+#endif
     }
 
 done:
@@ -538,6 +613,54 @@ done:
     pthread_mutex_unlock(&priv->mutex);
     return NULL;
 }
+
+#if BLOCK_CACHE_TIMING
+/*
+ * Sleep until either the 'worker_work' condition becomes true, or the
+ * entry (if any) times out.
+ *
+ * This assumes the mutex is held.
+ */
+static void
+block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry)
+{
+    uint64_t wake_time_millis;
+    struct timespec wake_time;
+
+    if (entry == NULL) {
+        pthread_cond_wait(&priv->worker_work, &priv->mutex);
+        return;
+    }
+    wake_time_millis = priv->start_time + ((uint64_t)entry->timeout * TIME_UNIT_MILLIS);
+    wake_time.tv_sec = wake_time_millis / 1000;
+    wake_time.tv_nsec = (wake_time_millis % 1000) * 1000000;
+    pthread_cond_timedwait(&priv->worker_work, &priv->mutex, &wake_time);
+}
+
+/*
+ * Return current time in units of TIME_UNIT_MILLIS milliseconds since startup.
+ */
+static uint32_t
+block_cache_get_time(struct block_cache_private *priv)
+{
+    uint64_t since_start;
+
+    since_start = block_cache_get_time_millis() - priv->start_time;
+    return (uint32_t)(since_start / TIME_UNIT_MILLIS);
+}
+
+/*
+ * Return current time in milliseconds.
+ */
+static uint64_t
+block_cache_get_time_millis(void)
+{
+    struct timeval tv;
+
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000;
+}
+#endif
 
 static void
 block_cache_free_one(gpointer key, gpointer value, gpointer arg)
