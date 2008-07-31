@@ -61,6 +61,7 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_SIZE           1000
 #define S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS    20
 #define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    0
+#define S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT        0
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -129,8 +130,11 @@ static struct s3b_config config = {
     /* Block cache config */
     .block_cache= {
         .cache_size=            S3BACKER_DEFAULT_BLOCK_CACHE_SIZE,
-        .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
         .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
+#if BLOCK_CACHE_TIMING
+        .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
+        .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
+#endif
     },
 
     /* FUSE operations config */
@@ -189,11 +193,18 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.num_threads),
         .value=     FUSE_OPT_KEY_DISCARD
     },
+#if BLOCK_CACHE_TIMING
+    {
+        .templ=     "--blockCacheTimeout=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.timeout),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
     {
         .templ=     "--blockCacheWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, block_cache.write_delay),
         .value=     FUSE_OPT_KEY_DISCARD
     },
+#endif
     {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
@@ -962,33 +973,36 @@ dump_config(void)
     int i;
 
     (*config.log)(LOG_DEBUG, "s3backer config:");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "accessFile", config.accessFile);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "access", config.http_io.accessType);
-    (*config.log)(LOG_DEBUG, "%16s: %s", "assume_empty", config.http_io.assume_empty ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "baseURL", config.http_io.baseURL);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "bucket", config.http_io.bucket);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "prefix", config.http_io.prefix);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "mount", config.mount);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "filename", config.fuse_ops.filename);
-    (*config.log)(LOG_DEBUG, "%16s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
-    (*config.log)(LOG_DEBUG, "%16s: %s (%u)", "block_size",
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "access", config.http_io.accessType);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "assume_empty", config.http_io.assume_empty ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "bucket", config.http_io.bucket);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
+    (*config.log)(LOG_DEBUG, "%24s: %s (%u)", "block_size",
       config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
-    (*config.log)(LOG_DEBUG, "%16s: %s (%jd)", "file_size",
+    (*config.log)(LOG_DEBUG, "%24s: %s (%jd)", "file_size",
       config.file_size_str != NULL ? config.file_size_str : "-", (intmax_t)config.file_size);
-    (*config.log)(LOG_DEBUG, "%16s: %jd", "num_blocks", (intmax_t)config.num_blocks);
-    (*config.log)(LOG_DEBUG, "%16s: 0%o", "file_mode", config.fuse_ops.file_mode);
-    (*config.log)(LOG_DEBUG, "%16s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%16s: %us", "timeout", config.http_io.timeout);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "md5_cache_time", config.ec_protect.cache_time);
-    (*config.log)(LOG_DEBUG, "%16s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
-    (*config.log)(LOG_DEBUG, "%16s: %u entries", "block_cache_size", config.block_cache.cache_size);
-    (*config.log)(LOG_DEBUG, "%16s: %u threads", "block_cache_threads", config.block_cache.num_threads);
-    (*config.log)(LOG_DEBUG, "%16s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
+    (*config.log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)config.num_blocks);
+    (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "md5_cache_time", config.ec_protect.cache_time);
+    (*config.log)(LOG_DEBUG, "%24s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
+    (*config.log)(LOG_DEBUG, "%24s: %u entries", "block_cache_size", config.block_cache.cache_size);
+    (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
+#if BLOCK_CACHE_TIMING
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
+    (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
+#endif
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -1048,65 +1062,71 @@ usage(void)
 
     fprintf(stderr, "Usage: s3backer [options] bucket /mount/point\n");
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "\t--%-24s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
-    fprintf(stderr, "\t--%-24s %s\n", "accessId=ID", "S3 access key ID");
-    fprintf(stderr, "\t--%-24s %s\n", "accessKey=KEY", "S3 secret access key");
-    fprintf(stderr, "\t--%-24s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
-    fprintf(stderr, "\t  %-24s ", "");
+    fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
+    fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
+    fprintf(stderr, "\t--%-27s %s\n", "accessKey=KEY", "S3 secret access key");
+    fprintf(stderr, "\t--%-27s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
+    fprintf(stderr, "\t  %-27s ", "");
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
-        fprintf(stderr, "%s%s", i > 0 ? ", " : "", s3_acls[i]);
+        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
-    fprintf(stderr, "\t--%-24s %s\n", "assumeEmpty", "Assume no blocks exist yet (skip DELETE until PUT)");
-    fprintf(stderr, "\t--%-24s %s\n", "baseURL=URL", "Base URL for all requests");
-    fprintf(stderr, "\t--%-24s %s\n", "blockCacheSize=NUM", "Block cache size");
-    fprintf(stderr, "\t--%-24s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
-    fprintf(stderr, "\t--%-24s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
-    fprintf(stderr, "\t--%-24s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-24s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
-    fprintf(stderr, "\t--%-24s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
-    fprintf(stderr, "\t--%-24s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
-    fprintf(stderr, "\t--%-24s %s\n", "debug", "Enable logging of debug messages");
-    fprintf(stderr, "\t--%-24s %s\n", "filename=NAME", "Name of backed file in filesystem");
-    fprintf(stderr, "\t--%-24s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
-    fprintf(stderr, "\t--%-24s %s\n", "force", "Ignore different auto-detected block and file sizes");
-    fprintf(stderr, "\t--%-24s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
-    fprintf(stderr, "\t--%-24s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
-    fprintf(stderr, "\t--%-24s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
-    fprintf(stderr, "\t--%-24s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
-    fprintf(stderr, "\t--%-24s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
-    fprintf(stderr, "\t--%-24s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-24s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
-    fprintf(stderr, "\t--%-24s %s\n", "version", "Show version information and exit");
-    fprintf(stderr, "\t--%-24s %s\n", "help", "Show this information and exit");
+    fprintf(stderr, "\t--%-27s %s\n", "assumeEmpty", "Assume no blocks exist yet (no I/O for zero blocks)");
+    fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
+#if BLOCK_CACHE_TIMING
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
+#endif
+    fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
+    fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
+    fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
+    fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
+    fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
+    fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
+    fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
+    fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
+    fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
+    fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
+    fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "version", "Show version information and exit");
+    fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "Default values:\n");
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
-    fprintf(stderr, "\t--%-24s %s\n", "accessId", "The first one listed in `accessFile'");
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
-    fprintf(stderr, "\t--%-24s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
-    fprintf(stderr, "\t--%-24s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);
-    fprintf(stderr, "\t--%-24s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
-    fprintf(stderr, "\t--%-24s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
-    fprintf(stderr, "\t--%-24s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
-    fprintf(stderr, "\t--%-24s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
-    fprintf(stderr, "\t--%-24s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
-    fprintf(stderr, "\t--%-24s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
-    fprintf(stderr, "\t--%-24s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
-    fprintf(stderr, "\t--%-24s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
-    fprintf(stderr, "\t--%-24s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
-    fprintf(stderr, "\t--%-24s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
+    fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in `accessFile'");
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
+    fprintf(stderr, "\t--%-27s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
+    fprintf(stderr, "\t--%-27s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);
+#if BLOCK_CACHE_TIMING
+    fprintf(stderr, "\t--%-27s %u\n", "blockCacheTimeout", S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT);
+    fprintf(stderr, "\t--%-27s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
+#endif
+    fprintf(stderr, "\t--%-27s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
+    fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
+    fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
+    fprintf(stderr, "\t--%-27s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
+    fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
+    fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-27s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-27s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
     fprintf(stderr, "FUSE options (partial list):\n");
-    fprintf(stderr, "\t%-24s %s\n", "-o allow_root", "Allow root (only) to view backed file");
-    fprintf(stderr, "\t%-24s %s\n", "-o allow_other", "Allow all users to view backed file");
-    fprintf(stderr, "\t%-24s %s\n", "-o nonempty", "Allow all users to view backed file");
-    fprintf(stderr, "\t%-24s %s\n", "-o uid=UID", "Set user ID");
-    fprintf(stderr, "\t%-24s %s\n", "-o gid=GID", "Set group ID");
-    fprintf(stderr, "\t%-24s %s\n", "-o sync_read", "Do synchronous reads");
-    fprintf(stderr, "\t%-24s %s\n", "-o max_readahead=NUM", "Set maximum read-ahead (bytes)");
-    fprintf(stderr, "\t%-24s %s\n", "-f", "Run in the foreground (do not fork)");
-    fprintf(stderr, "\t%-24s %s\n", "-d", "Debug mode (implies -f)");
-    fprintf(stderr, "\t%-24s %s\n", "-s", "Run in single-threaded mode");
+    fprintf(stderr, "\t%-29s %s\n", "-o allow_root", "Allow root (only) to view backed file");
+    fprintf(stderr, "\t%-29s %s\n", "-o allow_other", "Allow all users to view backed file");
+    fprintf(stderr, "\t%-29s %s\n", "-o nonempty", "Allow all users to view backed file");
+    fprintf(stderr, "\t%-29s %s\n", "-o uid=UID", "Set user ID");
+    fprintf(stderr, "\t%-29s %s\n", "-o gid=GID", "Set group ID");
+    fprintf(stderr, "\t%-29s %s\n", "-o sync_read", "Do synchronous reads");
+    fprintf(stderr, "\t%-29s %s\n", "-o max_readahead=NUM", "Set maximum read-ahead (bytes)");
+    fprintf(stderr, "\t%-29s %s\n", "-f", "Run in the foreground (do not fork)");
+    fprintf(stderr, "\t%-29s %s\n", "-d", "Debug mode (implies -f)");
+    fprintf(stderr, "\t%-29s %s\n", "-s", "Run in single-threaded mode");
 }
 
