@@ -3,6 +3,8 @@ Version 1.1.1
 
     - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
     - Fixed bug where an error during auto-detection would cause a segfault.
+    - Fixed bug where read errors from the underlying store were being ignored
+      by the block cache layer.
 
 Version 1.1.0 (r150) released 26 July 2008
 
