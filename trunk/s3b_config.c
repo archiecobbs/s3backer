@@ -131,10 +131,8 @@ static struct s3b_config config = {
     .block_cache= {
         .cache_size=            S3BACKER_DEFAULT_BLOCK_CACHE_SIZE,
         .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
-#if BLOCK_CACHE_TIMING
         .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
         .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
-#endif
     },
 
     /* FUSE operations config */
@@ -193,7 +191,6 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.num_threads),
         .value=     FUSE_OPT_KEY_DISCARD
     },
-#if BLOCK_CACHE_TIMING
     {
         .templ=     "--blockCacheTimeout=%u",
         .offset=    offsetof(struct s3b_config, block_cache.timeout),
@@ -204,7 +201,6 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.write_delay),
         .value=     FUSE_OPT_KEY_DISCARD
     },
-#endif
     {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
@@ -1001,10 +997,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
     (*config.log)(LOG_DEBUG, "%24s: %u entries", "block_cache_size", config.block_cache.cache_size);
     (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
-#if BLOCK_CACHE_TIMING
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
-#endif
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -1076,10 +1070,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
-#if BLOCK_CACHE_TIMING
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
-#endif
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
@@ -1104,10 +1096,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);
-#if BLOCK_CACHE_TIMING
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheTimeout", S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
-#endif
     fprintf(stderr, "\t--%-27s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);

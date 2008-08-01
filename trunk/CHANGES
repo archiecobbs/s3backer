@@ -1,8 +1,7 @@
 
 Version 1.1.1
 
-    - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags;
-      make it possible to disable their implementation at ./configure time.
+    - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
     - Fixed bug where an error during auto-detection would cause a segfault.
 
 Version 1.1.0 (r150) released 26 July 2008
