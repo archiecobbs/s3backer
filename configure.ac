@@ -30,11 +30,6 @@ AC_ARG_ENABLE(gprof,
     AC_HELP_STRING([--enable-gprof],
         [Compile and link with gprof(1) support (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -pg"])
-AC_ARG_ENABLE(blockCacheTiming,
-    AC_HELP_STRING([--enable-blockCacheTiming],
-        [include support for `--blockCacheTimeout' and `--blockCacheWriteDelay' flags (default YES)]),
-    [test x"$enableval" = "xyes" && AC_DEFINE(BLOCK_CACHE_TIMING, 1, [block cache timing])],
-    [AC_DEFINE(BLOCK_CACHE_TIMING, 1, [block cache timing])])
 
 # Check for required programs
 AC_PROG_INSTALL
