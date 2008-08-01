@@ -345,6 +345,10 @@ hit:
     if ((entry = block_cache_hash_get(priv, block_num)) != NULL)
         goto hit;
 
+    /* Check for error from underlying s3backer_store */
+    if (r != 0)
+        goto done;
+
     /* Get a cache entry; if none available, no big deal */
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
         goto done;
