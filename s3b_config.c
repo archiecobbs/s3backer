@@ -522,8 +522,10 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         if (total_writes != 0)
             write_hit_ratio = (double)block_cache_stats.write_hits / (double)total_writes;
         (*printer)(prarg, "%-28s %u\n", "current_block_cache_size", block_cache_stats.current_size);
+        (*printer)(prarg, "%-28s %.4f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
+        (*printer)(prarg, "%-28s %u\n", "block_cache_read_drops", block_cache_stats.read_drops);
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
