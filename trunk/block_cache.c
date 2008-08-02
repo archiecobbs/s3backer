@@ -33,6 +33,7 @@
  *
  *  CLEAN       Data is consistent with underlying s3backer_store
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
+ *  READING     Data is being read from the underlying s3backer_store
  *  WRITING     Data is being written to underlying s3backer_store
  *  WRITING2    Same as WRITING, but a subsequent write has stored new data
  *
@@ -50,7 +51,7 @@
  * Because we allow writes to update the data in a block while that block is being
  * written, the worker threads must make a copy of the data before they send it.
  *
- * Blocks in the WRITING and WRITING2 states are not in either list.
+ * Blocks in the READING, WRITING and WRITING2 states are not in either list.
  *
  * Only CLEAN blocks are eligible to be evicted from the cache. We evict CLEAN entries
  * either when they timeout or the cache is full and we need to add a new entry to it.
@@ -59,8 +60,9 @@
 /* Cache entry states */
 #define CLEAN           0
 #define DIRTY           1
-#define WRITING         2
-#define WRITING2        3
+#define READING         2
+#define WRITING         3
+#define WRITING2        4
 
 /*
  * One cache entry. In order to keep this structure as small as possible, we do
@@ -74,13 +76,14 @@
  *
  * Invariants:
  *
- *  State       ENTRY_IN_LIST()?    ENTRY_IS_DIRTY()?
- *  -----       ----------------    -----------------
+ *  State       ENTRY_IN_LIST()?    ENTRY_IS_DIRTY()?   entry->timeout == -1
+ *  -----       ----------------    -----------------   --------------------
  *
- *  CLEAN       YES: priv->cleans   NO
- *  DIRTY       YES: priv->dirties  YES
- *  WRITING     NO                  NO
- *  WRITING2    NO                  YES
+ *  CLEAN       YES: priv->cleans   NO                  ?
+ *  DIRTY       YES: priv->dirties  YES                 ?
+ *  READING     NO                  NO                  YES
+ *  WRITING     NO                  NO                  NO
+ *  WRITING2    NO                  YES                 NO
  *
  * Timeouts: we trak time in units of TIME_UNIT_MILLIS milliseconds from when we start.
  * This is so we can jam them into 32 bits instead of 64. It's theoretically possible
@@ -102,13 +105,18 @@ struct cache_entry {
 #define ENTRY_RESET_LINK(entry)             do { memset(&(entry)->link, 0, sizeof((entry)->link)); } while (0)
 #define ENTRY_GET_STATE(entry)              (ENTRY_IN_LIST(entry) ?                             \
                                                 (ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN) :       \
-                                                (ENTRY_IS_DIRTY(entry) ? WRITING2 : WRITING))
+                                                ((entry)->timeout == READING_TIMEOUT ?          \
+                                                  READING :                                     \
+                                                  ENTRY_IS_DIRTY(entry) ? WRITING2 : WRITING))
 
 /* One time unit in milliseconds */
 #define TIME_UNIT_MILLIS            16
 
 /* The dirty ratio at which we will be writing all dirty blocks immediately */
 #define DIRTY_RATIO_WRITE_ASAP      0.90            // 90%
+
+/* Special timeout value for entries in state READING */
+#define READING_TIMEOUT             (~(uint32_t)0)
 
 /* Private data */
 struct block_cache_private {
@@ -122,10 +130,15 @@ struct block_cache_private {
     u_int64_t                       start_time;     // when we started
     u_int32_t                       clean_timeout;  // timeout for clean entries in time units
     u_int32_t                       dirty_timeout;  // timeout for dirty entries in time units
+    s3b_block_t                     seq_last;       // last block read in sequence by upper layer
+    u_int                           seq_count;      // # of blocks read in sequence by upper layer
+    u_int                           ra_count;       // # of blocks of read-ahead initiated
+    u_int                           thread_id;      // next thread id
     u_int                           num_threads;    // number of alive worker threads
     int                             stopping;       // signals worker threads to exit
     pthread_mutex_t                 mutex;          // my mutex
     pthread_cond_t                  space_avail;    // there is new space available in cache
+    pthread_cond_t                  end_reading;    // some entry in state READING changed state
     pthread_cond_t                  worker_work;    // there is new work for worker thread(s)
     pthread_cond_t                  worker_exit;    // a worker thread has exited
 };
@@ -137,6 +150,8 @@ static int block_cache_detect_sizes(struct s3backer_store *s3b, off_t *file_size
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
+static int block_cache_do_read_block(struct block_cache_private *priv, s3b_block_t block_num, void *dest, const u_char *expect_md5);
+static void block_cache_read_from_entry(struct block_cache_private *priv, struct cache_entry *entry, void *dest);
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static struct cache_entry *block_cache_hash_get(struct block_cache_private *priv, s3b_block_t block_num);
@@ -202,15 +217,17 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail2;
     if ((r = pthread_cond_init(&priv->space_avail, NULL)) != 0)
         goto fail3;
-    if ((r = pthread_cond_init(&priv->worker_work, NULL)) != 0)
+    if ((r = pthread_cond_init(&priv->end_reading, NULL)) != 0)
         goto fail4;
-    if ((r = pthread_cond_init(&priv->worker_exit, NULL)) != 0)
+    if ((r = pthread_cond_init(&priv->worker_work, NULL)) != 0)
         goto fail5;
+    if ((r = pthread_cond_init(&priv->worker_exit, NULL)) != 0)
+        goto fail6;
     TAILQ_INIT(&priv->cleans);
     TAILQ_INIT(&priv->dirties);
     if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
         r = errno;
-        goto fail6;
+        goto fail7;
     }
     s3b->data = priv;
 
@@ -221,24 +238,26 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     /* Create threads */
     for (priv->num_threads = 0; priv->num_threads < config->num_threads; priv->num_threads++) {
         if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
-            goto fail7;
+            goto fail8;
     }
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return s3b;
 
-fail7:
+fail8:
     priv->stopping = 1;
     while (priv->num_threads > 0) {
         pthread_cond_broadcast(&priv->worker_work);
         pthread_cond_wait(&priv->worker_exit, &priv->mutex);
     }
     g_hash_table_destroy(priv->hashtable);
-fail6:
+fail7:
     pthread_cond_destroy(&priv->worker_exit);
-fail5:
+fail6:
     pthread_cond_destroy(&priv->worker_work);
+fail5:
+    pthread_cond_destroy(&priv->end_reading);
 fail4:
     pthread_cond_destroy(&priv->space_avail);
 fail3:
@@ -277,6 +296,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     g_hash_table_destroy(priv->hashtable);
     pthread_cond_destroy(&priv->worker_exit);
     pthread_cond_destroy(&priv->worker_work);
+    pthread_cond_destroy(&priv->end_reading);
     pthread_cond_destroy(&priv->space_avail);
     pthread_mutex_destroy(&priv->mutex);
     free(priv);
@@ -303,36 +323,88 @@ block_cache_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *b
     return (*priv->inner->detect_sizes)(priv->inner, file_sizep, block_sizep);
 }
 
+/*
+ * Read a block, and trigger read-ahead if necessary.
+ */
 static int
 block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
-    struct cache_entry *entry;
-    void *data;
     int r = 0;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* If cache entry exists, we're home free */
-    if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
-
-hit:
-        /* Copy cached data */
-        assert(entry->block_num == block_num);
-        memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
-        priv->stats.read_hits++;
-
-        /* If CLEAN, move to the end of the list to maintain LRU ordering */
-        if (ENTRY_GET_STATE(entry) == CLEAN) {
-            TAILQ_REMOVE(&priv->cleans, entry, link);
-            TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
-            entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
-        }
-        goto done;
+    /* Update count of block(s) read sequentially by the upper layer */
+    if (block_num == priv->seq_last + 1) {
+        priv->seq_count++;
+        if (priv->ra_count > 0)
+            priv->ra_count--;
+    } else {
+        priv->seq_count = 1;
+        priv->ra_count = 0;
     }
+    priv->seq_last = block_num;
+
+    /* Wakeup a worker thread to read the next read-ahead block if needed */
+    if (priv->seq_count >= config->read_ahead_trigger && priv->ra_count < config->read_ahead)
+        pthread_cond_signal(&priv->worker_work);
+
+    /* Peform the read */
+    r = block_cache_do_read_block(priv, block_num, dest, expect_md5);
+
+    /* Release lock */
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
+}
+
+/*
+ * Read a block.
+ *
+ * Assumes the mutex is held.
+ */
+static int
+block_cache_do_read_block(struct block_cache_private *priv, s3b_block_t block_num, void *dest, const u_char *expect_md5)
+{
+    struct block_cache_conf *const config = priv->config;
+    struct cache_entry *entry;
+    void *data;
+    int r;
+
+again:
+    /* Check to see if a cache entry already exists */
+    if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
+        assert(entry->block_num == block_num);
+
+        /* If READING, wait for other thread already reading this block to finish */
+        if (ENTRY_GET_STATE(entry) == READING) {
+            pthread_cond_wait(&priv->end_reading, &priv->mutex);
+            goto again;
+        }
+
+        /* Copy data from the cache entry */
+        block_cache_read_from_entry(priv, entry, dest);
+        priv->stats.read_hits++;
+        return 0;
+    }
+
+    /* Create a new cache entry in state READING */
+    if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
+        return r;
+    if (entry == NULL) {
+        pthread_cond_wait(&priv->space_avail, &priv->mutex);
+        goto again;
+    }
+    entry->block_num = block_num;
+    entry->timeout = READING_TIMEOUT;
+    ENTRY_SET_DATA(entry, data, CLEAN);
+    ENTRY_RESET_LINK(entry);
+    block_cache_hash_put(priv, entry);
+    assert(ENTRY_GET_STATE(entry) == READING);
+
+    /* Update stats */
     priv->stats.read_misses++;
 
     /* Read the block from the underlying s3backer_store */
@@ -341,37 +413,84 @@ hit:
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* Check the cache again; another operation on the same block could have occurred */
-    if ((entry = block_cache_hash_get(priv, block_num)) != NULL)
-        goto hit;
+    /*
+     * While we were reading anything could have happened to the entry,
+     * including a simultaneous write, write-back, and eviction. We can
+     * assume nothing at this point so we have to find the entry again.
+     */
+    if ((entry = block_cache_hash_get(priv, block_num)) == NULL)
+        return 0;
 
-    /* Check for error from underlying s3backer_store */
-    if (r != 0)
-        goto done;
-
-    /* Get a cache entry; if none available, no big deal */
-    if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
-        goto done;
-    if (entry == NULL) {
-        priv->stats.read_drops++;
-        goto done;
+    /* A simultaneous write would have changed the entry's state */
+    if (ENTRY_GET_STATE(entry) != READING) {
+        block_cache_read_from_entry(priv, entry, dest);
+        return 0;
     }
 
-    /* Initialize and add new CLEAN cache entry */
-    entry->block_num = block_num;
+    /* Check for error from underlying s3backer_store */
+    if (r != 0) {
+        pthread_cond_signal(&priv->space_avail);
+        block_cache_hash_remove(priv, entry->block_num);
+        free(ENTRY_GET_DATA(entry));
+        free(entry);
+        return r;
+    }
+
+    /* Copy the data we read into the cache entry */
+    memcpy(ENTRY_GET_DATA(entry), dest, config->block_size);
+
+    /* Change entry from READING to CLEAN */
+    assert(ENTRY_GET_STATE(entry) == READING);
+    pthread_cond_signal(&priv->space_avail);
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
-    memcpy(data, dest, config->block_size);
-    ENTRY_SET_DATA(entry, data, CLEAN);
-    block_cache_hash_put(priv, entry);
     TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
     priv->num_cleans++;
+    assert(ENTRY_GET_STATE(entry) == CLEAN);
 
-done:
-    /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
-    return r;
+    /* Wake up any threads waiting for me to finish reading */
+    pthread_cond_broadcast(&priv->end_reading);
+
+    /* Done */
+    return 0;
 }
 
+/*
+ * Read block's data from a cache entry and update the entry.
+ *
+ * Assumes the entry is not in state READING and the mutex is held.
+ */
+static void
+block_cache_read_from_entry(struct block_cache_private *priv, struct cache_entry *entry, void *dest)
+{
+    struct block_cache_conf *const config = priv->config;
+
+    switch (ENTRY_GET_STATE(entry)) {
+    case CLEAN:
+
+        /* Update timestamp and move to the end of the list to maintain LRU ordering */
+        TAILQ_REMOVE(&priv->cleans, entry, link);
+        TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+        entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
+
+        // FALLTHROUGH
+    case DIRTY:
+    case WRITING:
+    case WRITING2:
+
+        /* Copy the cached data */
+        memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
+        break;
+
+    case READING:
+    default:
+        assert(0);
+        break;
+    }
+}
+
+/*
+ * Write a block.
+ */
 static int
 block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
 {
@@ -385,21 +504,29 @@ block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     pthread_mutex_lock(&priv->mutex);
 
 again:
-    /* Find cache entry */
+    /* Sanity check */
     S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Find cache entry */
     if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
+        const int state = ENTRY_GET_STATE(entry);
+
         assert(entry->block_num == block_num);
-        switch (ENTRY_GET_STATE(entry)) {
-        case CLEAN:                 /* change to DIRTY */
+        switch (state) {
+        case CLEAN:                 /* update data, move to state DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
+            // FALLTHROUGH
+        case READING:               /* update data, move to state DIRTY */
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
             pthread_cond_signal(&priv->worker_work);
+            if (state == READING)
+                pthread_cond_broadcast(&priv->end_reading);
             // FALLTHROUGH
-        case WRITING2:              /* update dirty data, stay in state WRITING2 */
-        case WRITING:               /* update dirty data and move to WRITING2 */
-        case DIRTY:                 /* update dirty data, stay in state DIRTY */
+        case WRITING2:              /* update data, stay in state WRITING2 */
+        case WRITING:               /* update data, move to state WRITING2 */
+        case DIRTY:                 /* update data, stay in state DIRTY */
             memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
             ENTRY_SET_DIRTY(entry);
             priv->stats.write_hits++;
@@ -429,6 +556,7 @@ again:
     memcpy(data, src, config->block_size);
     block_cache_hash_put(priv, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+    assert(ENTRY_GET_STATE(entry) == DIRTY);
 
     /* Wake up a worker thread to go write it */
     pthread_cond_signal(&priv->worker_work);
@@ -501,11 +629,15 @@ block_cache_worker_main(void *arg)
     struct cache_entry *clean_entry = NULL;
     uint32_t adjusted_now;
     uint32_t now;
+    u_int thread_id;
     char *buf;
     int r;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
+
+    /* Assign myself a thread ID (for debugging purposes) */
+    thread_id = priv->thread_id++;
 
     /*
      * Allocate buffer for outgoing block data. We have to copy it before
@@ -514,7 +646,7 @@ block_cache_worker_main(void *arg)
      * it will likely be page-aligned.
      */
     if ((buf = malloc(block_size)) == NULL) {
-        (*config->log)(LOG_ERR, "block_cache worker can't alloc buffer, exiting: %s", strerror(errno));
+        (*config->log)(LOG_ERR, "block_cache worker %u can't alloc buffer, exiting: %s", thread_id, strerror(errno));
         goto done;
     }
 
@@ -551,11 +683,17 @@ block_cache_worker_main(void *arg)
         if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL
           && (priv->stopping || entry->timeout <= adjusted_now)) {
 
+            /* If we are also supposed to do read-ahead, wake up a sibling to handle it */
+            if (priv->seq_count >= config->read_ahead_trigger && priv->ra_count < config->read_ahead)
+                pthread_cond_signal(&priv->worker_work);
+
             /* Move to WRITING state */
             assert(ENTRY_IS_DIRTY(entry));
             TAILQ_REMOVE(&priv->dirties, entry, link);
             ENTRY_RESET_LINK(entry);
             ENTRY_SET_CLEAN(entry);
+            entry->timeout = 0;
+            assert(ENTRY_GET_STATE(entry) == WRITING);
 
             /* Copy data to private buffer */
             memcpy(buf, ENTRY_GET_DATA(entry), block_size);
@@ -565,6 +703,9 @@ block_cache_worker_main(void *arg)
             r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, NULL);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv);
+
+            /* Sanity check */
+            assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
 
             /* If that failed, go back to the DIRTY state and try again */
             if (r != 0) {
@@ -591,6 +732,25 @@ block_cache_worker_main(void *arg)
         /* Are we supposed to stop? */
         if (priv->stopping != 0)
             break;
+
+        /* See if there is a read-ahead block that needs to be read */
+        if (priv->seq_count >= config->read_ahead_trigger && priv->ra_count < config->read_ahead) {
+            while (priv->ra_count < config->read_ahead) {
+                s3b_block_t ra_block;
+
+                /* We will handle read-ahead for the next read-ahead block; claim it now */
+                ra_block = priv->seq_last + ++priv->ra_count;
+
+                /* If block already exists in the cache, nothing needs to be done */
+                if (block_cache_hash_get(priv, ra_block) != NULL)
+                    continue;
+
+                /* Perform a speculative read of the block so it will get stored in the cache */
+                (void)block_cache_do_read_block(priv, ra_block, buf, NULL);
+                break;
+            }
+            continue;
+        }
 
         /* Sleep until there is more to do */
         if (entry == NULL || (clean_entry != NULL && clean_entry->timeout < entry->timeout))
@@ -729,6 +889,7 @@ block_cache_dirty_ratio(struct block_cache_private *priv)
 struct check_info {
     u_int   num_clean;
     u_int   num_dirty;
+    u_int   num_reading;
     u_int   num_writing;
     u_int   num_writing2;
 };
@@ -767,7 +928,11 @@ block_cache_check_invariants(struct block_cache_private *priv)
     /* Check agreement */
     assert(info.num_clean == clean_len);
     assert(info.num_dirty == dirty_len);
-    assert(info.num_clean + info.num_dirty + info.num_writing + info.num_writing2 == g_hash_table_size(priv->hashtable));
+    assert(info.num_clean + info.num_dirty + info.num_reading + info.num_writing + info.num_writing2
+      == g_hash_table_size(priv->hashtable));
+
+    /* Check read-ahead */
+    assert(priv->ra_count <= config->read_ahead);
 }
 
 static void
@@ -784,6 +949,10 @@ block_cache_check_one(gpointer key, gpointer value, gpointer arg)
         break;
     case DIRTY:
         info->num_dirty++;
+        break;
+    case READING:
+        assert(!ENTRY_IS_DIRTY(entry));
+        info->num_reading++;
         break;
     case WRITING:
         info->num_writing++;

@@ -62,6 +62,8 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS    20
 #define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    0
 #define S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT        0
+#define S3BACKER_DEFAULT_READ_AHEAD                 4
+#define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -133,6 +135,8 @@ static struct s3b_config config = {
         .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
         .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
         .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
+        .read_ahead=            S3BACKER_DEFAULT_READ_AHEAD,
+        .read_ahead_trigger=    S3BACKER_DEFAULT_READ_AHEAD_TRIGGER,
     },
 
     /* FUSE operations config */
@@ -199,6 +203,16 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--blockCacheWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, block_cache.write_delay),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--readAhead=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--readAheadTrigger=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -521,7 +535,6 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_read_drops", block_cache_stats.read_drops);
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
@@ -999,6 +1012,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
+    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
+    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -1084,6 +1099,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
+    fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
+    fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
@@ -1109,6 +1126,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
+    fprintf(stderr, "\t--%-27s %u\n", "readAhead", S3BACKER_DEFAULT_READ_AHEAD);
+    fprintf(stderr, "\t--%-27s %u\n", "readAheadTrigger", S3BACKER_DEFAULT_READ_AHEAD_TRIGGER);
     fprintf(stderr, "FUSE options (partial list):\n");
     fprintf(stderr, "\t%-29s %s\n", "-o allow_root", "Allow root (only) to view backed file");
     fprintf(stderr, "\t%-29s %s\n", "-o allow_other", "Allow all users to view backed file");
