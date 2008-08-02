@@ -483,22 +483,22 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         block_cache_get_stats(block_cache_store, &block_cache_stats);
 
     /* Print stats in human-readable form */
-    (*printer)(prarg, "%-28s %u\n", "normal_blocks_read", http_io_stats.normal_blocks_read);
-    (*printer)(prarg, "%-28s %u\n", "normal_blocks_written", http_io_stats.normal_blocks_written);
-    (*printer)(prarg, "%-28s %u\n", "zero_blocks_read", http_io_stats.zero_blocks_read);
-    (*printer)(prarg, "%-28s %u\n", "zero_blocks_written", http_io_stats.zero_blocks_written);
+    (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_read", http_io_stats.normal_blocks_read);
+    (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_written", http_io_stats.normal_blocks_written);
+    (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_read", http_io_stats.zero_blocks_read);
+    (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_written", http_io_stats.zero_blocks_written);
     if (config.http_io.assume_empty) {
-        (*printer)(prarg, "%-28s %u\n", "empty_blocks_read", http_io_stats.empty_blocks_read);
-        (*printer)(prarg, "%-28s %u\n", "empty_blocks_written", http_io_stats.empty_blocks_written);
+        (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_read", http_io_stats.empty_blocks_read);
+        (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_written", http_io_stats.empty_blocks_written);
     }
     (*printer)(prarg, "%-28s %u\n", "http_gets", http_io_stats.http_gets.count);
     (*printer)(prarg, "%-28s %u\n", "http_puts", http_io_stats.http_puts.count);
     (*printer)(prarg, "%-28s %u\n", "http_deletes", http_io_stats.http_deletes.count);
-    (*printer)(prarg, "%-28s %.3f\n", "http_avg_get_time", http_io_stats.http_gets.count > 0 ?
+    (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_get_time", http_io_stats.http_gets.count > 0 ?
       http_io_stats.http_gets.time / http_io_stats.http_gets.count : 0.0);
-    (*printer)(prarg, "%-28s %.3f\n", "http_avg_put_time", http_io_stats.http_puts.count > 0 ?
+    (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_put_time", http_io_stats.http_puts.count > 0 ?
       http_io_stats.http_puts.time / http_io_stats.http_puts.count : 0.0);
-    (*printer)(prarg, "%-28s %.3f\n", "http_avg_delete_time", http_io_stats.http_deletes.count > 0 ?
+    (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_delete_time", http_io_stats.http_deletes.count > 0 ?
       http_io_stats.http_deletes.time / http_io_stats.http_deletes.count : 0.0);
     (*printer)(prarg, "%-28s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
     (*printer)(prarg, "%-28s %u\n", "http_forbidden", http_io_stats.http_forbidden);
@@ -506,6 +506,9 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
     (*printer)(prarg, "%-28s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
     (*printer)(prarg, "%-28s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
     (*printer)(prarg, "%-28s %u\n", "http_other_error", http_io_stats.http_other_error);
+    (*printer)(prarg, "%-28s %u\n", "http_num_retries", http_io_stats.num_retries);
+    (*printer)(prarg, "%-28s %ju.%03u sec\n", "http_total_retry_delay",
+      (uintmax_t)(http_io_stats.retry_delay / 1000), (u_int)(http_io_stats.retry_delay % 1000));
     total_curls = http_io_stats.curl_handles_created + http_io_stats.curl_handles_reused;
     if (total_curls > 0)
         curl_reuse_ratio = (double)http_io_stats.curl_handles_reused / (double)total_curls;
@@ -515,9 +518,6 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
     (*printer)(prarg, "%-28s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
     (*printer)(prarg, "%-28s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
     (*printer)(prarg, "%-28s %u\n", "curl_other_error", http_io_stats.curl_other_error);
-    (*printer)(prarg, "%-28s %u\n", "num_retries", http_io_stats.num_retries);
-    (*printer)(prarg, "%-28s %ju.%03u\n", "total_retry_delay",
-      (uintmax_t)(http_io_stats.retry_delay / 1000), (u_int)(http_io_stats.retry_delay % 1000));
     total_oom += http_io_stats.out_of_memory_errors;
     if (block_cache_store != NULL) {
         double read_hit_ratio = 0.0;
@@ -531,7 +531,7 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         total_writes = block_cache_stats.write_hits + block_cache_stats.write_misses;
         if (total_writes != 0)
             write_hit_ratio = (double)block_cache_stats.write_hits / (double)total_writes;
-        (*printer)(prarg, "%-28s %u\n", "current_block_cache_size", block_cache_stats.current_size);
+        (*printer)(prarg, "%-28s %u blocks\n", "block_cache_current_size", block_cache_stats.current_size);
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
@@ -542,10 +542,12 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         total_oom += ec_protect_stats.out_of_memory_errors;
     }
     if (ec_protect_store != NULL) {
-        (*printer)(prarg, "%-28s %u\n", "current_md5_cache_size", ec_protect_stats.current_cache_size);
+        (*printer)(prarg, "%-28s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
         (*printer)(prarg, "%-28s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
-        (*printer)(prarg, "%-28s %ju\n", "md5_cache_full_delay", (uintmax_t)ec_protect_stats.cache_full_delay);
-        (*printer)(prarg, "%-28s %ju\n", "repeated_write_delay", (uintmax_t)ec_protect_stats.repeated_write_delay);
+        (*printer)(prarg, "%-28s %ju.%03u sec\n", "md5_cache_full_delays",
+          (uintmax_t)(ec_protect_stats.cache_full_delay / 1000), (u_int)(ec_protect_stats.cache_full_delay % 1000));
+        (*printer)(prarg, "%-28s %ju.%03u sec\n", "md5_cache_write_delays",
+          (uintmax_t)(ec_protect_stats.repeated_write_delay / 1000), (u_int)(ec_protect_stats.repeated_write_delay % 1000));
         total_oom += block_cache_stats.out_of_memory_errors;
     }
     (*printer)(prarg, "%-28s %u\n", "out_of_memory_errors", total_oom);
