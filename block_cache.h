@@ -29,6 +29,8 @@ struct block_cache_conf {
     u_int               write_delay;
     u_int               timeout;
     u_int               num_threads;
+    u_int               read_ahead;
+    u_int               read_ahead_trigger;
     log_func_t          *log;
 };
 
@@ -38,7 +40,6 @@ struct block_cache_stats {
     double              dirty_ratio;
     u_int               read_hits;
     u_int               read_misses;
-    u_int               read_drops;
     u_int               write_hits;
     u_int               write_misses;
     u_int               out_of_memory_errors;
