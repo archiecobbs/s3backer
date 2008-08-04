@@ -34,6 +34,14 @@
 .Ar bucket
 .Ar /mount/point
 .Ek
+.Pp
+.Nm s3backer
+.Bk -words
+.Fl \-test
+.Op options
+.Ar dir
+.Ar /mount/point
+.Ek
 .Sh DESCRIPTION
 .Nm
 is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
@@ -408,6 +416,11 @@ Specify the name of the human-readable statistics file that appears in the
 filesystem.
 A value of empty string disables the appearance of this file.
 Default is `stats'.
+.It Fl \-test
+Operate in local test mode.
+Filesystem blocks are stored as regular files in the directory
+.Ar dir .
+No network traffic occurs.
 .It Fl \-timeout=SECONDS
 Specify a time limit in seconds for one HTTP operation attempt.
 This limits the entire operation including connection time (if not already connected) and data transfer time.
