@@ -44,9 +44,9 @@
  * A pool of worker threads picks them off and writes them through to the underlying
  * s3backer_store; while being written they are in state WRITING, or WRITING2 if another
  * write to the same block happens during that time. If the write is unsuccessful, the
- * block goes back to DIRTY and to the end of the DIRTY list: the result is that failed
+ * block goes back to DIRTY and to the head of the DIRTY list: the result is that failed
  * writes of DIRTY blocks will retry indefinitely. If the write is successful, the
- * block moves to CLEAN if still in state WRITING, of DIRTY if in WRITING2.
+ * block moves to CLEAN if still in state WRITING, or DIRTY if in WRITING2.
  *
  * Because we allow writes to update the data in a block while that block is being
  * written, the worker threads must make a copy of the data before they send it.
