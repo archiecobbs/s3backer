@@ -407,9 +407,10 @@ again:
      * While we were reading anything could have happened to the entry,
      * including a simultaneous write, write-back, and eviction. We can
      * assume nothing at this point so we have to find the entry again.
+     * If not found, just return the data we read without caching it.
      */
     if ((entry = block_cache_hash_get(priv, block_num)) == NULL)
-        return 0;
+        return r;
 
     /* A simultaneous write would have changed the entry's state */
     if (ENTRY_GET_STATE(entry) != READING) {
