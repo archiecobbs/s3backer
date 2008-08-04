@@ -31,8 +31,8 @@
 
 /* Definitions */
 #define NUM_THREADS     10
-#define DELAY_BASE      100
-#define DELAY_RANGE     500
+#define DELAY_BASE      0
+#define DELAY_RANGE     50
 #define READ_FACTOR     2
 #define ZERO_FACTOR     3
 
@@ -106,7 +106,6 @@ static void *
 thread_main(void *arg)
 {
     const int id = (int)arg;
-    struct timespec delay;
     u_char data[config->block_size];
     s3b_block_t block_num;
     int millis;
@@ -117,9 +116,7 @@ thread_main(void *arg)
 
         // Sleep
         millis = DELAY_BASE + (random() % DELAY_RANGE);
-        delay.tv_sec = millis / 1000;
-        delay.tv_nsec = (millis % 1000) * 1000000;
-        nanosleep(&delay, NULL);
+        usleep(millis * 1000);
 
         // Pick a random block
         block_num = random() % config->num_blocks;
