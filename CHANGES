@@ -6,6 +6,7 @@ Version 1.1.1
     - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
     - Implemented read-ahead using `--readAhead' and `--readAheadTrigger' flags.
     - Added new `--test' flag which turns on local test mode.
+    - Display the URL, bucket, and prefix in the output of mount(8).
     - Fixed bug where an error during auto-detection would cause a segfault.
     - Fixed bug where read errors from the underlying store were being ignored
       by the block cache layer.
