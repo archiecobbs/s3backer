@@ -989,7 +989,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "access", config.http_io.accessType);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
     (*config.log)(LOG_DEBUG, "%24s: %s", "assume_empty", config.http_io.assume_empty ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "bucket", config.http_io.bucket);
