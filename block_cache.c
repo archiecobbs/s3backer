@@ -70,9 +70,9 @@
  *
  *  1. We use the low-order bit of '_data' as the dirty flag (we assume all valid
  *     pointers are aligned to an even address).
- *  2. When not linked into either list (i.e., in WRITING state), we set both members
- *     of the 'link' field to zero to indicate this. This works because at least one
- *     will always be non-zero when the structure is linked into a list.
+ *  2. When not linked into either list (i.e., in WRITING state), we set link.tqe_prev
+ *     to NULL to indicate this; this is safe because link.tqe_prev is always non-NULL
+ *     when the structure is linked into a list.
  *
  * Invariants:
  *
@@ -101,8 +101,8 @@ struct cache_entry {
 #define ENTRY_GET_DATA(entry)               ((void *)((intptr_t)(entry)->_data & ~(intptr_t)1))
 #define ENTRY_SET_DATA(entry, data, state)  do { (entry)->_data = (state) == CLEAN ? (void *)(data) \
                                               : (void *)((intptr_t)(data) | (intptr_t)1); } while (0)
-#define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_next != NULL || (entry)->link.tqe_prev != NULL)
-#define ENTRY_RESET_LINK(entry)             do { memset(&(entry)->link, 0, sizeof((entry)->link)); } while (0)
+#define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_prev != NULL)
+#define ENTRY_RESET_LINK(entry)             do { (entry)->link.tqe_prev = NULL; } while (0)
 #define ENTRY_GET_STATE(entry)              (ENTRY_IN_LIST(entry) ?                             \
                                                 (ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN) :       \
                                                 ((entry)->timeout == READING_TIMEOUT ?          \
