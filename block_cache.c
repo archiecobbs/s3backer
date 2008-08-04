@@ -421,6 +421,7 @@ again:
     /* Check for error from underlying s3backer_store */
     if (r != 0) {
         pthread_cond_signal(&priv->space_avail);
+        pthread_cond_signal(&priv->end_reading);
         block_cache_hash_remove(priv, entry->block_num);
         free(ENTRY_GET_DATA(entry));
         free(entry);
