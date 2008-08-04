@@ -26,7 +26,7 @@ bin_PROGRAMS=       s3backer
 
 noinst_PROGRAMS=    tester
 
-noinst_HEADERS=     s3backer.h block_cache.h ec_protect.h fuse_ops.h http_io.h s3b_config.h
+noinst_HEADERS=     s3backer.h block_cache.h ec_protect.h fuse_ops.h http_io.h test_io.h s3b_config.h
 
 man_MANS=           s3backer.1
 
@@ -36,9 +36,9 @@ doc_DATA=           CHANGES COPYING README INSTALL TODO
 
 EXTRA_DIST=         CHANGES s3backer.1
 
-s3backer_SOURCES=   main.c block_cache.c ec_protect.c fuse_ops.c http_io.c s3b_config.c svnrev.c
+s3backer_SOURCES=   main.c block_cache.c ec_protect.c fuse_ops.c http_io.c s3b_config.c test_io.c svnrev.c
 
-tester_SOURCES=     tester.c block_cache.c ec_protect.c http_io.c s3b_config.c svnrev.c
+tester_SOURCES=     tester.c block_cache.c ec_protect.c http_io.c s3b_config.c test_io.c svnrev.c
 
 AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
 
