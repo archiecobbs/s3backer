@@ -252,6 +252,10 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     u_char md5[MD5_DIGEST_LENGTH];
     struct block_info *binfo;
 
+    /* Sanity check */
+    if (config->block_size == 0)
+        return EINVAL;
+
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
