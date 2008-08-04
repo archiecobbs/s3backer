@@ -26,6 +26,9 @@
 #include "http_io.h"
 #include "test_io.h"
 
+/* Do we want random errors? */
+#define RANDOM_ERROR_PERCENT    0
+
 /* Internal state */
 struct test_io_private {
     struct http_io_conf         *config;
@@ -100,7 +103,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     usleep((random() % 200) * 1000);
 
     /* Random error */
-    if (random() % 100 == 0) {
+    if ((random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure reading %08x", (u_int)block_num);
         return EAGAIN;
     }
@@ -174,7 +177,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     usleep((random() % 200) * 1000);
 
     /* Random error */
-    if (random() % 100 == 0) {
+    if ((random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure writing %08x", (u_int)block_num);
         return EAGAIN;
     }
