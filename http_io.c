@@ -331,7 +331,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int r;
 
     /* Sanity check */
-    if (config->block_size == 0 || config->num_blocks == 0)
+    if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
 
     /* Read zero blocks when 'assume_empty' until non-zero content is written */
@@ -445,7 +445,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     int r;
 
     /* Sanity check */
-    if (config->block_size == 0 || config->num_blocks == 0)
+    if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
 
     /* Don't write zero blocks when 'assume_empty' until non-zero content is written */
