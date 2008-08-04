@@ -101,7 +101,6 @@ typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -162,7 +161,6 @@ http_io_create(struct http_io_conf *config)
     }
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
-    s3b->detect_sizes = http_io_detect_sizes;
     s3b->destroy = http_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -254,7 +252,17 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
     pthread_mutex_unlock(&priv->mutex);
 }
 
-static int
+/*
+ * Auto-detect block size and total size based on the first block.
+ *
+ * Returns:
+ *
+ *  0       Success
+ *  ENOENT  Block not found
+ *  ENXIO   Response was missing one of the two required headers
+ *  Other   Other error
+ */
+int
 http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
 {
     struct http_io_private *const priv = s3b->data;

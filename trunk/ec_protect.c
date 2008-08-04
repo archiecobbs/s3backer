@@ -108,7 +108,6 @@ struct ec_protect_private {
 /* s3backer_store functions */
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int ec_protect_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
 /* Data structure manipulation */
@@ -161,7 +160,6 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     }
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
-    s3b->detect_sizes = ec_protect_detect_sizes;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -234,14 +232,6 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
     memcpy(stats, &priv->stats, sizeof(*stats));
     stats->current_cache_size = g_hash_table_size(priv->hashtable);
     pthread_mutex_unlock(&priv->mutex);
-}
-
-static int
-ec_protect_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
-{
-    struct ec_protect_private *const priv = s3b->data;
-
-    return (*priv->inner->detect_sizes)(priv->inner, file_sizep, block_sizep);
 }
 
 static int
