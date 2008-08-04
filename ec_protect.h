@@ -25,7 +25,6 @@
 /* Configuration info structure for ec_protect store */
 struct ec_protect_conf {
     u_int               block_size;
-    off_t               num_blocks;
     u_int               min_write_delay;
     u_int               cache_time;
     u_int               cache_size;

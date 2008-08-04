@@ -970,7 +970,6 @@ validate_config(void)
     config.http_io.num_blocks = config.num_blocks;
     config.http_io.log = config.log;
     config.ec_protect.block_size = config.block_size;
-    config.ec_protect.num_blocks = config.num_blocks;
     config.ec_protect.log = config.log;
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
