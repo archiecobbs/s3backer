@@ -418,10 +418,16 @@ again:
         return 0;
     }
 
+    /*
+     * We know two things at this point: the state is going to
+     * change from READING and we will create new available space
+     * in the cache. Wake up any threads waiting on those events.
+     */
+    pthread_cond_broadcast(&priv->end_reading);
+    pthread_cond_signal(&priv->space_avail);
+
     /* Check for error from underlying s3backer_store */
     if (r != 0) {
-        pthread_cond_signal(&priv->space_avail);
-        pthread_cond_signal(&priv->end_reading);
         block_cache_hash_remove(priv, entry->block_num);
         free(ENTRY_GET_DATA(entry));
         free(entry);
@@ -433,14 +439,10 @@ again:
 
     /* Change entry from READING to CLEAN */
     assert(ENTRY_GET_STATE(entry) == READING);
-    pthread_cond_signal(&priv->space_avail);
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
     TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
     priv->num_cleans++;
     assert(ENTRY_GET_STATE(entry) == CLEAN);
-
-    /* Wake up any threads waiting for me to finish reading */
-    pthread_cond_broadcast(&priv->end_reading);
 
     /* Done */
     return 0;
