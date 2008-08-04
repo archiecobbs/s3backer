@@ -100,18 +100,6 @@ struct s3backer_store {
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
 
     /*
-     * Auto-detect block size and total size based on the first block.
-     *
-     * Returns:
-     *
-     *  0       Success
-     *  ENOENT  Block not found
-     *  ENXIO   Response was missing one of the two required headers
-     *  Other   Other error
-     */
-    int         (*detect_sizes)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-
-    /*
      * Destroy this instance.
      */
     void        (*destroy)(struct s3backer_store *s3b);

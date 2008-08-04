@@ -146,7 +146,6 @@ struct block_cache_private {
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int block_cache_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -200,7 +199,6 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     }
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
-    s3b->detect_sizes = block_cache_detect_sizes;
     s3b->destroy = block_cache_destroy;
 
     /* Initialize block_cache_private structure */
@@ -313,14 +311,6 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
     stats->current_size = g_hash_table_size(priv->hashtable);
     stats->dirty_ratio = block_cache_dirty_ratio(priv);
     pthread_mutex_unlock(&priv->mutex);
-}
-
-static int
-block_cache_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
-{
-    struct block_cache_private *const priv = s3b->data;
-
-    return (*priv->inner->detect_sizes)(priv->inner, file_sizep, block_sizep);
 }
 
 /*

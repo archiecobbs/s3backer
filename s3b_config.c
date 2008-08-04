@@ -850,7 +850,7 @@ validate_config(void)
         r = ENOENT;
     else {
         warnx("auto-detecting block size and total file size...");
-        r = (*s3b->detect_sizes)(s3b, &auto_file_size, &auto_block_size);
+        r = http_io_detect_sizes(s3b, &auto_file_size, &auto_block_size);
     }
     switch (r) {
     case 0:
