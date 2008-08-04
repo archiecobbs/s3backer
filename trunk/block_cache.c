@@ -112,7 +112,7 @@ struct cache_entry {
 /* One time unit in milliseconds */
 #define TIME_UNIT_MILLIS            16
 
-/* The dirty ratio at which we will be writing all dirty blocks immediately */
+/* The dirty ratio at which we want to be writing out dirty blocks immediately */
 #define DIRTY_RATIO_WRITE_ASAP      0.90            // 90%
 
 /* Special timeout value for entries in state READING */
