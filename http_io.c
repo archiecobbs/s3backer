@@ -122,7 +122,7 @@ static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *st
 static struct curl_slist *http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 2, 3)));
 static void http_io_get_date(char *buf, size_t bufsiz);
-static CURL *http_io_acquire_curl(struct http_io_private *priv);
+static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
 static void http_io_release_curl(struct http_io_private *priv, CURL *curl, int may_cache);
 
 /* Misc */
@@ -315,9 +315,6 @@ static void
 http_io_detect_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
-    curl_easy_setopt(curl, CURLOPT_URL, io->url);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
@@ -427,9 +424,6 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     memset(&io->bufs, 0, sizeof(io->bufs));
     io->bufs.rdremain = io->block_size;
     io->bufs.rddata = io->dest;
-    curl_easy_setopt(curl, CURLOPT_URL, io->url);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->block_size);
@@ -551,9 +545,6 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
         io->bufs.wrremain = io->block_size;
         io->bufs.wrdata = io->src;
     }
-    curl_easy_setopt(curl, CURLOPT_URL, io->url);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
     curl_easy_setopt(curl, CURLOPT_READDATA, &io->bufs);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
@@ -590,7 +581,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
 
         /* Acquire and initialize CURL instance */
-        if ((curl = http_io_acquire_curl(priv)) == NULL)
+        if ((curl = http_io_acquire_curl(priv, io)) == NULL)
             return EIO;
         (*prepper)(curl, io);
 
@@ -829,7 +820,7 @@ http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
 }
 
 static CURL *
-http_io_acquire_curl(struct http_io_private *priv)
+http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
 {
     struct http_io_conf *const config = priv->config;
     struct curl_holder *holder;
@@ -855,10 +846,19 @@ http_io_acquire_curl(struct http_io_private *priv)
             return NULL;
         }
     }
+    curl_easy_setopt(curl, CURLOPT_URL, io->url);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
+    if (strncmp(io->url, "https", 5) == 0) {
+        if (config->insecure)
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long)0);
+        if (config->cacert != NULL)
+            curl_easy_setopt(curl, CURLOPT_CAINFO, config->cacert);
+    }
     //curl_easy_setopt(curl, CURLOPT_VERBOSE);
     return curl;
 }
