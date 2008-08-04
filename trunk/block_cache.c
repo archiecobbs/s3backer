@@ -636,7 +636,7 @@ block_cache_worker_main(void *arg)
     /*
      * Allocate buffer for outgoing block data. We have to copy it before
      * we send it in case another write to this block comes in and updates
-     * the buffer associated with the cache entry. Use heap space because
+     * the data associated with the cache entry. Use heap space because
      * it will likely be page-aligned.
      */
     if ((buf = malloc(block_size)) == NULL) {
@@ -655,7 +655,7 @@ block_cache_worker_main(void *arg)
 
         /* Evict any CLEAN blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
-            while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && clean_entry->timeout <= now) {
+            while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
                 block_cache_hash_remove(priv, clean_entry->block_num);
                 TAILQ_REMOVE(&priv->cleans, clean_entry, link);
                 free(ENTRY_GET_DATA(clean_entry));
@@ -670,19 +670,18 @@ block_cache_worker_main(void *arg)
          * to relieve cache pressure. When the dirty ratio reaches DIRTY_RATIO_WRITE_ASAP, write
          * out all dirty blocks immediately.
          */
-        adjusted_now = now + (uint32_t)(block_cache_dirty_ratio(priv)
-          * (double)priv->dirty_timeout * (1.0 / DIRTY_RATIO_WRITE_ASAP));
+        adjusted_now = now + (uint32_t)((double)priv->dirty_timeout
+          * block_cache_dirty_ratio(priv) * (1.0 / DIRTY_RATIO_WRITE_ASAP));
 
         /* See if there is a block that needs writing */
-        if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL
-          && (priv->stopping || entry->timeout <= adjusted_now)) {
+        if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL && (priv->stopping || adjusted_now >= entry->timeout)) {
 
             /* If we are also supposed to do read-ahead, wake up a sibling to handle it */
             if (priv->seq_count >= config->read_ahead_trigger && priv->ra_count < config->read_ahead)
                 pthread_cond_signal(&priv->worker_work);
 
             /* Move to WRITING state */
-            assert(ENTRY_IS_DIRTY(entry));
+            assert(ENTRY_GET_STATE(entry) == DIRTY);
             TAILQ_REMOVE(&priv->dirties, entry, link);
             ENTRY_RESET_LINK(entry);
             ENTRY_SET_CLEAN(entry);
@@ -746,7 +745,7 @@ block_cache_worker_main(void *arg)
             continue;
         }
 
-        /* Sleep until there is more to do */
+        /* There is nothing to do at this time; sleep until there is something to do */
         if (entry == NULL || (clean_entry != NULL && clean_entry->timeout < entry->timeout))
             entry = clean_entry;
         block_cache_worker_wait(priv, entry);
