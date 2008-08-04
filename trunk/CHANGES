@@ -1,6 +1,8 @@
 
 Version 1.1.1
 
+    - Added `--ssl' as an alias for `--baseURL https://s3.amazonaws.com/'.
+    - Added `--insecure' and `--cacert' flags to configure cURL SSL checks.
     - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
     - Implemented read-ahead using `--readAhead' and `--readAheadTrigger' flags.
     - Added new `--test' flag which turns on local test mode.

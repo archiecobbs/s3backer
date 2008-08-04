@@ -31,8 +31,10 @@ struct http_io_conf {
     const char          *bucket;
     const char          *prefix;
     const char          *user_agent;
+    const char          *cacert;
     int                 debug;
     int                 assume_empty;
+    int                 insecure;
     u_int               block_size;
     off_t               num_blocks;
     u_int               timeout;

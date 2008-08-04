@@ -288,6 +288,12 @@ will exit with an error unless
 is also given.
 If auto-detection fails because block number zero does not exist, and this option is not specified,
 then the default value of 4K (4096) is used.
+.It Fl \-cacert=FILE
+Specify SSL certificate file to be used when verifying the remote server's identity when operating over SSL connections.
+Equivalent to the
+.Fl \-cacert
+flag documented in
+.Xr curl 1 .
 .It Fl \-debug
 Enable logging of debug messages.
 Note that this flag is different from
@@ -330,6 +336,12 @@ will make multiple retry attempts using an exponential backoff algorithm, starti
 Default value is 200ms.
 See also
 .Fl \-maxRetryPause .
+.It Fl \-insecure
+Do not verify the remote server's identity when operating over SSL connections.
+Equivalent to the
+.Fl \-insecure
+flag documented in
+.Xr curl 1 .
 .It Fl \-maxRetryPause=MILLIS
 Specify the total amount of time in milliseconds
 .Nm
@@ -410,6 +422,12 @@ If this option is specified but disagrees with the auto-detected value,
 will exit with an error unless
 .Fl \-force
 is also given.
+.It Fl \-ssl
+Equivalent to
+.Bk -words
+.Fl \-baseURL
+.Ar https://s3.amazonaws.com/
+.Ek
 .It Fl \-statsFilename=NAME
 Specify the name of the human-readable statistics file that appears in the
 .Nm
@@ -485,6 +503,7 @@ to FUSE (unless overridden by the user on the command line):
 Contains Amazon S3 `accessID:accessKey' pairs.
 .El
 .Sh SEE ALSO
+.Xr curl 1 ,
 .Xr losetup 8 ,
 .Xr mount 8 ,
 .Xr umount 8 ,

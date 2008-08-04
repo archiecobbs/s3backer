@@ -36,6 +36,7 @@
 
 /* S3 URL */
 #define S3_BASE_URL                                 "http://s3.amazonaws.com/"
+#define S3_BASE_URL_HTTPS                           "https://s3.amazonaws.com/"
 
 /* S3 access permission strings */
 #define S3_ACCESS_PRIVATE                           "private"
@@ -289,6 +290,21 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--statsFilename=%s",
         .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--ssl",
+        .offset=    offsetof(struct s3b_config, ssl),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--cacert=%s",
+        .offset=    offsetof(struct s3b_config, http_io.cacert),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--insecure",
+        .offset=    offsetof(struct s3b_config, http_io.insecure),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -739,7 +755,9 @@ validate_config(void)
         search_access_for(config.accessFile, NULL, &config.http_io.accessId, NULL);
     if (config.http_io.accessId != NULL && *config.http_io.accessId == '\0')
         config.http_io.accessId = NULL;
-    if (config.http_io.accessId == NULL && strcmp(config.http_io.baseURL, S3_BASE_URL) == 0 && !config.fuse_ops.read_only) {
+    if (config.http_io.accessId == NULL
+      && !config.fuse_ops.read_only
+      && (strcmp(config.http_io.baseURL, S3_BASE_URL) == 0 || strcmp(config.http_io.baseURL, S3_BASE_URL_HTTPS) == 0)) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
@@ -801,6 +819,14 @@ validate_config(void)
     if (s == NULL) {
         warnx("invalid base URL `%s'", config.http_io.baseURL);
         return -1;
+    }
+    if (config.ssl) {
+        if (strcmp(config.http_io.baseURL, S3BACKER_DEFAULT_BASE_URL) != 0
+          && strcmp(config.http_io.baseURL, S3_BASE_URL_HTTPS) != 0) {
+            warnx("specify only one of `--baseURL' and `--ssl'");
+            return -1;
+        }
+        config.http_io.baseURL = S3_BASE_URL_HTTPS;
     }
 
     /* Check S3 access privilege */
@@ -1129,6 +1155,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
@@ -1137,6 +1164,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
+    fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
@@ -1144,6 +1172,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
