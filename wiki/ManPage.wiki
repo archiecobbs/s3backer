@@ -10,6 +10,8 @@ NAME
 SYNOPSIS
      s3backer [options] bucket /mount/point
 
+     s3backer --test [options] dir /mount/point
+
 DESCRIPTION
      s3backer is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).  As a filesys-
      tem, it is quite small and simple: it provides a single normal file having a fixed size.  The file is divided up into blocks,
@@ -52,8 +54,7 @@ DESCRIPTION
      2.  s3backer maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks
          returned by GET operations.
 
-     This logic is configured by the following command line options: --md5CacheSize, --md5CacheTime, --minWriteDelay,
-     --initialRetryPause, and --maxRetryPause, all of which have default values.
+     This logic is configured by the following command line options: --md5CacheSize, --md5CacheTime, and --minWriteDelay.
 
    Zeroed Block Optimization
      As a simple optimization, s3backer does not store blocks containing all zeroes; instead, they are simply deleted.  Conversely,
@@ -71,20 +72,32 @@ DESCRIPTION
    Block Cache
      s3backer includes support for an internal block cache to increase performance.  The block cache cache is completely separate
      from the MD5 cache which only stores MD5 checksums transiently and whose sole purpose is to mitigate ``eventual consistency''.
-     The block cache is a traditional cache containing cached data blocks.  When enabled, reads of cached blocks return immediately
-     with no network traffic.  Writes to the cache also return immediately and trigger an asynchronous write operation to the net-
-     work via a separate worker thread.  Because the kernel typically writes blocks through FUSE filesystems one at a time, per-
-     forming writes asynchronously allows s3backer to take advantage of the parallelism inherent in the network, vastly improving
-     write performance.
+     The block cache is a traditional cache containing cached data blocks.  When full, clean blocks are evicted as necessary in LRU
+     order.
 
-     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheThreads and
-     --blockCacheWriteDelay.
+     Reads of cached blocks will return immediately with no network traffic.  Writes to the cache also return immediately and trig-
+     ger an asynchronous write operation to the network via a separate worker thread.  Because the kernel typically writes blocks
+     through FUSE filesystems one at a time, performing writes asynchronously allows s3backer to take advantage of the parallelism
+     inherent in the network, vastly improving write performance.
+
+     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheThreads,
+     --blockCacheTimeout, and --blockCacheWriteDelay.
+
+   Read Ahead
+     s3backer implements a simple read-ahead algorithm in the block cache.  When a configurable number of blocks are read in order,
+     block cache worker threads are awoken to begin reading subsequent blocks into the block cache.  Read ahead continues as long
+     as the kernel continues reading blocks sequentially.  The kernel typically requests blocks one at a time, so having multiple
+     worker threads already reading the next few blocks improves read performance by taking advantage of the parallelism inherent
+     in the network.
+
+     Note that the kernel implements a read ahead algorithm as well; its behavior should be taken into consideration.  By default,
+     s3backer passes the -o max_readahead=0 option to FUSE.
 
    Read-Only Access
-     An Amazon S3 account is not required in order to use s3backer.  Of course a filesystem must already exist and have S3 objects
-     with ACL's configured for public read access (see --accessType below); users should perform the looback mount with the read-
-     only flag (see mount(8)) and provide the --readOnly flag to s3backer.  This mode of operation facilitates the creation of pub-
-     lic, read-only filesystems.
+     An Amazon S3 account is not required in order to use s3backer.  The filesystem must already exist and have S3 objects with
+     ACL's configured for public read access (see --accessType below); users should perform the looback mount with the read-only
+     flag (see mount(8)) and provide the --readOnly flag to s3backer.  This mode of operation facilitates the creation of public,
+     read-only filesystems.
 
    Simultaneous Mounts
      Although it functions over the network, the s3backer filesystem is not a distributed filesystem and does not support simulta-
@@ -137,25 +150,36 @@ OPTIONS
              Set the size of the thread pool associated with the block cache (if enabled).  This bounds the number of simultaneous
              writes that can occur to the network.  Default value is 20.
 
+     --blockCacheTimeout=MILLIS
+             Specify the maximum time a clean entry can remain in the block cache before it will be forcibly evicted and its asso-
+             ciated memory freed.  A value of zero means there is no timeout; in this case, the number of entries in the block
+             cache will never decrease, eventually reaching the maximum size configured by --blockCacheSize and staying there.
+             Configure a non-zero value if the memory usage of the block cache is a concern.  Default value is zero (no timeout).
+
      --blockCacheWriteDelay=MILLIS
              Specify the maximum time a dirty block can remain in the block cache before it must be written out to the network.
              Blocks may be written sooner when there is cache pressure.  A value of zero configures a ``write-through'' policy;
              greater values configure a ``write-back'' policy.  Larger values increase performance when a small number of blocks
-             are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.
-
-             Currently this option is ignored; variable write delay in the block cache is not yet implemented and the value is
-             effectively hard-coded to zero.
+             are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.  Default value is
+             zero.
 
      --blockSize=SIZE
-             Specify the block size. This must be a power of two and should be a multiple of the kernel's native page size.  In
-             fact in almost all cases it should equal the kernel page size.  The size may have an optional suffix 'K' for kilo-
-             bytes, 'M' for megabytes, etc.  s3backer supports partial block operations, though for writes this may require a read
-             and then a write; proper alignment of the s3backer block size with the intended use (e.g., the block size of the
-             `upper' filesystem) will minimize or eliminate the extra reads.  s3backer will attempt to auto-detect the block size
-             by reading block number zero.  If this option is not specified, the auto-detected value will be used.  If this option
-             is specified but disagrees with the auto-detected value, s3backer will exit with an error unless --force is also
-             given.  If auto-detection fails because block number zero does not exist, and this option is not specified, then the
-             default value of 4K (4096) is used.
+             Specify the block size.  This must be a power of two and should be a multiple of the kernel's native page size.  The
+             size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+
+             s3backer supports partial block operations, though this forces a read before each write; use of the block cache and
+             proper alignment of the s3backer block size with the intended use (e.g., the block size of the `upper' filesystem)
+             will help minimize the extra reads.  Note that even when filesystems are configured for large block sizes, the kernel
+             will often still write page-sized blocks.
+
+             s3backer will attempt to auto-detect the block size by reading block number zero at startup.  If this option is not
+             specified, the auto-detected value will be used.  If this option is specified but disagrees with the auto-detected
+             value, s3backer will exit with an error unless --force is also given.  If auto-detection fails because block number
+             zero does not exist, and this option is not specified, then the default value of 4K (4096) is used.
+
+     --cacert=FILE
+             Specify SSL certificate file to be used when verifying the remote server's identity when operating over SSL connec-
+             tions.  Equivalent to the --cacert flag documented in curl(1).
 
      --debug
              Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE.  Both the -d and
@@ -181,6 +205,10 @@ OPTIONS
              include network failures and timeouts, HTTP errors, and reads of stale data (i.e., MD5 mismatch); s3backer will make
              multiple retry attempts using an exponential backoff algorithm, starting with this initial retry pause time.  Default
              value is 200ms.  See also --maxRetryPause.
+
+     --insecure
+             Do not verify the remote server's identity when operating over SSL connections.  Equivalent to the --insecure flag
+             documented in curl(1).
 
      --maxRetryPause=MILLIS
              Specify the total amount of time in milliseconds s3backer should pause when retrying failed HTTP operations before
@@ -217,6 +245,16 @@ OPTIONS
              Specify a prefix to prepend to the resource names within bucket that identify each block.  Default is the empty
              string.
 
+     --readAhead=NUM
+             Configure the number of blocks of read ahead.  This determines how many blocks will be read into the block cache ahead
+             of the last block read by the kernel when read ahead is active.  This option has no effect if the block cache is dis-
+             abled.  Default value is 4.
+
+     --readAheadTrigger=NUM
+             Configure the number of blocks that must be read consecutively before the read ahead algorithm is triggered.  Once
+             triggered, read ahead will continue as long as the kernel continues reading blocks sequentially.  This option has no
+             effect if the block cache is disabled.  Default value is 2.
+
      --readOnly
              Assume the filesystem is going to be mounted read-only, and return EROFS in response to any attempt to write.  This
              flag also changes the default mode of the backed file from 0600 to 0400.
@@ -228,9 +266,14 @@ OPTIONS
              is not specified, the auto-detected value will be used.  If this option is specified but disagrees with the auto-
              detected value, s3backer will exit with an error unless --force is also given.
 
+     --ssl   Equivalent to --baseURL https://s3.amazonaws.com/
+
      --statsFilename=NAME
              Specify the name of the human-readable statistics file that appears in the s3backer filesystem.  A value of empty
              string disables the appearance of this file.  Default is `stats'.
+
+     --test  Operate in local test mode.  Filesystem blocks are stored as regular files in the directory dir.  No network traffic
+             occurs.
 
      --timeout=SECONDS
              Specify a time limit in seconds for one HTTP operation attempt.  This limits the entire operation including connection
@@ -269,10 +312,12 @@ OPTIONS
      the command line):
 
      -o kernel_cache
-     -o fsname=s3backer
+     -o fsname=<baseURL><bucket>/<prefix>
+     -o subtype=s3backer
      -o use_ino
      -o entry_timeout=31536000
      -o negative_timeout=31536000
+     -o max_readahead=0
      -o attr_timeout=0
      -o default_permissions
      -o nodev
@@ -283,7 +328,7 @@ FILES
              Contains Amazon S3 `accessID:accessKey' pairs.
 
 SEE ALSO
-     losetup(8), mount(8), umount(8), fusermount(8).
+     curl(1), losetup(8), mount(8), umount(8), fusermount(8).
 
      s3backer: FUSE-based single file backing store via Amazon S3, http://s3backer.googlecode.com/.
 
