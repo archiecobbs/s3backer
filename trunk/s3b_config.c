@@ -325,6 +325,7 @@ static const char *const s3backer_fuse_defaults[] = {
     "-okernel_cache",
     "-ouse_ino",
     "-omax_readahead=0",
+    "-osubtype=s3backer",
     "-oentry_timeout=31536000",
     "-onegative_timeout=31536000",
     "-oattr_timeout=0",             // because statistics file length changes
