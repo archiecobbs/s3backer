@@ -1,0 +1,7 @@
+TODO
+
+- compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
+- interrupt active write when new write happens (instead of waiting)
+- include 'known_zero' flag in read and write s3backer_store methods
+
+$Id$
