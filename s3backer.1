@@ -155,8 +155,10 @@ The kernel typically requests blocks one at a time, so having multiple worker th
 improves read performance by taking advantage of the parallelism inherent in the network.
 .Pp
 Note that the kernel implements a read ahead algorithm as well; its behavior should be taken into consideration.
-Kernel read ahead can be limited using the
-.Fl o Ar max_readahead
+By default,
+.Nm
+passes the 
+.Fl o Ar max_readahead=0
 option to FUSE.
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
@@ -492,6 +494,7 @@ to FUSE (unless overridden by the user on the command line):
 .It Fl o Ar use_ino
 .It Fl o Ar entry_timeout=31536000
 .It Fl o Ar negative_timeout=31536000
+.It Fl o Ar max_readahead=0
 .It Fl o Ar attr_timeout=0
 .It Fl o Ar default_permissions
 .It Fl o Ar nodev
