@@ -595,11 +595,9 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             double curl_time;
             int r = 0;
 
-#ifndef NDEBUG
             /* Extra debug logging */
             if (config->debug)
                 (*config->log)(LOG_DEBUG, "success: %s %s", io->method, io->url);
-#endif
 
             /* Extract timing info */
             if ((curl_code = curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curl_time)) != CURLE_OK) {
@@ -664,10 +662,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             /* Special handling for some specific HTTP codes */
             switch (http_code) {
             case HTTP_NOT_FOUND:
-#ifndef NDEBUG
                 if (config->debug)
                     (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
-#endif
                 return ENOENT;
             case HTTP_UNAUTHORIZED:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
