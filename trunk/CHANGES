@@ -1,5 +1,5 @@
 
-Version 1.1.1
+Version 1.1.1 (r196) released 4 Aug 2008
 
     - Added `--ssl' as an alias for `--baseURL https://s3.amazonaws.com/'.
     - Added `--insecure' and `--cacert' flags to configure cURL SSL checks.
