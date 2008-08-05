@@ -1,10 +1,11 @@
 
-Version 1.1.1 (r196) released 4 Aug 2008
+Version 1.1.1
 
     - Added `--ssl' as an alias for `--baseURL https://s3.amazonaws.com/'.
     - Added `--insecure' and `--cacert' flags to configure cURL SSL checks.
     - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
     - Implemented read-ahead using `--readAhead' and `--readAheadTrigger' flags.
+    - Set FUSE max_readahead option to zero by default since we do it too now.
     - Added new `--test' flag which turns on local test mode.
     - Display the URL, bucket, and prefix in the output of mount(8).
     - Fixed bug where an error during auto-detection would cause a segfault.
