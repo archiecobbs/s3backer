@@ -114,7 +114,13 @@ Because of this, when using large block sizes proper use and configuration of th
 
 Note that it's not necessarily the case that you will have more S3 objects than files in your filesystem. This ratio depends on how the "upper" filesystem stores its data. For example, the Reiser filesystem can store several small files into a single block. So your filesystem could actually result in fewer Amazon S3 objects than files it contains.
 
-Another thing to remember: larger block sizes take longer to transfer. Depending on the speed of your Internet connection, you may need to specify a longer `--timeout` than the default, which is 30 seconds.
+Another thing to remember: larger block sizes take longer to transfer. Depending on the speed of your Internet connection, you may need to specify a longer `--timeout` than the default, which is 30 seconds. This is especially true if all of the block cache threads reading or writing at the same time would oversaturate your connection, which will cause them all to transfer more slowly.
+
+===Choosing the Right Number Of Block Cache Threads===
+
+Ideally, the correct number of block cache threads should be determined empirically. At some point I may write a shell script that performs tests for the best setting.
+
+But generally speaking, the faster your Internet connection, the more threads you'll want, and the larger your block size, the fewer threads you'll want. The default value of 20 is just a wild guess.
 
 ===Tips & Tricks===
 
@@ -131,3 +137,4 @@ For disconnected operation support without the possibility of the kernel seeing 
 Once you create a new *s3backer*-backed file configured to use a specific block size, you have committed yourself to that block size. If you remount the backed file with a different block size (doing so requires you to use the `--force` flag), all hell will break loose.
 
 However, there is a way to change block size of an existing backed file without changing its contents: simply run *s3backer* twice, with the first instance pointing at the backed file with the old block size, and the second instance pointing at a new (empty) backed file having a different bucket name and/or prefix, and then copy the contents of the first file into the second. If you want to use the original bucket name and prefix, you'll have to copy it back again the same way.
+
