@@ -118,9 +118,9 @@ Another thing to remember: larger block sizes take longer to transfer. Depending
 
 ===Choosing the Right Number Of Block Cache Threads===
 
-Ideally, the correct number of block cache threads should be determined empirically. At some point I may write a shell script that performs tests for the best setting.
+Ideally, the correct number of block cache threads should be determined empirically. At some point I hope to write a utility program that performs tests for the best setting.
 
-But generally speaking, the faster your Internet connection, the more threads you'll want, and the larger your block size, the fewer threads you'll want. The default value of 20 is just a wild guess.
+But generally speaking, the faster your Internet connection, the more threads you'll want; the larger your block size, the fewer threads you'll want. The default value of 20 is just a wild guess.
 
 ===Tips & Tricks===
 
