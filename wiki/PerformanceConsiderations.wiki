@@ -104,7 +104,7 @@ There are tools for various filesystems that allow you to zero out these unused 
 
 Another problem is that if you have an encrypted filesystem, data that is zeroes when unencrypted will not be zeroes when encrypted. In fact you will have no zero blocks at all. This will only matter for files that contain zero blocks but are not stored sparsely on the disk (which is really a separate problem). You can correct these files easily by copying them via `cp --sparse=always` and then replacing the original with the copy.
 
-===Choosing the Right Block Size===
+*Choosing the Right Block Size*
 
 In practice you should choose a block size at least as big as the kernel's native page size (4096 bytes for most systems), because this is the size of the chunks the kernel will be reading and writing. A value of 4096 will however result in a huge number of individual Amazon S3 objects for large filesystems, plus it has about a 9% overhead at the HTTP level.
 
@@ -116,7 +116,7 @@ Note that it's not necessarily the case that you will have more S3 objects than 
 
 Another thing to remember: larger block sizes take longer to transfer. Depending on the speed of your Internet connection, you may need to specify a longer `--timeout` than the default, which is 30 seconds. This is especially true if all of the block cache threads reading or writing at the same time would oversaturate your connection, which will cause them all to transfer more slowly.
 
-===Choosing the Right Number Of Block Cache Threads===
+*Choosing the Right Number Of Block Cache Threads*
 
 Ideally, the correct number of block cache threads should be determined empirically. At some point I hope to write a utility program that performs tests for the best setting.
 
