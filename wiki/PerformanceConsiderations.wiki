@@ -19,7 +19,7 @@ When *s3backer* receives a read request from FUSE, it first checks the block cac
 
 When *s3backer* receives a write request from FUSE, the block is added to the block cache as a dirty block (if not already there), a worker thread is awoken to handle the request, and the original thread returns immediately. If the block cache is full (meaning there are no clean blocks which could be evicted), the original thread will block until space is available.
 
-In the MD5 cache layer, reads pass right through, except that they are annotated with the expected MD5 checksum (if the block is in the MD5 cache). As a result, reads of stale data from Amazon S3 will be rejected and retried in the HTTP I/O layer. Writes cause an entry to be added to the MD5 cache for the corresponding block; if the block is in the MD5 cache already and `--minWriteDelay' milliseconds have not passed since the previous write, the thread will block until they have before passing the write request on to the HTTP I/O layer.
+In the MD5 cache layer, reads pass right through, except that they are annotated with the expected MD5 checksum (if the block is in the MD5 cache). As a result, reads of stale data from Amazon S3 will be rejected and retried in the HTTP I/O layer. Writes cause an entry to be added to the MD5 cache for the corresponding block; if the block is in the MD5 cache already and `--minWriteDelay` milliseconds have not passed since the previous write, the thread will block until they have before passing the write request on to the HTTP I/O layer.
 
 The HTTP I/O layer is straightforward, converting read and write requests into GET, PUT, and DELETE HTTP requests.
 
