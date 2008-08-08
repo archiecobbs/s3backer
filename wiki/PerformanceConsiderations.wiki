@@ -33,7 +33,7 @@ This discussion assumes we're talking about Linux.
 
 *Kernel Caches*
 
-Linux has several caches:
+Linux has several caches, including:
 
   * The buffer cache, which caches raw data blocks from block devices (such as hard disks)
   * The page cache, which caches blocks of data contained within logical UNIX files
@@ -50,7 +50,7 @@ As far as I can tell, since the loopback device is a block device, it does use t
 
 Regarding the swap cache, Linux only writes out pages to swap if those pages cannot be stored or retrieved in another way. In particular, pages that represent file data blocks need not be written to swap, because they can instead be written back to the file they belong to (if dirty) or simply discarded and read again later (if clean).
 
-So in summary, the page and buffer caches are the only kernel cache that affect *s3backer* in normal usage.
+So in summary, the page and buffer caches are the only kernel caches that affect *s3backer* in normal usage.
 
 _Question:_ If you run `fsync(2)` on a file in a filesystem mounted on top of the *s3backer* backed file via loopback, does the data really get synced all the way to Amazon?
 
