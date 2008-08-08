@@ -50,7 +50,7 @@ As far as I can tell, since the loopback device is a block device, it does use t
 
 Regarding the swap cache, Linux only writes out pages to swap if those pages cannot be stored or retrieved in another way. In particular, pages that represent file data blocks need not be written to swap, because they can instead be written back to the file they belong to (if dirty) or simply discarded and read again later (if clean).
 
-So in summary, the page and buffere caches are the only kernel cache that affect *s3backer* in normal usage.
+So in summary, the page and buffer caches are the only kernel cache that affect *s3backer* in normal usage.
 
 _Question:_ If you run `fsync(2)` on a file in a filesystem mounted on top of the *s3backer* backed file via loopback, does the data really get synced all the way to Amazon?
 
@@ -137,4 +137,3 @@ For disconnected operation support without the possibility of the kernel seeing 
 Once you create a new *s3backer*-backed file configured to use a specific block size, you have committed yourself to that block size. If you remount the backed file with a different block size (doing so requires you to use the `--force` flag), all hell will break loose.
 
 However, there is a way to change block size of an existing backed file without changing its contents: simply run *s3backer* twice, with the first instance pointing at the backed file with the old block size, and the second instance pointing at a new (empty) backed file having a different bucket name and/or prefix, and then copy the contents of the first file into the second. If you want to use the original bucket name and prefix, you'll have to copy it back again the same way.
-
