@@ -24,6 +24,7 @@
 
 #include "s3backer.h"
 #include "block_cache.h"
+#include "hash.h"
 
 /*
  * This file implements a simple block cache that acts as a "layer" on top
@@ -90,7 +91,7 @@
  * for these time values to wrap, but the effect is harmless (an early write or eviction).
  */
 struct cache_entry {
-    s3b_block_t                     block_num;      // block number
+    s3b_block_t                     block_num;      // block number - MUST BE FIRST
     uint32_t                        timeout;        // when to evict (CLEAN) or write (DIRTY)
     TAILQ_ENTRY(cache_entry)        link;           // next in list (cleans or dirties)
     void                            *_data;         // block's data (bit zero = dirty bit)
@@ -125,7 +126,7 @@ struct block_cache_private {
     struct block_cache_stats        stats;          // statistics
     TAILQ_HEAD(, cache_entry)       cleans;         // list of clean blocks (LRU order)
     TAILQ_HEAD(, cache_entry)       dirties;        // list of dirty blocks (write order)
-    GHashTable                      *hashtable;     // hashtable of all cached blocks
+    struct s3b_hash                 *hashtable;     // hashtable of all cached blocks
     u_int                           num_cleans;     // length of the 'cleans' list
     u_int64_t                       start_time;     // when we started
     u_int32_t                       clean_timeout;  // timeout for clean entries in time units
@@ -153,10 +154,7 @@ static int block_cache_do_read_block(struct block_cache_private *priv, s3b_block
 static void block_cache_read_from_entry(struct block_cache_private *priv, struct cache_entry *entry, void *dest);
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
-static struct cache_entry *block_cache_hash_get(struct block_cache_private *priv, s3b_block_t block_num);
-static void block_cache_hash_put(struct block_cache_private *priv, struct cache_entry *entry);
-static void block_cache_hash_remove(struct block_cache_private *priv, s3b_block_t block_num);
-static void block_cache_free_one(gpointer key, gpointer value, gpointer arg);
+static void block_cache_free_one(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
 static uint32_t block_cache_get_time(struct block_cache_private *priv);
@@ -165,7 +163,7 @@ static uint64_t block_cache_get_time_millis(void);
 /* Invariants checking */
 #ifndef NDEBUG
 static void block_cache_check_invariants(struct block_cache_private *priv);
-static void block_cache_check_one(gpointer key, gpointer value, gpointer arg);
+static void block_cache_check_one(void *arg, void *value);
 #define S3BCACHE_CHECK_INVARIANTS(priv)     block_cache_check_invariants(priv)
 #else
 #define S3BCACHE_CHECK_INVARIANTS(priv)     do { } while (0)
@@ -184,13 +182,6 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     struct block_cache_private *priv;
     pthread_t thread;
     int r;
-
-    /* Sanity check: we use block numbers as g_hash_table keys */
-    if (sizeof(s3b_block_t) > sizeof(gpointer)) {
-        (*config->log)(LOG_ERR, "sizeof(s3b_block_t) = %d is too big!", (int)sizeof(s3b_block_t));
-        r = EINVAL;
-        goto fail0;
-    }
 
     /* Initialize s3backer_store structure */
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
@@ -223,10 +214,8 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail6;
     TAILQ_INIT(&priv->cleans);
     TAILQ_INIT(&priv->dirties);
-    if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
-        r = errno;
+    if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail7;
-    }
     s3b->data = priv;
 
     /* Grab lock */
@@ -249,7 +238,7 @@ fail8:
         pthread_cond_broadcast(&priv->worker_work);
         pthread_cond_wait(&priv->worker_exit, &priv->mutex);
     }
-    g_hash_table_destroy(priv->hashtable);
+    s3b_hash_destroy(priv->hashtable);
 fail7:
     pthread_cond_destroy(&priv->worker_exit);
 fail6:
@@ -290,8 +279,8 @@ block_cache_destroy(struct s3backer_store *const s3b)
     }
 
     /* Free structures */
-    g_hash_table_foreach(priv->hashtable, block_cache_free_one, NULL);
-    g_hash_table_destroy(priv->hashtable);
+    s3b_hash_foreach(priv->hashtable, block_cache_free_one, NULL);
+    s3b_hash_destroy(priv->hashtable);
     pthread_cond_destroy(&priv->worker_exit);
     pthread_cond_destroy(&priv->worker_work);
     pthread_cond_destroy(&priv->end_reading);
@@ -308,7 +297,7 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
 
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
-    stats->current_size = g_hash_table_size(priv->hashtable);
+    stats->current_size = s3b_hash_size(priv->hashtable);
     stats->dirty_ratio = block_cache_dirty_ratio(priv);
     pthread_mutex_unlock(&priv->mutex);
 }
@@ -365,7 +354,7 @@ block_cache_do_read_block(struct block_cache_private *priv, s3b_block_t block_nu
 
 again:
     /* Check to see if a cache entry already exists */
-    if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
+    if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
         assert(entry->block_num == block_num);
 
         /* If READING, wait for other thread already reading this block to finish */
@@ -391,7 +380,7 @@ again:
     entry->timeout = READING_TIMEOUT;
     ENTRY_SET_DATA(entry, data, CLEAN);
     ENTRY_RESET_LINK(entry);
-    block_cache_hash_put(priv, entry);
+    s3b_hash_put(priv->hashtable, entry);
     assert(ENTRY_GET_STATE(entry) == READING);
 
     /* Update stats */
@@ -409,7 +398,7 @@ again:
      * assume nothing at this point so we have to find the entry again.
      * If not found, just return the data we read without caching it.
      */
-    if ((entry = block_cache_hash_get(priv, block_num)) == NULL)
+    if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL)
         return r;
 
     /* A simultaneous write would have changed the entry's state */
@@ -428,7 +417,7 @@ again:
 
     /* Check for error from underlying s3backer_store */
     if (r != 0) {
-        block_cache_hash_remove(priv, entry->block_num);
+        s3b_hash_remove(priv->hashtable, entry->block_num);
         free(ENTRY_GET_DATA(entry));
         free(entry);
         return r;
@@ -502,7 +491,7 @@ again:
     S3BCACHE_CHECK_INVARIANTS(priv);
 
     /* Find cache entry */
-    if ((entry = block_cache_hash_get(priv, block_num)) != NULL) {
+    if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
         const int state = ENTRY_GET_STATE(entry);
 
         assert(entry->block_num == block_num);
@@ -548,7 +537,7 @@ again:
     entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
     ENTRY_SET_DATA(entry, data, DIRTY);
     memcpy(data, src, config->block_size);
-    block_cache_hash_put(priv, entry);
+    s3b_hash_put(priv->hashtable, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
     assert(ENTRY_GET_STATE(entry) == DIRTY);
 
@@ -581,7 +570,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
      * and the data separately in hopes that the malloc() implementation will
      * put the data into its own page of virtual memory.
      */
-    if (g_hash_table_size(priv->hashtable) < config->cache_size) {
+    if (s3b_hash_size(priv->hashtable) < config->cache_size) {
         if ((entry = malloc(sizeof(*entry))) == NULL) {
             priv->stats.out_of_memory_errors++;
             return errno;
@@ -597,7 +586,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
     /* Is there a CLEAN entry we can evict? */
     if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
         TAILQ_REMOVE(&priv->cleans, entry, link);
-        block_cache_hash_remove(priv, entry->block_num);
+        s3b_hash_remove(priv->hashtable, entry->block_num);
         data = ENTRY_GET_DATA(entry);
         priv->num_cleans--;
     } else
@@ -656,7 +645,7 @@ block_cache_worker_main(void *arg)
         /* Evict any CLEAN blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
-                block_cache_hash_remove(priv, clean_entry->block_num);
+                s3b_hash_remove(priv->hashtable, clean_entry->block_num);
                 TAILQ_REMOVE(&priv->cleans, clean_entry, link);
                 free(ENTRY_GET_DATA(clean_entry));
                 free(clean_entry);
@@ -735,7 +724,7 @@ block_cache_worker_main(void *arg)
                 ra_block = priv->seq_last + ++priv->ra_count;
 
                 /* If block already exists in the cache, nothing needs to be done */
-                if (block_cache_hash_get(priv, ra_block) != NULL)
+                if (s3b_hash_get(priv->hashtable, ra_block) != NULL)
                     continue;
 
                 /* Perform a speculative read of the block so it will get stored in the cache */
@@ -811,57 +800,12 @@ block_cache_get_time_millis(void)
 }
 
 static void
-block_cache_free_one(gpointer key, gpointer value, gpointer arg)
+block_cache_free_one(void *arg, void *value)
 {
     struct cache_entry *const entry = value;
 
     free(ENTRY_GET_DATA(entry));
     free(entry);
-}
-
-/*
- * Find a 'struct cache_entry' in the hash table.
- */
-static struct cache_entry *
-block_cache_hash_get(struct block_cache_private *priv, s3b_block_t block_num)
-{
-    gconstpointer key = (gpointer)block_num;
-
-    return (struct cache_entry *)g_hash_table_lookup(priv->hashtable, key);
-}
-
-/*
- * Add a 'struct cache_entry' to the hash table.
- */
-static void
-block_cache_hash_put(struct block_cache_private *priv, struct cache_entry *entry)
-{
-    gpointer key = (gpointer)entry->block_num;
-#ifndef NDEBUG
-    int size = g_hash_table_size(priv->hashtable);
-#endif
-
-    g_hash_table_replace(priv->hashtable, key, entry);
-#ifndef NDEBUG
-    assert(g_hash_table_size(priv->hashtable) == size + 1);
-#endif
-}
-
-/*
- * Remove a 'struct cache_entry' from the hash table.
- */
-static void
-block_cache_hash_remove(struct block_cache_private *priv, s3b_block_t block_num)
-{
-    gconstpointer key = (gpointer)block_num;
-#ifndef NDEBUG
-    int size = g_hash_table_size(priv->hashtable);
-#endif
-
-    g_hash_table_remove(priv->hashtable, key);
-#ifndef NDEBUG
-    assert(g_hash_table_size(priv->hashtable) == size - 1);
-#endif
 }
 
 /*
@@ -873,7 +817,7 @@ block_cache_dirty_ratio(struct block_cache_private *priv)
 {
     struct block_cache_conf *const config = priv->config;
 
-    return (double)(g_hash_table_size(priv->hashtable) - priv->num_cleans) / (double)config->cache_size;
+    return (double)(s3b_hash_size(priv->hashtable) - priv->num_cleans) / (double)config->cache_size;
 }
 
 #ifndef NDEBUG
@@ -899,7 +843,7 @@ block_cache_check_invariants(struct block_cache_private *priv)
     /* Check CLEANs */
     for (entry = TAILQ_FIRST(&priv->cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
         assert(ENTRY_GET_STATE(entry) == CLEAN);
-        assert(block_cache_hash_get(priv, entry->block_num) == entry);
+        assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
         clean_len++;
     }
     assert(clean_len == priv->num_cleans);
@@ -907,35 +851,34 @@ block_cache_check_invariants(struct block_cache_private *priv)
     /* Check DIRTYs */
     for (entry = TAILQ_FIRST(&priv->dirties); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
         assert(ENTRY_GET_STATE(entry) == DIRTY);
-        assert(block_cache_hash_get(priv, entry->block_num) == entry);
+        assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
         dirty_len++;
     }
 
     /* Check hash table size */
-    assert(g_hash_table_size(priv->hashtable) <= config->cache_size);
+    assert(s3b_hash_size(priv->hashtable) <= config->cache_size);
 
     /* Check hash table entries */
     memset(&info, 0, sizeof(info));
-    g_hash_table_foreach(priv->hashtable, block_cache_check_one, &info);
+    s3b_hash_foreach(priv->hashtable, block_cache_check_one, &info);
 
     /* Check agreement */
     assert(info.num_clean == clean_len);
     assert(info.num_dirty == dirty_len);
     assert(info.num_clean + info.num_dirty + info.num_reading + info.num_writing + info.num_writing2
-      == g_hash_table_size(priv->hashtable));
+      == s3b_hash_size(priv->hashtable));
 
     /* Check read-ahead */
     assert(priv->ra_count <= config->read_ahead);
 }
 
 static void
-block_cache_check_one(gpointer key, gpointer value, gpointer arg)
+block_cache_check_one(void *arg, void *value)
 {
     struct cache_entry *const entry = value;
     struct check_info *const info = arg;
 
     assert(entry != NULL);
-    assert(entry->block_num == (s3b_block_t)key);
     switch (ENTRY_GET_STATE(entry)) {
     case CLEAN:
         info->num_clean++;
