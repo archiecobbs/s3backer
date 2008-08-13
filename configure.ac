@@ -39,8 +39,6 @@ AC_PROG_CC
 PKG_PROG_PKG_CONFIG(0.19)
 PKG_CHECK_MODULES(FUSE, fuse,,
     [AC_MSG_ERROR(["fuse" not found in pkg-config])])
-PKG_CHECK_MODULES(GLIB2, glib-2.0,,
-    [AC_MSG_ERROR(["glib-2.0" not found in pkg-config])])
 
 # Check for required libraries
 AC_CHECK_LIB(curl, curl_version,,

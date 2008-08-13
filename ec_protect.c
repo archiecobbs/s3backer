@@ -24,6 +24,7 @@
 
 #include "s3backer.h"
 #include "ec_protect.h"
+#include "hash.h"
 
 /*
  * Written block information caching.
@@ -83,7 +84,7 @@
  * so the entries that will expire first are at the front of the list.
  */
 struct block_info {
-    s3b_block_t             block_num;          // block number
+    s3b_block_t             block_num;          // block number - MUST BE FIRST
     uint64_t                timestamp;          // time PUT/DELETE completed (if WRITTEN)
     TAILQ_ENTRY(block_info) link;               // list entry link
     union {
@@ -97,7 +98,7 @@ struct ec_protect_private {
     struct ec_protect_conf      *config;
     struct s3backer_store       *inner;
     struct ec_protect_stats     stats;
-    GHashTable                  *hashtable;
+    struct s3b_hash             *hashtable;
     TAILQ_HEAD(, block_info)    list;
     pthread_mutex_t             mutex;
     pthread_cond_t              space_cond;     // signaled when cache space available
@@ -110,20 +111,15 @@ static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_n
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
-/* Data structure manipulation */
-static struct block_info *ec_protect_hash_get(struct ec_protect_private *priv, s3b_block_t block_num);
-static void ec_protect_hash_put(struct ec_protect_private *priv, struct block_info *binfo);
-static void ec_protect_hash_remove(struct ec_protect_private *priv, s3b_block_t block_num);
-
 /* Misc */
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
-static void ec_protect_free_one(gpointer key, gpointer value, gpointer arg);
+static void ec_protect_free_one(void *arg, void *value);
 
 /* Invariants checking */
 #ifndef NDEBUG
-static void ec_protect_check_one(gpointer key, gpointer value, gpointer user_data);
+static void ec_protect_check_one(void *arg, void *value);
 static void ec_protect_check_invariants(struct ec_protect_private *priv);
 
 #define EC_PROTECT_CHECK_INVARIANTS(priv)     ec_protect_check_invariants(priv)
@@ -146,13 +142,6 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     struct ec_protect_private *priv;
     int r;
 
-    /* Sanity check: we use block numbers as g_hash_table keys */
-    if (sizeof(s3b_block_t) > sizeof(gpointer)) {
-        (*config->log)(LOG_ERR, "sizeof(s3b_block_t) = %d is too big!", (int)sizeof(s3b_block_t));
-        r = EINVAL;
-        goto fail0;
-    }
-
     /* Initialize structures */
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
         r = errno;
@@ -174,10 +163,8 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
         goto fail4;
     TAILQ_INIT(&priv->list);
-    if ((priv->hashtable = g_hash_table_new(NULL, NULL)) == NULL) {
-        r = errno;
+    if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail5;
-    }
     s3b->data = priv;
 
     /* Done */
@@ -216,8 +203,8 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
     pthread_cond_destroy(&priv->never_cond);
-    g_hash_table_foreach(priv->hashtable, ec_protect_free_one, NULL);
-    g_hash_table_destroy(priv->hashtable);
+    s3b_hash_foreach(priv->hashtable, ec_protect_free_one, NULL);
+    s3b_hash_destroy(priv->hashtable);
     free(priv->zero_block);
     free(priv);
     free(s3b);
@@ -230,7 +217,7 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
 
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
-    stats->current_cache_size = g_hash_table_size(priv->hashtable);
+    stats->current_cache_size = s3b_hash_size(priv->hashtable);
     pthread_mutex_unlock(&priv->mutex);
 }
 
@@ -254,7 +241,7 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     ec_protect_scrub_expired_writtens(priv, ec_protect_get_time());
 
     /* Find info for this block */
-    if ((binfo = ec_protect_hash_get(priv, block_num)) != NULL) {
+    if ((binfo = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
 
         /* In WRITING state: we have the data already! */
         if (binfo->timestamp == 0) {
@@ -342,13 +329,13 @@ again:
     ec_protect_scrub_expired_writtens(priv, current_time);
 
     /* Find info for this block */
-    binfo = ec_protect_hash_get(priv, block_num);
+    binfo = s3b_hash_get(priv->hashtable, block_num);
 
     /* CLEAN case: add new entry in state WRITING and write the block */
     if (binfo == NULL) {
 
         /* If we have reached max cache capacity, wait until there's more room */
-        if (g_hash_table_size(priv->hashtable) >= config->cache_size) {
+        if (s3b_hash_size(priv->hashtable) >= config->cache_size) {
             if ((binfo = TAILQ_FIRST(&priv->list)) != NULL)
                 delay = ec_protect_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
@@ -365,7 +352,7 @@ again:
         }
         binfo->block_num = block_num;
         binfo->u.data = src;
-        ec_protect_hash_put(priv, binfo);
+        s3b_hash_put(priv->hashtable, binfo);
 
 writeit:
         /* Write the block */
@@ -376,7 +363,7 @@ writeit:
 
         /* If there was an error, just return it and forget */
         if (r != 0) {
-            ec_protect_hash_remove(priv, block_num);
+            s3b_hash_remove(priv->hashtable, block_num);
             pthread_cond_signal(&priv->space_cond);
             pthread_mutex_unlock(&priv->mutex);
             free(binfo);
@@ -446,7 +433,7 @@ ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t curr
 
     while ((binfo = TAILQ_FIRST(&priv->list)) != NULL && current_time >= binfo->timestamp + config->cache_time) {
         TAILQ_REMOVE(&priv->list, binfo, link);
-        ec_protect_hash_remove(priv, binfo->block_num);
+        s3b_hash_remove(priv->hashtable, binfo->block_num);
         free(binfo);
         num_removed++;
     }
@@ -494,11 +481,9 @@ ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, ui
 }
 
 static void
-ec_protect_free_one(gpointer key, gpointer value, gpointer arg)
+ec_protect_free_one(void *arg, void *value)
 {
-    struct block_info *const binfo = value;
-
-    free(binfo);
+    free(value);
 }
 
 #ifndef NDEBUG
@@ -511,7 +496,7 @@ struct check_info {
 };
 
 static void
-ec_protect_check_one(gpointer key, gpointer value, gpointer arg)
+ec_protect_check_one(void *arg, void *value)
 {
     struct block_info *const binfo = value;
     struct check_info *const info = arg;
@@ -531,57 +516,12 @@ ec_protect_check_invariants(struct ec_protect_private *priv)
     memset(&info, 0, sizeof(info));
     for (binfo = TAILQ_FIRST(&priv->list); binfo != NULL; binfo = TAILQ_NEXT(binfo, link)) {
         assert(binfo->timestamp != 0);
-        assert(ec_protect_hash_get(priv, binfo->block_num) == binfo);
+        assert(s3b_hash_get(priv->hashtable, binfo->block_num) == binfo);
         info.num_in_list++;
     }
-    g_hash_table_foreach(priv->hashtable, ec_protect_check_one, &info);
+    s3b_hash_foreach(priv->hashtable, ec_protect_check_one, &info);
     assert(info.written == info.num_in_list);
-    assert(info.written + info.writing == g_hash_table_size(priv->hashtable));
+    assert(info.written + info.writing == s3b_hash_size(priv->hashtable));
 }
 #endif
-
-/*
- * Find a 'struct block_info' in the hash table.
- */
-static struct block_info *
-ec_protect_hash_get(struct ec_protect_private *priv, s3b_block_t block_num)
-{
-    gconstpointer key = (gpointer)block_num;
-
-    return (struct block_info *)g_hash_table_lookup(priv->hashtable, key);
-}
-
-/*
- * Add a 'struct block_info' to the hash table.
- */
-static void
-ec_protect_hash_put(struct ec_protect_private *priv, struct block_info *binfo)
-{
-    gpointer key = (gpointer)binfo->block_num;
-#ifndef NDEBUG
-    int size = g_hash_table_size(priv->hashtable);
-#endif
-
-    g_hash_table_replace(priv->hashtable, key, binfo);
-#ifndef NDEBUG
-    assert(g_hash_table_size(priv->hashtable) == size + 1);
-#endif
-}
-
-/*
- * Remove a 'struct block_info' from the hash table.
- */
-static void
-ec_protect_hash_remove(struct ec_protect_private *priv, s3b_block_t block_num)
-{
-    gconstpointer key = (gpointer)block_num;
-#ifndef NDEBUG
-    int size = g_hash_table_size(priv->hashtable);
-#endif
-
-    g_hash_table_remove(priv->hashtable, key);
-#ifndef NDEBUG
-    assert(g_hash_table_size(priv->hashtable) == size - 1);
-#endif
-}
 

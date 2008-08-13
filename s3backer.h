@@ -47,7 +47,6 @@
 #include <curl/curl.h>
 #include <err.h>
 #include <errno.h>
-#include <glib/ghash.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -58,6 +57,7 @@
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
+#include <limits.h>
 
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
