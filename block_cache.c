@@ -97,8 +97,8 @@ struct cache_entry {
     void                            *_data;         // block's data (bit zero = dirty bit)
 };
 #define ENTRY_IS_DIRTY(entry)               (((intptr_t)(entry)->_data & 1) != 0)
-#define ENTRY_SET_DIRTY(entry)              do { (*((intptr_t *)&(entry)->_data)) |= (intptr_t)1; } while (0)
-#define ENTRY_SET_CLEAN(entry)              do { (*((intptr_t *)&(entry)->_data)) &= ~(intptr_t)1; } while (0)
+#define ENTRY_SET_DIRTY(entry)              do { (entry)->_data = (void *)((intptr_t)(entry)->_data | (intptr_t)1); } while (0)
+#define ENTRY_SET_CLEAN(entry)              do { (entry)->_data = (void *)((intptr_t)(entry)->_data & ~(intptr_t)1); } while (0)
 #define ENTRY_GET_DATA(entry)               ((void *)((intptr_t)(entry)->_data & ~(intptr_t)1))
 #define ENTRY_SET_DATA(entry, data, state)  do { (entry)->_data = (state) == CLEAN ? (void *)(data) \
                                               : (void *)((intptr_t)(data) | (intptr_t)1); } while (0)
