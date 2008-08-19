@@ -54,7 +54,7 @@ struct fuse_ops_private {
  ****************************************************************************/
 
 /* FUSE functions */
-static void *fuse_op_init(struct fuse_conn_info *conn);
+static void *fuse_op_init(void);
 static void fuse_op_destroy(void *data);
 static int fuse_op_getattr(const char *path, struct stat *st);
 static int fuse_op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *);
@@ -124,7 +124,7 @@ fuse_ops_create(struct fuse_ops_conf *config0)
  ****************************************************************************/
 
 static void *
-fuse_op_init(struct fuse_conn_info *conn)
+fuse_op_init(void)
 {
     struct fuse_ops_private *priv;
 
