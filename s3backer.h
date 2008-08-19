@@ -65,7 +65,7 @@
 #include <openssl/hmac.h>
 #include <openssl/md5.h>
 
-#define FUSE_USE_VERSION 26
+#define FUSE_USE_VERSION 25
 #include <fuse/fuse.h>
 
 #ifndef FUSE_OPT_KEY_DISCARD
