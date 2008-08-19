@@ -47,6 +47,7 @@
 #include <curl/curl.h>
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stddef.h>
