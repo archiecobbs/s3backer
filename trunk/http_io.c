@@ -49,6 +49,10 @@
 #define DATE_BUF_SIZE               64
 #define DATE_BUF_FMT                "%a, %d %b %Y %H:%M:%S GMT"
 
+/* Size required for URL buffer */
+#define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
+                                      + strlen((config)->prefix) + S3B_BLOCK_NUM_DIGITS + 2)
+
 /*
  * HTTP-based implementation of s3backer_store.
  *
@@ -109,8 +113,7 @@ static void http_io_read_prepper(CURL *curl, struct http_io *io);
 static void http_io_write_prepper(CURL *curl, struct http_io *io);
 
 /* S3 REST API functions */
-static char *http_io_get_url(char *buf, size_t bufsiz, const char *baseURL, const char *bucket,
-    const char *prefix, s3b_block_t block_num);
+static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
 static void http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource);
 
@@ -267,7 +270,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    char urlbuf[strlen(config->baseURL) + strlen(config->bucket) + strlen(config->prefix) + 64];
+    char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
     char authbuf[200];
     struct http_io io;
@@ -282,7 +285,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     io.content_lengthp = block_sizep;
 
     /* Construct URL for the first block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config->baseURL, config->bucket, config->prefix, 0);
+    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, 0);
 
     /* Add Date header */
     http_io_get_date(datebuf, sizeof(datebuf));
@@ -328,7 +331,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    char urlbuf[strlen(config->baseURL) + strlen(config->bucket) + strlen(config->prefix) + 64];
+    char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
     char authbuf[200];
     struct http_io io;
@@ -363,7 +366,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     io.block_size = config->block_size;
 
     /* Construct URL for this block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config->baseURL, config->bucket, config->prefix, block_num);
+    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
     http_io_get_date(datebuf, sizeof(datebuf));
@@ -371,9 +374,12 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Add If-Match header */
     if (expect_md5 != NULL) {
-        io.headers = http_io_add_header(io.headers, "%s: \"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\"",
-          IF_MATCH_HEADER, expect_md5[0], expect_md5[1], expect_md5[2], expect_md5[3], expect_md5[4], expect_md5[5], expect_md5[6], expect_md5[7],
-          expect_md5[8], expect_md5[9], expect_md5[10], expect_md5[11], expect_md5[12], expect_md5[13], expect_md5[14], expect_md5[15]);
+        io.headers = http_io_add_header(io.headers,
+          "%s: \"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\"", IF_MATCH_HEADER,
+          expect_md5[0], expect_md5[1], expect_md5[2], expect_md5[3],
+          expect_md5[4], expect_md5[5], expect_md5[6], expect_md5[7],
+          expect_md5[8], expect_md5[9], expect_md5[10], expect_md5[11],
+          expect_md5[12], expect_md5[13], expect_md5[14], expect_md5[15]);
     }
 
     /* Add Authorization header */
@@ -438,7 +444,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    char urlbuf[strlen(config->baseURL) + strlen(config->bucket) + strlen(config->prefix) + 64];
+    char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
     char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
     char authbuf[200];
@@ -483,7 +489,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.block_size = config->block_size;
 
     /* Construct URL for this block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config->baseURL, config->bucket, config->prefix, block_num);
+    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
     http_io_get_date(datebuf, sizeof(datebuf));
@@ -785,10 +791,13 @@ http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *me
  * Create URL for a block, and return pointer to the URL's path.
  */
 static char *
-http_io_get_url(char *buf, size_t bufsiz, const char *baseURL, const char *bucket, const char *prefix, s3b_block_t block_num)
+http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
-    snprintf(buf, bufsiz, "%s%s/%s%0*x", baseURL, bucket, prefix, S3B_BLOCK_NUM_DIGITS, block_num);
-    return buf + strlen(baseURL) - 1;
+    int len;
+
+    len = snprintf(buf, bufsiz, "%s%s/%s%0*x", config->baseURL, config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, block_num);
+    assert(len < bufsiz);
+    return buf + strlen(config->baseURL) - 1;
 }
 
 /*
