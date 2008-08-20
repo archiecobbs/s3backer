@@ -79,6 +79,12 @@
  */
 typedef uint32_t    s3b_block_t;
 
+/*
+ * How many hex digits we will use to print a block number.
+ * This should be consistent with the definition of s3b_block_t.
+ */
+#define S3B_BLOCK_NUM_DIGITS    8
+
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 

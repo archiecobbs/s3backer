@@ -97,19 +97,19 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int r;
 
     /* Logging */
-    (*config->log)(LOG_INFO, "test_io: read %08x started", (u_int)block_num);
+    (*config->log)(LOG_INFO, "test_io: read %0*x started", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
 
     /* Random delay */
     usleep((random() % 200) * 1000);
 
     /* Random error */
     if ((random() % 100) < RANDOM_ERROR_PERCENT) {
-        (*config->log)(LOG_ERR, "test_io: random failure reading %08x", (u_int)block_num);
+        (*config->log)(LOG_ERR, "test_io: random failure reading %0*x", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
         return EAGAIN;
     }
 
     /* Generate path */
-    snprintf(path, sizeof(path), "%s/%s%08x", config->bucket, config->prefix, block_num);
+    snprintf(path, sizeof(path), "%s/%s%0*x", config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, block_num);
 
     /* Read block */
     if ((fd = open(path, O_RDONLY)) == -1) {
@@ -149,7 +149,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Logging */
-    (*config->log)(LOG_INFO, "test_io: read %08x complete", (u_int)block_num);
+    (*config->log)(LOG_INFO, "test_io: read %0*x complete", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
 
     /* Done */
     return 0;
@@ -171,19 +171,20 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         src = NULL;
 
     /* Logging */
-    (*config->log)(LOG_INFO, "test_io: write %08x started%s", (u_int)block_num, src == NULL ? " (zero block)" : "");
+    (*config->log)(LOG_INFO, "test_io: write %0*x started%s",
+      S3B_BLOCK_NUM_DIGITS, (u_int)block_num, src == NULL ? " (zero block)" : "");
 
     /* Random delay */
     usleep((random() % 200) * 1000);
 
     /* Random error */
     if ((random() % 100) < RANDOM_ERROR_PERCENT) {
-        (*config->log)(LOG_ERR, "test_io: random failure writing %08x", (u_int)block_num);
+        (*config->log)(LOG_ERR, "test_io: random failure writing %0*x", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
         return EAGAIN;
     }
 
     /* Generate path */
-    snprintf(path, sizeof(path), "%s/%s%08x", config->bucket, config->prefix, block_num);
+    snprintf(path, sizeof(path), "%s/%s%0*x", config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, block_num);
 
     /* Delete zero blocks */
     if (src == NULL) {
@@ -222,7 +223,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Logging */
-    (*config->log)(LOG_INFO, "test_io: write %08x complete", (u_int)block_num);
+    (*config->log)(LOG_INFO, "test_io: write %0*x complete", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
 
     /* Done */
     return 0;

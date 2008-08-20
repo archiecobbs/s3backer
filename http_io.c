@@ -787,7 +787,7 @@ http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *me
 static char *
 http_io_get_url(char *buf, size_t bufsiz, const char *baseURL, const char *bucket, const char *prefix, s3b_block_t block_num)
 {
-    snprintf(buf, bufsiz, "%s%s/%s%08x", baseURL, bucket, prefix, block_num);
+    snprintf(buf, bufsiz, "%s%s/%s%0*x", baseURL, bucket, prefix, S3B_BLOCK_NUM_DIGITS, block_num);
     return buf + strlen(baseURL) - 1;
 }
 
