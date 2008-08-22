@@ -116,6 +116,12 @@ Conversely, reads of non-existent blocks will contain all zeroes.
 In other words, the backed file is always maximally sparse.
 .Pp
 As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new filesystem.
+.Pp
+When the
+.Fl \-listBlocks
+flag is given,
+.Nm
+will list all existing blocks at startup so it knows ahead of time exactly which blocks are empty.
 .Ss File and Block Size Auto-Detection
 As a convenience, whenever the first block of the backed file is written,
 .Nm
@@ -239,15 +245,9 @@ Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
 Default is `private'.
 .It Fl \-assumeEmpty
-Assume that no blocks exist in S3 yet.
-This enables optimizations whereby, for each block, reads return zeroes and zeroed writes are omitted until there is a non-zero write to the block.
-This is only valid when the S3 objects do not yet exist, and is useful for example when initializing a large backed file
-from a local copy (such as a Mac OS disk image) that contains mostly zeroes.
-If auto-detection finds that there is in fact a block zero stored in S3, this option will cause
-.Nm
-to exit with an error unless
-.Fl \-force
-is also given.
+Deprecated.
+Has the same effect as
+.Fl \-listBlocks .
 .It Fl \-baseURL=URL
 Specify the base URL. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockCacheSize=SIZE
@@ -329,9 +329,7 @@ Proceed even if the value specified by
 .Fl \-blockSize
 or
 .Fl \-size
-disagrees with the auto-detected value, or if
-.Fl \-assumeEmpty
-is given yet auto-detection succeeds.
+disagrees with the auto-detected value.
 This is will certainly lead to garbled data and should be avoided for normal use.
 .It Fl h Fl \-help
 Print a help message and exit.
@@ -350,6 +348,14 @@ Equivalent to the
 .Fl \-insecure
 flag documented in
 .Xr curl 1 .
+.It Fl \-listBlocks
+Perform a query at startup to determine which blocks already exist.
+This enables optimizations whereby, for each block that does not yet exist, reads return zeroes and zeroed writes are omitted,
+thereby eliminating any network access.
+This flag is useful when creating a new backed file, or any time it is expected that a large number of zeroed
+blocks will be read or written, such as when initializing a new filesystem.
+.Pp
+This flag will slow down startup in direct proportion to the number of blocks that already exist.
 .It Fl \-maxRetryPause=MILLIS
 Specify the total amount of time in milliseconds
 .Nm

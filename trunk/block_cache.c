@@ -147,6 +147,7 @@ struct block_cache_private {
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -155,6 +156,7 @@ static void block_cache_read_from_entry(struct block_cache_private *priv, struct
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_one(void *arg, void *value);
+static void block_cache_mark_dirty(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
 static uint32_t block_cache_get_time(struct block_cache_private *priv);
@@ -190,6 +192,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     }
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
+    s3b->list_blocks = block_cache_list_blocks;
     s3b->destroy = block_cache_destroy;
 
     /* Initialize block_cache_private structure */
@@ -300,6 +303,22 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
     stats->current_size = s3b_hash_size(priv->hashtable);
     stats->dirty_ratio = block_cache_dirty_ratio(priv);
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+{
+    struct block_cache_private *const priv = s3b->data;
+    int r;
+
+    pthread_mutex_lock(&priv->mutex);
+    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp)) != 0) {
+        pthread_mutex_unlock(&priv->mutex);
+        return r;
+    }
+    s3b_hash_foreach(priv->hashtable, block_cache_mark_dirty, *bitmapp);
+    pthread_mutex_unlock(&priv->mutex);
+    return 0;
 }
 
 /*
@@ -818,6 +837,27 @@ block_cache_dirty_ratio(struct block_cache_private *priv)
     struct block_cache_conf *const config = priv->config;
 
     return (double)(s3b_hash_size(priv->hashtable) - priv->num_cleans) / (double)config->cache_size;
+}
+
+static void
+block_cache_mark_dirty(void *arg, void *value)
+{
+    u_int *const bitmap = arg;
+    struct cache_entry *const entry = value;
+
+    switch (ENTRY_GET_STATE(entry)) {
+    case CLEAN:
+    case READING:
+        break;
+    case WRITING2:
+    case WRITING:
+    case DIRTY:
+        bitmap[entry->block_num / sizeof(*bitmap)] |= 1 << (entry->block_num % sizeof(*bitmap));
+        break;
+    default:
+        assert(0);
+        break;
+    }
 }
 
 #ifndef NDEBUG

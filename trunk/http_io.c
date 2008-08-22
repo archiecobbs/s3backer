@@ -53,6 +53,23 @@
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
                                       + strlen((config)->prefix) + S3B_BLOCK_NUM_DIGITS + 2)
 
+/* Bucket listing API constants */
+#define LIST_PARAM_MARKER           "marker"
+#define LIST_PARAM_PREFIX           "prefix"
+#define LIST_PARAM_MAX_KEYS         "max-keys"
+
+#define LIST_ELEM_LIST_BUCKET_RESLT "ListBucketResult"
+#define LIST_ELEM_IS_TRUNCATED      "IsTruncated"
+#define LIST_ELEM_CONTENTS          "Contents"
+#define LIST_ELEM_KEY               "Key"
+#define LIST_TRUE                   "true"
+#define LIST_MAX_PATH               (sizeof(LIST_ELEM_LIST_BUCKET_RESLT) \
+                                      + sizeof(LIST_ELEM_CONTENTS) \
+                                      + sizeof(LIST_ELEM_KEY) + 1)
+
+/* How many blocks to list at a time */
+#define LIST_BLOCKS_CHUNK           0x100
+
 /*
  * HTTP-based implementation of s3backer_store.
  *
@@ -72,7 +89,7 @@ struct http_io_private {
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
     u_char                      *zero_block;
-    u_int                       *non_zero;      // used when 'assume_empty' is set
+    u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
 };
 
 /* I/O buffers */
@@ -88,6 +105,21 @@ struct http_io {
 
     // I/O buffers
     struct http_io_bufs bufs;
+
+    // XML parser and bucket listing info
+    XML_Parser          xml;                    // XML parser
+    int                 xml_error;              // XML parse error (if any)
+    int                 xml_error_line;         // XML parse error line
+    int                 xml_error_column;       // XML parse error column
+    char                *xml_path;              // Current XML path
+    char                *xml_text;              // Current XML text
+    int                 xml_text_len;           // # chars in 'xml_text' buffer
+    int                 xml_text_max;           // max chars in 'xml_text' buffer
+    int                 list_truncated;         // returned list was truncated
+    s3b_block_t         last_block;             // last dirty block listed
+    uintmax_t           num_dirties;            // count of dirty blocks
+    u_int               *bitmap;                // bitmap of non-zero blocks
+    struct http_io_conf *config;                // configuration
 
     // Other info that needs to be passed around
     const char          *method;                // HTTP method
@@ -106,21 +138,29 @@ typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
 static void http_io_detect_prepper(CURL *curl, struct http_io *io);
 static void http_io_read_prepper(CURL *curl, struct http_io *io);
 static void http_io_write_prepper(CURL *curl, struct http_io *io);
+static void http_io_list_prepper(CURL *curl, struct http_io *io);
 
 /* S3 REST API functions */
 static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
 static void http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource);
 
+/* Bucket listing functions */
+static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
+static void http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
+static void http_io_list_elem_end(void *arg, const XML_Char *name);
+static void http_io_list_text(void *arg, const XML_Char *s, int len);
+
 /* HTTP and curl functions */
 static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t prepper);
-static size_t http_io_curl_reader(void *ptr, size_t size, size_t nmemb, void *stream);
+static size_t http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
 static struct curl_slist *http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
@@ -165,6 +205,7 @@ http_io_create(struct http_io_conf *config)
     }
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
+    s3b->list_blocks = http_io_list_blocks;
     s3b->destroy = http_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -194,6 +235,10 @@ http_io_create(struct http_io_conf *config)
 
     /* Initialize cURL */
     curl_global_init(CURL_GLOBAL_ALL);
+
+    /* Take ownership of non-zero block bitmap */
+    priv->non_zero = config->nonzero_bitmap;
+    config->nonzero_bitmap = NULL;
 
     /* Done */
     return s3b;
@@ -255,6 +300,271 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+{
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
+    char urlbuf[URL_BUF_SIZE(config) + sizeof(marker) + 32];
+    const int bits_per_word = sizeof(**bitmapp) * 8;
+    const char *resource;
+    char authbuf[200];
+    struct http_io io;
+    char datebuf[64];
+    size_t nwords;
+    u_int *bitmap;
+    int r;
+
+    /* Initialize I/O info */
+    memset(&io, 0, sizeof(io));
+    io.url = urlbuf;
+    io.method = HTTP_GET;
+    io.config = config;
+    io.xml_error = XML_ERROR_NONE;
+
+    /* Allocate bitmap array */
+    nwords = (config->num_blocks + bits_per_word - 1) / bits_per_word;
+    if ((bitmap = calloc(nwords, sizeof(*bitmap))) == NULL) {
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        goto oom;
+    }
+    io.bitmap = bitmap;
+
+    /* Create XML parser */
+    if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
+        (*config->log)(LOG_ERR, "failed to create XML parser");
+        return ENOMEM;
+    }
+
+    /* Allocate buffers for XML path and tag text content */
+    io.xml_text_max = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 10;
+    if ((io.xml_text = malloc(io.xml_text_max + 1)) == NULL) {
+        (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
+        goto oom;
+    }
+    if ((io.xml_path = calloc(1, 1)) == NULL) {
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        goto oom;
+    }
+
+    /* Logging */
+    (*config->log)(LOG_INFO, "listing non-zero blocks...");
+
+    /* List blocks */
+    do {
+
+        /* Reset XML parser state */
+        XML_ParserReset(io.xml, NULL);
+        XML_SetUserData(io.xml, &io);
+        XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
+        XML_SetCharacterDataHandler(io.xml, http_io_list_text);
+
+        /* Format URL */
+        snprintf(urlbuf, sizeof(urlbuf), "%s%s", config->baseURL, config->bucket);
+        resource = urlbuf + strlen(config->baseURL) - 1;
+
+        /* Add Date header */
+        http_io_get_date(datebuf, sizeof(datebuf));
+        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+
+        /* Add Authorization header */
+        if (config->accessId != NULL) {
+            http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey,
+              io.method, NULL, NULL, datebuf, io.headers, resource);
+            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+        }
+
+        /* Add URL parameters */
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "?%s=%s&%s=%u", 
+          LIST_PARAM_PREFIX, config->prefix, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+        if (io.list_truncated) {
+            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s%0*x",
+              LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, io.last_block);
+        }
+
+        /* Perform operation */
+        r = http_io_perform_io(priv, &io, http_io_list_prepper);
+
+        /* Clean up headers */
+        curl_slist_free_all(io.headers);
+        io.headers = NULL;
+
+        /* Check for error */
+        if (r != 0)
+            goto fail;
+
+        /* Finalize parse */
+        if (XML_Parse(io.xml, NULL, 0, 1) != XML_STATUS_OK) {
+            io.xml_error = XML_GetErrorCode(io.xml);
+            io.xml_error_line = XML_GetCurrentLineNumber(io.xml);
+            io.xml_error_column = XML_GetCurrentColumnNumber(io.xml);
+        }
+
+        /* Check for XML error */
+        if (io.xml_error != XML_ERROR_NONE) {
+            (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
+              io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
+            r = EIO;
+            goto fail;
+        }
+    } while (io.list_truncated);
+
+    /* Report what we found */
+    (*config->log)(LOG_INFO, "detected %ju non-zero blocks", io.num_dirties);
+
+    /* Done */
+    XML_ParserFree(io.xml);
+    free(io.xml_path);
+    free(io.xml_text);
+    *bitmapp = bitmap;
+    return 0;
+
+oom:
+    /* Update stats */
+    pthread_mutex_lock(&priv->mutex);
+    priv->stats.out_of_memory_errors++;
+    pthread_mutex_unlock(&priv->mutex);
+    r = ENOMEM;
+
+fail:
+    /* Clean up after failure */
+    if (io.xml != NULL)
+        XML_ParserFree(io.xml);
+    free(io.xml_path);
+    free(io.xml_text);
+    free(bitmap);
+    return r;
+}
+
+static void
+http_io_list_prepper(CURL *curl, struct http_io *io)
+{
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_list_reader);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+}
+
+static size_t
+http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    struct http_io *const io = (struct http_io *)stream;
+    size_t total = size * nmemb;
+
+    if (io->xml_error != XML_ERROR_NONE)
+        return total;
+    if (XML_Parse(io->xml, ptr, total, 0) != XML_STATUS_OK) {
+        io->xml_error = XML_GetErrorCode(io->xml);
+        io->xml_error_line = XML_GetCurrentLineNumber(io->xml);
+        io->xml_error_column = XML_GetCurrentColumnNumber(io->xml);
+    }
+    return total;
+}
+
+static void
+http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
+{
+    struct http_io *const io = (struct http_io *)arg;
+    const size_t plen = strlen(io->xml_path);
+    char *newbuf;
+
+    /* Update current path */
+    if ((newbuf = realloc(io->xml_path, plen + 1 + strlen(name) + 1)) == NULL) {
+        (*io->config->log)(LOG_DEBUG, "realloc: %s", strerror(errno));
+        io->xml_error = XML_ERROR_NO_MEMORY;
+        return;
+    }
+    io->xml_path = newbuf;
+    io->xml_path[plen] = '/';
+    strcpy(io->xml_path + plen + 1, name);
+
+    /* Reset buffer */
+    io->xml_text_len = 0;
+    io->xml_text[0] = '\0';
+}
+
+static void
+http_io_list_elem_end(void *arg, const XML_Char *name)
+{
+    struct http_io *const io = (struct http_io *)arg;
+
+//(*io->config->log)(LOG_DEBUG, "  END TAG: %s [%s]", io->xml_path, io->xml_text);
+
+    /* Handle <Truncated> tag */
+    if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0)
+        io->list_truncated = strcmp(io->xml_text, LIST_TRUE) == 0;
+
+    /* Handle <Key> tag */
+    else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
+        const int bits_per_word = sizeof(*io->bitmap) * 8;
+        s3b_block_t block_num;
+
+        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0) {
+            io->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+            io->last_block = block_num;
+            io->num_dirties++;
+//(*io->config->log)(LOG_DEBUG, "attempting to parse block name `%s' -> %08x", io->xml_text, block_num);
+        } else
+            (*io->config->log)(LOG_DEBUG, "failed to parse block name `%s'", io->xml_text);
+    }
+
+    /* Update current XML path */
+    *strrchr(io->xml_path, '/') = '\0';
+
+    /* Reset buffer */
+    io->xml_text_len = 0;
+    io->xml_text[0] = '\0';
+}
+
+static void
+http_io_list_text(void *arg, const XML_Char *s, int len)
+{
+    struct http_io *const io = (struct http_io *)arg;
+    int avail;
+
+    /* Append text to buffer */
+    avail = io->xml_text_max - io->xml_text_len;
+    if (len > avail)
+        len = avail;
+    memcpy(io->xml_text + io->xml_text_len, s, len);
+    io->xml_text_len += len;
+    io->xml_text[io->xml_text_len] = '\0';
+}
+
+/*
+ * Parse a bucket name and set the corresponding bit in the bitmap.
+ */
+int
+http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_nump)
+{
+    const size_t plen = strlen(config->prefix);
+    s3b_block_t block_num = 0;
+    int i;
+
+    /* Check prefix */
+    if (strncmp(name, config->prefix, plen) != 0)
+        return -1;
+    name += plen;
+
+    /* Parse block number */
+    for (i = 0; i < S3B_BLOCK_NUM_DIGITS; i++) {
+        char ch = name[i];
+
+        if (!isxdigit(ch))
+            break;
+        block_num <<= 4;
+        block_num |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+    }
+
+    /* Was parse successful? */
+    if (i != S3B_BLOCK_NUM_DIGITS || name[i] != '\0' || block_num >= config->num_blocks)
+        return -1;
+
+    /* Done */
+    *block_nump = block_num;
+    return 0;
 }
 
 /*
@@ -344,14 +654,14 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
 
-    /* Read zero blocks when 'assume_empty' until non-zero content is written */
-    if (config->assume_empty) {
+    /* Read zero blocks when bitmap indicates empty until non-zero content is written */
+    if (priv->non_zero != NULL) {
         const int bits_per_word = sizeof(*priv->non_zero) * 8;
         const int word = block_num / bits_per_word;
         const int bit = 1 << (block_num % bits_per_word);
 
         pthread_mutex_lock(&priv->mutex);
-        if (priv->non_zero == NULL || (priv->non_zero[word] & bit) == 0) {
+        if ((priv->non_zero[word] & bit) == 0) {
             priv->stats.empty_blocks_read++;
             pthread_mutex_unlock(&priv->mutex);
             memset(dest, 0, config->block_size);
@@ -471,28 +781,21 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             src = NULL;
     }
 
-    /* Don't write zero blocks when 'assume_empty' until non-zero content is written */
-    if (config->assume_empty) {
+    /* Don't write zero blocks when bitmap indicates empty until non-zero content is written */
+    if (priv->non_zero != NULL) {
         const int bits_per_word = sizeof(*priv->non_zero) * 8;
         const int word = block_num / bits_per_word;
         const int bit = 1 << (block_num % bits_per_word);
 
         pthread_mutex_lock(&priv->mutex);
         if (src == NULL) {
-            if (priv->non_zero == NULL || (priv->non_zero[word] & bit) == 0) {
+            if ((priv->non_zero[word] & bit) == 0) {
                 priv->stats.empty_blocks_written++;
                 pthread_mutex_unlock(&priv->mutex);
                 return 0;
             }
-        } else {
-            if (priv->non_zero == NULL && (priv->non_zero = calloc(sizeof(*priv->non_zero),
-              (config->num_blocks + bits_per_word - 1) / bits_per_word)) == NULL) {
-                priv->stats.out_of_memory_errors++;
-                pthread_mutex_unlock(&priv->mutex);
-                return ENOMEM;
-            }
+        } else
             priv->non_zero[word] |= bit;
-        }
         pthread_mutex_unlock(&priv->mutex);
     }
 
@@ -884,7 +1187,7 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
 }
 
 static size_t
-http_io_curl_reader(void *ptr, size_t size, size_t nmemb, void *stream)
+http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io_bufs *const bufs = (struct http_io_bufs *)stream;
     size_t total = size * nmemb;

@@ -38,6 +38,7 @@ struct test_io_private {
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
 static void test_io_destroy(struct s3backer_store *s3b);
 
 /*
@@ -56,6 +57,7 @@ test_io_create(struct http_io_conf *config)
         return NULL;
     s3b->read_block = test_io_read_block;
     s3b->write_block = test_io_write_block;
+    s3b->list_blocks = test_io_list_blocks;
     s3b->destroy = test_io_destroy;
     if ((priv = calloc(1, sizeof(*priv) + config->block_size)) == NULL) {
         free(s3b);
@@ -226,6 +228,43 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     (*config->log)(LOG_INFO, "test_io: write %0*x complete", S3B_BLOCK_NUM_DIGITS, (u_int)block_num);
 
     /* Done */
+    return 0;
+}
+
+static int
+test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+{
+    struct test_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    const int bits_per_word = sizeof(*bitmapp) * 8;
+    s3b_block_t block_num;
+    struct dirent *dent;
+    size_t nwords;
+    u_int *bitmap;
+    DIR *dir;
+
+    /* Allocate array */
+    nwords = (config->num_blocks + (sizeof(*bitmap) * 8) - 1) / (sizeof(*bitmap) * 8);
+    if ((bitmap = calloc(nwords, sizeof(*bitmap))) == NULL)
+        return errno;
+
+    /* Open directory */
+    if ((dir = opendir(config->bucket)) == NULL) {
+        free(bitmap);
+        return errno;
+    }
+
+    /* Scan directory */
+    while ((dent = readdir(dir)) != NULL) {
+        if (http_io_parse_block(config, dent->d_name, &block_num) == 0)
+            bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+    }
+
+    /* Close directory */
+    closedir(dir);
+
+    /* Done */
+    *bitmapp = bitmap;
     return 0;
 }
 

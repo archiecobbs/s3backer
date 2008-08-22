@@ -178,8 +178,13 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
-        .templ=     "--assumeEmpty",
-        .offset=    offsetof(struct s3b_config, http_io.assume_empty),
+        .templ=     "--assumeEmpty",                    /* deprecated */
+        .offset=    offsetof(struct s3b_config, list_blocks),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--listBlocks",
+        .offset=    offsetof(struct s3b_config, list_blocks),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -528,7 +533,7 @@ s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_written", http_io_stats.normal_blocks_written);
         (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_read", http_io_stats.zero_blocks_read);
         (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_written", http_io_stats.zero_blocks_written);
-        if (config.http_io.assume_empty) {
+        if (config.list_blocks) {
             (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_read", http_io_stats.empty_blocks_read);
             (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_written", http_io_stats.empty_blocks_written);
         }
@@ -957,14 +962,6 @@ validate_config(void)
             } else
                 errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
-        if (config.http_io.assume_empty) {
-            if (config.force) {
-                warnx("warning: `--assumeEmpty' was specified but filesystem is not empty,\n"
-                  "but you said `--force' so I'll proceed anyway even though your data will\n"
-                  "probably not read back correctly.");
-            } else
-                errx(1, "error: `--assumeEmpty' was specified but filesystem is not empty");
-        }
         break;
     case ENOENT:
     case ENXIO:
@@ -1048,6 +1045,27 @@ validate_config(void)
     config.fuse_ops.num_blocks = config.num_blocks;
     config.fuse_ops.log = config.log;
 
+    /* If `--listBlocks' was given, build non-empty block bitmap */
+    if (config.list_blocks) {
+        struct s3backer_store *temp_store;
+        u_int *bitmap;
+
+        /* Create temporary lower layer */
+        if ((temp_store = config.test ? test_io_create(&config.http_io) : http_io_create(&config.http_io)) == NULL)
+            err(1, config.test ? "test_io_create" : "http_io_create");
+
+        /* Generate non-zero block bitmap */
+        assert(config.http_io.nonzero_bitmap == NULL);
+        if ((r = (*temp_store->list_blocks)(temp_store, &bitmap)) != 0)
+            errx(1, "can't list blocks: %s", strerror(r));
+
+        /* Close temporary store */
+        (*temp_store->destroy)(temp_store);
+
+        /* Save bitmap */
+        config.http_io.nonzero_bitmap = bitmap;
+    }
+
     /* Done */
     return 0;
 }
@@ -1063,10 +1081,10 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "assume_empty", config.http_io.assume_empty ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
@@ -1156,7 +1174,6 @@ usage(void)
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
-    fprintf(stderr, "\t--%-27s %s\n", "assumeEmpty", "Assume no blocks exist yet (no I/O for zero blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
@@ -1173,6 +1190,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
+    fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
