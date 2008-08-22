@@ -45,8 +45,10 @@
 #include <assert.h>
 #include <ctype.h>
 #include <curl/curl.h>
+#include <dirent.h>
 #include <err.h>
 #include <errno.h>
+#include <expat.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -108,6 +110,14 @@ struct s3backer_store {
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+
+    /*
+     * Identify non-zero blocks. Allocates a bitmap and sets bits to one corresponding to
+     * non-zero blocks. On success, caller must free memory pointed to by *bitmap.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     */
+    int         (*list_blocks)(struct s3backer_store *s3b, u_int **bitmapp);
 
     /*
      * Destroy this instance.

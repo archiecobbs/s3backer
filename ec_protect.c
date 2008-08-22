@@ -115,6 +115,8 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
+static int ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
+static void ec_protect_mark_dirty(void *arg, void *value);
 static void ec_protect_free_one(void *arg, void *value);
 
 /* Invariants checking */
@@ -149,6 +151,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     }
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
+    s3b->list_blocks = ec_protect_list_blocks;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -219,6 +222,22 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
     memcpy(stats, &priv->stats, sizeof(*stats));
     stats->current_cache_size = s3b_hash_size(priv->hashtable);
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+{
+    struct ec_protect_private *const priv = s3b->data;
+    int r;
+
+    pthread_mutex_lock(&priv->mutex);
+    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp)) != 0) {
+        pthread_mutex_unlock(&priv->mutex);
+        return r;
+    }
+    s3b_hash_foreach(priv->hashtable, ec_protect_mark_dirty, *bitmapp);
+    pthread_mutex_unlock(&priv->mutex);
+    return 0;
 }
 
 static int
@@ -484,6 +503,16 @@ static void
 ec_protect_free_one(void *arg, void *value)
 {
     free(value);
+}
+
+static void
+ec_protect_mark_dirty(void *arg, void *value)
+{
+    u_int *const bitmap = arg;
+    struct block_info *const binfo = value;
+
+    if (binfo->timestamp == 0 ? binfo->u.data != NULL : memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
+        bitmap[binfo->block_num / sizeof(*bitmap)] |= 1 << (binfo->block_num % sizeof(*bitmap));
 }
 
 #ifndef NDEBUG
