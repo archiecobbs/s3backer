@@ -102,6 +102,9 @@ struct s3backer_store {
      * Write one block. Blocks that are all zeroes are actually deleted instead
      * of being written.
      *
+     * If src == NULL, block contains all zeroes; otherwise, if md5 == NULL, contents of block are unknown;
+     * otherwise, contents of block are known to NOT be all zeroes.
+     *
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);

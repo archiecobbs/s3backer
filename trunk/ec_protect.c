@@ -304,7 +304,7 @@ ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     }
 
     /* Special case handling for all-zeroes blocks */
-    if (src == NULL || memcmp(src, priv->zero_block, config->block_size) == 0) {
+    if (src == NULL || (md5 == NULL && memcmp(src, priv->zero_block, config->block_size) == 0)) {
         src = NULL;
         md5 = zero_md5;
     }

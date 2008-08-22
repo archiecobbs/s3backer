@@ -71,6 +71,7 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
+    u_char                      *zero_block;
     u_int                       *non_zero;      // used when 'assume_empty' is set
 };
 
@@ -241,6 +242,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
     free(priv->non_zero);
+    free(priv->zero_block);
     free(priv);
     free(s3b);
 }
@@ -440,7 +442,7 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
  * Write block if src != NULL, otherwise delete block.
  */
 static int
-http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *const src, const u_char *md5)
+http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -455,6 +457,19 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Sanity check */
     if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
+
+    /* Detect zero blocks (if not done already by upper layer) */
+    if (src != NULL && md5 == NULL) {
+        pthread_mutex_lock(&priv->mutex);
+        if (priv->zero_block == NULL && (priv->zero_block = calloc(1, config->block_size)) == NULL) {
+            priv->stats.out_of_memory_errors++;
+            pthread_mutex_unlock(&priv->mutex);
+            return ENOMEM;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+        if (memcmp(src, priv->zero_block, config->block_size) == 0)
+            src = NULL;
+    }
 
     /* Don't write zero blocks when 'assume_empty' until non-zero content is written */
     if (config->assume_empty) {
