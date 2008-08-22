@@ -1,5 +1,5 @@
 
-Version 1.1.2
+Version 1.2.0
 
     - Use new custom hash table implementation; this removes glib dependency.
     - Fix bug where the zero block optimization got disabled when the
