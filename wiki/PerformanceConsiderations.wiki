@@ -44,7 +44,7 @@ A good tutorial I've found is [http://www.linux-tutorial.info/modules.php?name=M
 
 The dentry/inode cache is not important to *s3backer*, because there are only two files in the whole filesystem.
 
-The page cache however is: by virtue of the fact that the loopback device has the underlying file open, the contents of that file will be cached in the page cache just like any other file. The FUSE `direct_io` flag should disable this caching in the page cache. Otherwise, `losetup(8)` does not open the underlying file in direct I/O mode (i.e., with the `O_DIRECT` flag), so the loopbacked file's contents can be cached (but here's [http://article.gmane.org/gmane.linux.utilities.util-linux-ng/1731 a patch] to add that ability). But FUSE does not support opening a FUSE filesystem file with `O_DIRECT` anyway.
+The page cache however is: by virtue of the fact that the loopback device has the underlying file open, the contents of that file will be cached in the page cache just like any other file. `losetup(8)` does not open the underlying file in direct I/O mode (i.e., with the `O_DIRECT` flag), so loopbacked files' contents can be cached (here's [http://article.gmane.org/gmane.linux.utilities.util-linux-ng/1731 a patch] to add that ability). But even if it did, FUSE does not currenly support opening a FUSE filesystem file with `O_DIRECT`. Instead, use the `direct_io` flag, which does work and has the same effect.
 
 As far as I can tell, since the loopback device is a block device, it does use the buffer cache _NEED VERIFICATION_. This means some data is cached twice, aka the "double caching" problem.
 
