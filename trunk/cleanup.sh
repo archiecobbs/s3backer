@@ -14,4 +14,5 @@ rm -f scripts
 rm -f Makefile Makefile.in
 rm -f svnrev.c
 rm -f *.o s3backer tester
+rm -f s3backer-?.?.?.tar.gz
 
