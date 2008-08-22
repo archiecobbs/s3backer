@@ -1,0 +1,32 @@
+Checklist for releasing version VERSION
+---------------------------------------
+
+Final check
+    make dist
+    test tarball builds and works on Linux, MacOS...
+
+Release tarball
+    sh cleanup.sh
+    svn update
+    svn status
+    verify everything is clean
+    verify configure.ac contains VERSION
+    update CHANGES with today's date and next revision R=R+1 for VERSION
+    svn commit -> revision R
+    sh autogen.sh && ./configure && make distcheck
+    upload tarball to http://code.google.com/p/s3backer/downloads/list
+
+Tag release
+    svn cp https://s3backer.googlecode.com/svn/trunk https://s3backer.googlecode.com/svn/tags/VERSION
+
+Bump version
+    edit configure.ac and bump version
+    svn commit
+
+Misc
+    update wikified man page
+    Add new version to issue tracker: http://code.google.com/p/s3backer/adminIssues
+    send email to s3backer-devel google group
+    update OBS project
+
+$Id$
