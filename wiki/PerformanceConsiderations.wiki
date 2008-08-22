@@ -10,8 +10,8 @@ FUSE is a user-land library that talks to the kernel on one end and dispatches t
 
   # *FUSE interface:* This layer talks to FUSE to create the filesytem, and passes any read or write requests to the next layer down.
   # *Block Cache:* The block cache keeps a local cache of data blocks to increase performance. It also has an associated pool of worker threads that perform reads and writes asynchronously.
-  # *MD5 Cache:* This layer's job is to protect against reads of stale data from Amazon S3 due to "eventual consistency." Whenever a block is written, its MD5 checksum is cached for a short time so we can verify the right data is returned by any subsequent reads. In addition, this layer prevents two writes of the same block from occurring too closely together, which could cause them to be processed in the wrong order by Amazon S3.
-  # *HTTP I/O:* This layer speaks the HTTP protocol to Amazon S3 using Amazon's REST API. It also handles the zero block optimization, whereby blocks containing all zeroes are deleted instead of being written.
+  # *MD5 Cache:* This layer's job is to protect against reads of stale data from Amazon S3 due to "eventual consistency." Whenever a block is written, its MD5 checksum is cached for a short time so we can verify the right data is returned by any subsequent reads. In addition, this layer prevents two writes of the same block from occurring too closely together, which could cause them to be processed in the wrong order by Amazon S3. This layer also handles the zero block optimization, whereby blocks containing all zeroes are deleted instead of being written.
+  # *HTTP I/O:* This layer speaks the HTTP protocol to Amazon S3 using Amazon's REST API. 
 
 Note that when the `--test` flag is used, *s3backer* replaces the bottom HTTP I/O layer with an equivalent *Test I/O* layer that simply reads and writes blocks from a local directory.
 
