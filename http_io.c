@@ -490,8 +490,6 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
 
-//(*io->config->log)(LOG_DEBUG, "  END TAG: %s [%s]", io->xml_path, io->xml_text);
-
     /* Handle <Truncated> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0)
         io->list_truncated = strcmp(io->xml_text, LIST_TRUE) == 0;
@@ -505,12 +503,12 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
             io->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
             io->last_block = block_num;
             io->num_dirties++;
-//(*io->config->log)(LOG_DEBUG, "attempting to parse block name `%s' -> %08x", io->xml_text, block_num);
         } else
             (*io->config->log)(LOG_DEBUG, "failed to parse block name `%s'", io->xml_text);
     }
 
     /* Update current XML path */
+    assert(strrchr(io->xml_path, '/') != NULL);
     *strrchr(io->xml_path, '/') = '\0';
 
     /* Reset buffer */
@@ -534,7 +532,7 @@ http_io_list_text(void *arg, const XML_Char *s, int len)
 }
 
 /*
- * Parse a bucket name and set the corresponding bit in the bitmap.
+ * Parse a block's item name (including prefix) and set the corresponding bit in the bitmap.
  */
 int
 http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_nump)
