@@ -52,9 +52,9 @@ s3b_hash_create(struct s3b_hash **hashp, u_int maxkeys)
     struct s3b_hash *hash;
     u_int alen;
 
-    if (maxkeys >= (u_int)(UINT_MAX * LOAD_FACTOR))
+    if (maxkeys >= (u_int)(UINT_MAX * LOAD_FACTOR) - 1)
         return EINVAL;
-    alen = (u_int)(maxkeys / LOAD_FACTOR);
+    alen = (u_int)(maxkeys / LOAD_FACTOR) + 1;
     if ((hash = calloc(1, sizeof(*hash) + alen * sizeof(*hash->array))) == NULL)
         return ENOMEM;
     hash->maxkeys = maxkeys;
@@ -101,7 +101,7 @@ s3b_hash_put(struct s3b_hash *hash, void *value)
             return;
         }
     }
-    assert(hash->numkeys < hash->maxkeys);
+    assert(hash->numkeys <= hash->maxkeys);
     hash->array[i] = value;
     hash->numkeys++;
 }
