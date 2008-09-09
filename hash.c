@@ -101,7 +101,7 @@ s3b_hash_put(struct s3b_hash *hash, void *value)
             return;
         }
     }
-    assert(hash->numkeys <= hash->maxkeys);
+    assert(hash->numkeys < hash->maxkeys);
     hash->array[i] = value;
     hash->numkeys++;
 }
