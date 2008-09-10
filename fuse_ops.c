@@ -299,7 +299,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
-    const size_t orig_size = size;
+    size_t orig_size = size;
     char *fragment = NULL;
     s3b_block_t block_num;
     size_t num_blocks;
@@ -317,10 +317,14 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         return size;
     }
 
-    /* Check for out of range */
-    if (offset + size > priv->file_size) {
+    /* Check for end of file */
+    if (offset > priv->file_size) {
         (*config->log)(LOG_ERR, "read offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
+    }
+    if (offset + size > priv->file_size) {
+        size = priv->file_size - offset;
+        orig_size = size;
     }
 
     /* Read first block fragment (if any) */
@@ -371,7 +375,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
-    const size_t orig_size = size;
+    size_t orig_size = size;
     char *fragment = NULL;
     s3b_block_t block_num;
     size_t num_blocks;
@@ -385,10 +389,14 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     if (fi->fh != 0)
         return -EINVAL;
 
-    /* Check for out of range */
-    if (offset + size > priv->file_size) {
+    /* Check for end of file */
+    if (offset > priv->file_size) {
         (*config->log)(LOG_ERR, "write offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
+    }
+    if (offset + size > priv->file_size) {
+        size = priv->file_size - offset;
+        orig_size = size;
     }
 
     /* Write first block fragment (if any) */
