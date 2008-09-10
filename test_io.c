@@ -38,7 +38,7 @@ struct test_io_private {
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
+static int test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
 static void test_io_destroy(struct s3backer_store *s3b);
 
 /*
@@ -232,12 +232,13 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 }
 
 static int
-test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     const int bits_per_word = sizeof(*bitmapp) * 8;
     s3b_block_t block_num;
+    uintmax_t count = 0;
     struct dirent *dent;
     size_t nwords;
     u_int *bitmap;
@@ -256,8 +257,10 @@ test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
 
     /* Scan directory */
     while ((dent = readdir(dir)) != NULL) {
-        if (http_io_parse_block(config, dent->d_name, &block_num) == 0)
+        if (http_io_parse_block(config, dent->d_name, &block_num) == 0) {
             bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+            count++;
+        }
     }
 
     /* Close directory */
@@ -265,6 +268,7 @@ test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
 
     /* Done */
     *bitmapp = bitmap;
+    *num_found = count;
     return 0;
 }
 

@@ -1048,7 +1048,11 @@ validate_config(void)
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
+        uintmax_t num_found;
         u_int *bitmap;
+
+        /* Logging */
+        warnx("listing non-zero blocks...");
 
         /* Create temporary lower layer */
         if ((temp_store = config.test ? test_io_create(&config.http_io) : http_io_create(&config.http_io)) == NULL)
@@ -1056,7 +1060,7 @@ validate_config(void)
 
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*temp_store->list_blocks)(temp_store, &bitmap)) != 0)
+        if ((r = (*temp_store->list_blocks)(temp_store, &bitmap, &num_found)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */
@@ -1064,6 +1068,7 @@ validate_config(void)
 
         /* Save bitmap */
         config.http_io.nonzero_bitmap = bitmap;
+        warnx("found %ju non-zero blocks", num_found);
     }
 
     /* Done */

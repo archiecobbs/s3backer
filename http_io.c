@@ -138,7 +138,7 @@ typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
+static int http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -303,7 +303,7 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
 }
 
 static int
-http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -349,9 +349,6 @@ http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
         (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
         goto oom;
     }
-
-    /* Logging */
-    (*config->log)(LOG_INFO, "listing non-zero blocks...");
 
     /* List blocks */
     do {
@@ -412,14 +409,12 @@ http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
         }
     } while (io.list_truncated);
 
-    /* Report what we found */
-    (*config->log)(LOG_INFO, "detected %ju non-zero blocks", io.num_dirties);
-
     /* Done */
     XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
     *bitmapp = bitmap;
+    *num_found = io.num_dirties;
     return 0;
 
 oom:

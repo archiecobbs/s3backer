@@ -117,7 +117,7 @@ struct s3backer_store {
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*list_blocks)(struct s3backer_store *s3b, u_int **bitmapp);
+    int         (*list_blocks)(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
 
     /*
      * Destroy this instance.
