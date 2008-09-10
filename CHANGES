@@ -3,8 +3,9 @@ Version 1.2.0
 
     - Use new custom hash table implementation; this removes glib dependency.
     - Replaced `--assumeEmpty' flag with safer and more useful `--listBlocks'.
-    - Fix bug where the zero block optimization got disabled when the
+    - Fixed bug where the zero block optimization got disabled when the
       MD5 cache was disabled.
+    - Fixed bug where cp(1)'ing the backed file gave `Illegal seek' error.
     - Use FUSE version 25 API so code builds on older O/S distributions.
 
 Version 1.1.1 (r202) released 5 Aug 2008
