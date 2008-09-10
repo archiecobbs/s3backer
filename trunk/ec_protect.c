@@ -115,7 +115,7 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
-static int ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
+static int ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
 static void ec_protect_mark_dirty(void *arg, void *value);
 static void ec_protect_free_one(void *arg, void *value);
 
@@ -225,13 +225,13 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
 }
 
 static int
-ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
 {
     struct ec_protect_private *const priv = s3b->data;
     int r;
 
     pthread_mutex_lock(&priv->mutex);
-    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp)) != 0) {
+    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp, num_found)) != 0) {
         pthread_mutex_unlock(&priv->mutex);
         return r;
     }

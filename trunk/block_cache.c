@@ -147,7 +147,7 @@ struct block_cache_private {
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp);
+static int block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -306,13 +306,13 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
 }
 
 static int
-block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp)
+block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
 {
     struct block_cache_private *const priv = s3b->data;
     int r;
 
     pthread_mutex_lock(&priv->mutex);
-    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp)) != 0) {
+    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp, num_found)) != 0) {
         pthread_mutex_unlock(&priv->mutex);
         return r;
     }
