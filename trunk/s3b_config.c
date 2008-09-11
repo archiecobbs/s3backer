@@ -1234,7 +1234,7 @@ usage(void)
     fprintf(stderr, "FUSE options (partial list):\n");
     fprintf(stderr, "\t%-29s %s\n", "-o allow_root", "Allow root (only) to view backed file");
     fprintf(stderr, "\t%-29s %s\n", "-o allow_other", "Allow all users to view backed file");
-    fprintf(stderr, "\t%-29s %s\n", "-o nonempty", "Allow all users to view backed file");
+    fprintf(stderr, "\t%-29s %s\n", "-o nonempty", "Allows mount over a non-empty directory");
     fprintf(stderr, "\t%-29s %s\n", "-o uid=UID", "Set user ID");
     fprintf(stderr, "\t%-29s %s\n", "-o gid=GID", "Set group ID");
     fprintf(stderr, "\t%-29s %s\n", "-o sync_read", "Do synchronous reads");
