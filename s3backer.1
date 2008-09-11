@@ -468,10 +468,6 @@ In addition,
 accepts all of the generic FUSE options as well.
 Here is a partial list:
 .Bl -tag -width Ds
-.It Fl o Ar allow_root
-Allow root (only) to view backed file.
-.It Fl o Ar allow_other
-Allow all users to view backed file.
 .It Fl o Ar uid=UID
 Override the user ID of the backed file, which defaults to the current user ID.
 .It Fl o Ar gid=GID
@@ -510,6 +506,7 @@ to FUSE (unless overridden by the user on the command line):
 .It Fl o Ar max_readahead=0
 .It Fl o Ar attr_timeout=0
 .It Fl o Ar default_permissions
+.It Fl o Ar allow_other
 .It Fl o Ar nodev
 .It Fl o Ar nosuid
 .El

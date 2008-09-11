@@ -328,6 +328,7 @@ static const struct fuse_opt option_list[] = {
 /* Default flags we send to FUSE */
 static const char *const s3backer_fuse_defaults[] = {
     "-okernel_cache",
+    "-oallow_other",
     "-ouse_ino",
     "-omax_readahead=0",
     "-osubtype=s3backer",
@@ -1232,8 +1233,6 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "readAhead", S3BACKER_DEFAULT_READ_AHEAD);
     fprintf(stderr, "\t--%-27s %u\n", "readAheadTrigger", S3BACKER_DEFAULT_READ_AHEAD_TRIGGER);
     fprintf(stderr, "FUSE options (partial list):\n");
-    fprintf(stderr, "\t%-29s %s\n", "-o allow_root", "Allow root (only) to view backed file");
-    fprintf(stderr, "\t%-29s %s\n", "-o allow_other", "Allow all users to view backed file");
     fprintf(stderr, "\t%-29s %s\n", "-o nonempty", "Allows mount over a non-empty directory");
     fprintf(stderr, "\t%-29s %s\n", "-o uid=UID", "Set user ID");
     fprintf(stderr, "\t%-29s %s\n", "-o gid=GID", "Set group ID");
