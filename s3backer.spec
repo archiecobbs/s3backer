@@ -28,7 +28,7 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-root
 BuildRequires:  curl-devel
 BuildRequires:  fuse-devel >= 2.5
 BuildRequires:  openssl-devel
-BuildRequires:  expat
+BuildRequires:  libexpat-devel
 BuildRequires:  pkgconfig
 
 %description
