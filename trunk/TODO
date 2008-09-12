@@ -2,7 +2,7 @@ TODO
 
 - compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
 - interrupt active write when new write happens (instead of waiting)
-- allow block cache block data to live in a memory mapped file instead of heap.
+- allow block cache to live on disk and persist (possibly dirty) across restarts
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
 
 $Id$
