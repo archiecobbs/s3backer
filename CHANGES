@@ -1,5 +1,5 @@
 
-Version 1.2.0
+Version 1.2.0 (r248) released 12 Sep 2008
 
     - Use new custom hash table implementation; this removes glib dependency.
     - Replaced `--assumeEmpty' flag with safer and more useful `--listBlocks'.
