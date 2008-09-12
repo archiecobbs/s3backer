@@ -17,7 +17,7 @@ Release tarball
     upload tarball to http://code.google.com/p/s3backer/downloads/list
 
 Tag release
-    svn cp https://s3backer.googlecode.com/svn/trunk https://s3backer.googlecode.com/svn/tags/VERSION
+    svn cp https://s3backer.googlecode.com/svn/trunk https://s3backer.googlecode.com/svn/tags/${VERSION}
 
 Bump version
     edit configure.ac and bump version
@@ -27,6 +27,7 @@ Misc
     update wikified man page
     Add new version to issue tracker: http://code.google.com/p/s3backer/adminIssues
     send email to s3backer-devel google group
+    update s3backer.spec
     update OBS project
 
 $Id$

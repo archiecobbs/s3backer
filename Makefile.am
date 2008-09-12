@@ -30,7 +30,7 @@ noinst_HEADERS=     s3backer.h block_cache.h ec_protect.h fuse_ops.h hash.h http
 
 man_MANS=           s3backer.1
 
-docdir=             $(datadir)/doc/$(PACKAGE)-$(VERSION)
+docdir=             $(datadir)/doc/packages/$(PACKAGE)
 
 doc_DATA=           CHANGES COPYING README INSTALL TODO
 
