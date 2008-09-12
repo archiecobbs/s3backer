@@ -34,7 +34,7 @@ docdir=             $(datadir)/doc/packages/$(PACKAGE)
 
 doc_DATA=           CHANGES COPYING README INSTALL TODO
 
-EXTRA_DIST=         CHANGES s3backer.1
+EXTRA_DIST=         CHANGES s3backer.1 s3backer.spec
 
 s3backer_SOURCES=   main.c block_cache.c ec_protect.c fuse_ops.c hash.c http_io.c s3b_config.c test_io.c svnrev.c
 
