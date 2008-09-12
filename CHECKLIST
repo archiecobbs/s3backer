@@ -22,7 +22,7 @@ Tag release
     svn cp https://s3backer.googlecode.com/svn/trunk https://s3backer.googlecode.com/svn/tags/${VERSION}
 
 Bump version
-    edit configure.ac and bump version
+    edit configure.ac and s3backer.spec and bump versions therein
     svn commit
 
 Misc
