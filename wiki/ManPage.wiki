@@ -63,6 +63,9 @@ DESCRIPTION
      As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new
      filesystem.
 
+     When the --listBlocks flag is given, s3backer will list all existing blocks at startup so it knows ahead of time exactly which
+     blocks are empty.
+
    File and Block Size Auto-Detection
      As a convenience, whenever the first block of the backed file is written, s3backer includes as meta-data (in the ``x-amz-meta-
      s3backer-filesize'' header) the total size of the file.  Along with the size of the block itself, this value can be checked
@@ -92,6 +95,8 @@ DESCRIPTION
 
      Note that the kernel implements a read ahead algorithm as well; its behavior should be taken into consideration.  By default,
      s3backer passes the -o max_readahead=0 option to FUSE.
+
+     Read ahead is configured by the --readAhead and --readAheadTrigger command line options.
 
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  The filesystem must already exist and have S3 objects with
@@ -133,11 +138,7 @@ OPTIONS
              lic-read', `public-read-write', or `authenticated-read'.  Default is `private'.
 
      --assumeEmpty
-             Assume that no blocks exist in S3 yet.  This enables optimizations whereby, for each block, reads return zeroes and
-             zeroed writes are omitted until there is a non-zero write to the block.  This is only valid when the S3 objects do not
-             yet exist, and is useful for example when initializing a large backed file from a local copy (such as a Mac OS disk
-             image) that contains mostly zeroes.  If auto-detection finds that there is in fact a block zero stored in S3, this
-             option will cause s3backer to exit with an error unless --force is also given.
+             Deprecated.  Has the same effect as --listBlocks.
 
      --baseURL=URL
              Specify the base URL. Default is `http://s3.amazonaws.com/'.
@@ -193,9 +194,8 @@ OPTIONS
              --readOnly is specified, in which case the default is 0400.
 
      --force
-             Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value, or if
-             --assumeEmpty is given yet auto-detection succeeds.  This is will certainly lead to garbled data and should be avoided
-             for normal use.
+             Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value.  This is will
+             certainly lead to garbled data and should be avoided for normal use.
 
      -h --help
              Print a help message and exit.
@@ -209,6 +209,14 @@ OPTIONS
      --insecure
              Do not verify the remote server's identity when operating over SSL connections.  Equivalent to the --insecure flag
              documented in curl(1).
+
+     --listBlocks
+             Perform a query at startup to determine which blocks already exist.  This enables optimizations whereby, for each
+             block that does not yet exist, reads return zeroes and zeroed writes are omitted, thereby eliminating any network
+             access.  This flag is useful when creating a new backed file, or any time it is expected that a large number of zeroed
+             blocks will be read or written, such as when initializing a new filesystem.
+
+             This flag will slow down startup in direct proportion to the number of blocks that already exist.
 
      --maxRetryPause=MILLIS
              Specify the total amount of time in milliseconds s3backer should pause when retrying failed HTTP operations before
@@ -284,12 +292,6 @@ OPTIONS
 
      In addition, s3backer accepts all of the generic FUSE options as well.  Here is a partial list:
 
-     -o allow_root
-             Allow root (only) to view backed file.
-
-     -o allow_other
-             Allow all users to view backed file.
-
      -o uid=UID
              Override the user ID of the backed file, which defaults to the current user ID.
 
@@ -320,6 +322,7 @@ OPTIONS
      -o max_readahead=0
      -o attr_timeout=0
      -o default_permissions
+     -o allow_other
      -o nodev
      -o nosuid
 
