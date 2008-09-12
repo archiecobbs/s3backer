@@ -40,11 +40,10 @@ s3backer_SOURCES=   main.c block_cache.c ec_protect.c fuse_ops.c hash.c http_io.
 
 tester_SOURCES=     tester.c block_cache.c ec_protect.c hash.c http_io.c s3b_config.c test_io.c svnrev.c
 
-AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS) $(GLIB2_CFLAGS)
+AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS)
 
-AM_LDFLAGS=         $(FUSE_LIBS) $(GLIB2_LIBS)
+AM_LDFLAGS=         $(FUSE_LIBS)
 
 svnrev.c:
 					printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.c
-
 
