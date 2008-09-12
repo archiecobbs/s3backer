@@ -13,6 +13,8 @@ Release tarball
     verify configure.ac contains VERSION
     update CHANGES with today's date and next revision R=R+1 for VERSION
     svn commit -> revision R
+    svn update
+    make sure svnrev.c does not exist
     sh autogen.sh && ./configure && make distcheck
     upload tarball to http://code.google.com/p/s3backer/downloads/list
 
