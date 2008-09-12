@@ -28,7 +28,11 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-root
 BuildRequires:  curl-devel
 BuildRequires:  fuse-devel >= 2.5
 BuildRequires:  openssl-devel
+%if 0%{?suse_version} < 1000 || 0%{?fedora_version} != 0 || 0%{?centos_version} != 0
+BuildRequires:  expat
+%else
 BuildRequires:  libexpat-devel
+%endif
 BuildRequires:  pkgconfig
 
 %description
@@ -179,5 +183,5 @@ rm -rf ${RPM_BUILD_ROOT}
 %attr(0644,root,root) %{_mandir}/man1/%{name}.1.gz
 %endif
 %defattr(0644,root,root,0755)
-%doc %{_datadir}/doc/packages/%{name}-%{version}
+%doc %{_datadir}/doc/packages/%{name}
 
