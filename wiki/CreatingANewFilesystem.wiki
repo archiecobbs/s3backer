@@ -18,7 +18,7 @@ Creating your own new filesystem is very easy. Just follow these simple steps:
  * Decide how big you want your filesystem to be. Let's say we want to start with a modest 16 terabytes of storage.
  * Decide what bucket you want to store the filesystem blocks in. For this example, we'll use `bigspace`. You will have to create and use your own bucket of course.
  * Create a directory where the *s3backer* filesystem can be mounted: `mkdir ~/mnt-s3b`
- * Fire up s3backer: `s3backer -o allow_other --size=16t bigspace ~/mnt-s3b`.
+ * Fire up s3backer: `s3backer --size=16t bigspace ~/mnt-s3b`.
  * Now create your filesystem, pretending that `~/mnt-s3b/file` was a block device such as a disk partition: `mke2fs -b 4096 -F ~/mnt-s3b/file`. Of course, you don't have to use the ext2 filesystem, you can use reiserfs, minix, NTFS, or whatever.
  * Finally, mount your newly-created filesystem using a loopback mount: `sudo mount -o loop ~/mnt-s3b/file /mnt`
  * You now have 16 terabytes of storage mounted under `/mnt` to play with!
