@@ -15,7 +15,7 @@ Run these commands:
 
 {{{
 $ mkdir s3b.mnt demo.mnt
-$ s3backer -o allow_other --readOnly s3backer-demo s3b.mnt
+$ s3backer --readOnly s3backer-demo s3b.mnt
 s3backer: auto-detecting block size and total file size...
 s3backer: auto-detected block size=4k and total size=20m
 $ sudo mount -o ro,loop s3b.mnt/file demo.mnt
