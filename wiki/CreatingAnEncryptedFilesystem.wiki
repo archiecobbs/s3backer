@@ -1,7 +1,7 @@
 #summary How to create an encrypted filesystem
 #labels Featured
 
-This page describes how to create a simple encrypted filesystem. See also how to [CreatingANewFilesystem create a new filesystem].
+This page describes how to create a simple encrypted filesystem on Linux. See also how to [CreatingANewFilesystem create a new filesystem].
 
 You may want to also read the `losetup(8)` man page for details, especially how to create an encrypted filesystem that uses multiple keys instead of a single key.
 
