@@ -76,16 +76,14 @@
 #endif
 
 /*
- * Integer holding a block number; must be small enough to fit inside a pointer.
- * If you make this > 32 bits, you may want to change s3backer_get_url() too.
+ * Integral type for holding a block number.
  */
 typedef uint32_t    s3b_block_t;
 
 /*
  * How many hex digits we will use to print a block number.
- * This should be consistent with the definition of s3b_block_t.
  */
-#define S3B_BLOCK_NUM_DIGITS    8
+#define S3B_BLOCK_NUM_DIGITS    (sizeof(s3b_block_t) * 2)
 
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));

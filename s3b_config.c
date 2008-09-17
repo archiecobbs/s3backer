@@ -996,7 +996,7 @@ validate_config(void)
         return -1;
     }
     config.num_blocks = config.file_size / config.block_size;
-    if (config.num_blocks >= ((off_t)1 << (sizeof(s3b_block_t) * 8))) {    // cf. struct defer_info.block_num
+    if (config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
         warnx("more than 2^%d blocks: decrease file size or increase block size", sizeof(s3b_block_t) * 8);
         return -1;
     }
