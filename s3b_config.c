@@ -996,7 +996,8 @@ validate_config(void)
         return -1;
     }
     config.num_blocks = config.file_size / config.block_size;
-    if (config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
+    if (sizeof(s3b_block_t) < sizeof(config.num_blocks)
+      && config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
         warnx("more than 2^%d blocks: decrease file size or increase block size", sizeof(s3b_block_t) * 8);
         return -1;
     }
