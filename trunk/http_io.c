@@ -407,6 +407,13 @@ http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
             r = EIO;
             goto fail;
         }
+
+        /* Output progress dot */
+        if (!config->quiet) {
+            fprintf(stderr, ".");
+            fflush(stderr);
+        }
+
     } while (io.list_truncated);
 
     /* Done */

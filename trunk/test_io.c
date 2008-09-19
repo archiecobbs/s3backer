@@ -29,6 +29,9 @@
 /* Do we want random errors? */
 #define RANDOM_ERROR_PERCENT    0
 
+/* How many blocks per "." with --listBlocks */
+#define BLOCKS_PER_DOT          0x100
+
 /* Internal state */
 struct test_io_private {
     struct http_io_conf         *config;
@@ -243,6 +246,7 @@ test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
     size_t nwords;
     u_int *bitmap;
     DIR *dir;
+    int i;
 
     /* Allocate array */
     nwords = (config->num_blocks + (sizeof(*bitmap) * 8) - 1) / (sizeof(*bitmap) * 8);
@@ -256,10 +260,14 @@ test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
     }
 
     /* Scan directory */
-    while ((dent = readdir(dir)) != NULL) {
+    for (i = 0; (dent = readdir(dir)) != NULL; i++) {
         if (http_io_parse_block(config, dent->d_name, &block_num) == 0) {
             bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
             count++;
+        }
+        if (!config->quiet && (i % BLOCKS_PER_DOT) == 0) {
+            fprintf(stderr, ".");
+            fflush(stderr);
         }
     }
 

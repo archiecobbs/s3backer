@@ -151,6 +151,7 @@ static struct s3b_config config = {
     /* Common stuff */
     .block_size=            0,
     .file_size=             0,
+    .quiet=                 0,
     .no_auto_detect=        0,
     .log=                   syslog_logger
 };
@@ -240,6 +241,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--debug",
         .offset=    offsetof(struct s3b_config, debug),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--quiet",
+        .offset=    offsetof(struct s3b_config, quiet),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -923,10 +929,12 @@ validate_config(void)
         r = ENOENT;
     else {
         config.http_io.debug = config.debug;
+        config.http_io.quiet = config.quiet;
         config.http_io.log = config.log;
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
-        warnx("auto-detecting block size and total file size...");
+        if (!config.quiet)
+            warnx("auto-detecting block size and total file size...");
         r = http_io_detect_sizes(s3b, &auto_file_size, &auto_block_size);
         (*s3b->destroy)(s3b);
     }
@@ -936,7 +944,8 @@ validate_config(void)
     case 0:
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)auto_block_size);
         unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)auto_file_size);
-        warnx("auto-detected block size=%s and total size=%s", blockSizeBuf, fileSizeBuf);
+        if (!config.quiet)
+            warnx("auto-detected block size=%s and total size=%s", blockSizeBuf, fileSizeBuf);
         if (config.block_size == 0)
             config.block_size = auto_block_size;
         else if (auto_block_size != config.block_size) {
@@ -944,9 +953,11 @@ validate_config(void)
 
             unparse_size_string(buf, sizeof(buf), (uintmax_t)config.block_size);
             if (config.force) {
-                warnx("warning: configured block size %s != filesystem block size %s,\n"
-                  "but you said `--force' so I'll proceed anyway even though your data will\n"
-                  "probably not read back correctly.", buf, blockSizeBuf);
+                if (!config.quiet) {
+                    warnx("warning: configured block size %s != filesystem block size %s,\n"
+                      "but you said `--force' so I'll proceed anyway even though your data will\n"
+                      "probably not read back correctly.", buf, blockSizeBuf);
+                }
             } else
                 errx(1, "error: configured block size %s != filesystem block size %s", buf, blockSizeBuf);
         }
@@ -957,9 +968,11 @@ validate_config(void)
 
             unparse_size_string(buf, sizeof(buf), (uintmax_t)config.file_size);
             if (config.force) {
-                warnx("warning: configured file size %s != filesystem file size %s,\n"
-                  "but you said `--force' so I'll proceed anyway even though your data will\n"
-                  "probably not read back correctly.", buf, fileSizeBuf);
+                if (!config.quiet) {
+                    warnx("warning: configured file size %s != filesystem file size %s,\n"
+                      "but you said `--force' so I'll proceed anyway even though your data will\n"
+                      "probably not read back correctly.", buf, fileSizeBuf);
+                }
             } else
                 errx(1, "error: configured file size %s != filesystem file size %s", buf, fileSizeBuf);
         }
@@ -976,8 +989,10 @@ validate_config(void)
             config.block_size = S3BACKER_DEFAULT_BLOCKSIZE;
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)config.block_size);
         unparse_size_string(fileSizeBuf, sizeof(fileSizeBuf), (uintmax_t)config.file_size);
-        warnx("auto-detection %s; using %s block size %s and file size %s", why,
-          config_block_size == 0 ? "default" : "configured", blockSizeBuf, fileSizeBuf);
+        if (!config.quiet) {
+            warnx("auto-detection %s; using %s block size %s and file size %s", why,
+              config_block_size == 0 ? "default" : "configured", blockSizeBuf, fileSizeBuf);
+        }
         break;
     }
     default:
@@ -1027,7 +1042,7 @@ validate_config(void)
         total_time = (total_time + 999) / 1000;
 
         /* Warn if exceeding MacFUSE limit */
-        if (total_time >= FUSE_MAX_DAEMON_TIMEOUT) {
+        if (total_time >= FUSE_MAX_DAEMON_TIMEOUT && !config.quiet) {
             warnx("warning: maximum possible I/O delay (%us) >= MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
             warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
         }
@@ -1038,6 +1053,7 @@ validate_config(void)
     config.block_cache.block_size = config.block_size;
     config.block_cache.log = config.log;
     config.http_io.debug = config.debug;
+    config.http_io.quiet = config.quiet;
     config.http_io.block_size = config.block_size;
     config.http_io.num_blocks = config.num_blocks;
     config.http_io.log = config.log;
@@ -1054,7 +1070,10 @@ validate_config(void)
         u_int *bitmap;
 
         /* Logging */
-        warnx("listing non-zero blocks...");
+        if (!config.quiet) {
+            fprintf(stderr, "s3backer: listing non-zero blocks...");
+            fflush(stderr);
+        }
 
         /* Create temporary lower layer */
         if ((temp_store = config.test ? test_io_create(&config.http_io) : http_io_create(&config.http_io)) == NULL)
@@ -1070,7 +1089,12 @@ validate_config(void)
 
         /* Save bitmap */
         config.http_io.nonzero_bitmap = bitmap;
-        warnx("found %ju non-zero blocks", num_found);
+
+        /* Logging */
+        if (!config.quiet) {
+            fprintf(stderr, "done\n");
+            warnx("found %ju non-zero blocks", num_found);
+        }
     }
 
     /* Done */
@@ -1192,6 +1216,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
+    fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
