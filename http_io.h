@@ -33,6 +33,7 @@ struct http_io_conf {
     const char          *user_agent;
     const char          *cacert;
     int                 debug;
+    int                 quiet;
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()
     int                 insecure;
     u_int               block_size;

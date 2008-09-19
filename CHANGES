@@ -1,4 +1,8 @@
 
+Version 1.2.1
+
+    - Added `--quiet' command line flag.
+
 Version 1.2.0 (r248) released 12 Sep 2008
 
     - Use new custom hash table implementation; this removes glib dependency.
