@@ -261,10 +261,10 @@ test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
 
     /* Scan directory */
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
-        if (http_io_parse_block(config, dent->d_name, &block_num) == 0) {
-            bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
-            count++;
-        }
+        if (http_io_parse_block(config, dent->d_name, &block_num) != 0)
+            continue;
+        bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+        count++;
         if (!config->quiet && (i % BLOCKS_PER_DOT) == 0) {
             fprintf(stderr, ".");
             fflush(stderr);
