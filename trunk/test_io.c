@@ -29,9 +29,6 @@
 /* Do we want random errors? */
 #define RANDOM_ERROR_PERCENT    0
 
-/* How many blocks per "." with --listBlocks */
-#define BLOCKS_PER_DOT          0x100
-
 /* Internal state */
 struct test_io_private {
     struct http_io_conf         *config;
@@ -41,7 +38,7 @@ struct test_io_private {
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
+static int test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static void test_io_destroy(struct s3backer_store *s3b);
 
 /*
@@ -235,48 +232,29 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 }
 
 static int
-test_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
+test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    const int bits_per_word = sizeof(*bitmapp) * 8;
     s3b_block_t block_num;
-    uintmax_t count = 0;
     struct dirent *dent;
-    size_t nwords;
-    u_int *bitmap;
     DIR *dir;
     int i;
 
-    /* Allocate array */
-    nwords = (config->num_blocks + (sizeof(*bitmap) * 8) - 1) / (sizeof(*bitmap) * 8);
-    if ((bitmap = calloc(nwords, sizeof(*bitmap))) == NULL)
-        return errno;
-
     /* Open directory */
-    if ((dir = opendir(config->bucket)) == NULL) {
-        free(bitmap);
+    if ((dir = opendir(config->bucket)) == NULL)
         return errno;
-    }
 
     /* Scan directory */
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
-        if (http_io_parse_block(config, dent->d_name, &block_num) != 0)
-            continue;
-        bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
-        count++;
-        if (!config->quiet && (i % BLOCKS_PER_DOT) == 0) {
-            fprintf(stderr, ".");
-            fflush(stderr);
-        }
+        if (http_io_parse_block(config, dent->d_name, &block_num) == 0)
+            (*callback)(arg, block_num);
     }
 
     /* Close directory */
     closedir(dir);
 
     /* Done */
-    *bitmapp = bitmap;
-    *num_found = count;
     return 0;
 }
 

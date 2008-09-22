@@ -106,6 +106,12 @@ struct ec_protect_private {
     char                        *zero_block;
 };
 
+/* Callback info */
+struct cbinfo {
+    block_list_func_t           *callback;
+    void                        *arg;
+};
+
 /* s3backer_store functions */
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
@@ -115,8 +121,8 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
-static int ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
-static void ec_protect_mark_dirty(void *arg, void *value);
+static int ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+static void ec_protect_dirty_callback(void *arg, void *value);
 static void ec_protect_free_one(void *arg, void *value);
 
 /* Invariants checking */
@@ -225,17 +231,18 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
 }
 
 static int
-ec_protect_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
+ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct ec_protect_private *const priv = s3b->data;
+    struct cbinfo cbinfo;
     int r;
 
-    pthread_mutex_lock(&priv->mutex);
-    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp, num_found)) != 0) {
-        pthread_mutex_unlock(&priv->mutex);
+    if ((r = (*priv->inner->list_blocks)(priv->inner, callback, arg)) != 0)
         return r;
-    }
-    s3b_hash_foreach(priv->hashtable, ec_protect_mark_dirty, *bitmapp);
+    cbinfo.callback = callback;
+    cbinfo.arg = arg;
+    pthread_mutex_lock(&priv->mutex);
+    s3b_hash_foreach(priv->hashtable, ec_protect_dirty_callback, &cbinfo);
     pthread_mutex_unlock(&priv->mutex);
     return 0;
 }
@@ -506,13 +513,13 @@ ec_protect_free_one(void *arg, void *value)
 }
 
 static void
-ec_protect_mark_dirty(void *arg, void *value)
+ec_protect_dirty_callback(void *arg, void *value)
 {
-    u_int *const bitmap = arg;
+    struct cbinfo *const cbinfo = arg;
     struct block_info *const binfo = value;
 
     if (binfo->timestamp == 0 ? binfo->u.data != NULL : memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
-        bitmap[binfo->block_num / sizeof(*bitmap)] |= 1 << (binfo->block_num % sizeof(*bitmap));
+        (*cbinfo->callback)(cbinfo->arg, binfo->block_num);
 }
 
 #ifndef NDEBUG
