@@ -144,10 +144,16 @@ struct block_cache_private {
     pthread_cond_t                  worker_exit;    // a worker thread has exited
 };
 
+/* Callback info */
+struct cbinfo {
+    block_list_func_t           *callback;
+    void                        *arg;
+};
+
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
+static int block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -156,7 +162,7 @@ static void block_cache_read_from_entry(struct block_cache_private *priv, struct
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_one(void *arg, void *value);
-static void block_cache_mark_dirty(void *arg, void *value);
+static void block_cache_dirty_callback(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
 static uint32_t block_cache_get_time(struct block_cache_private *priv);
@@ -306,17 +312,18 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
 }
 
 static int
-block_cache_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
+block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct block_cache_private *const priv = s3b->data;
+    struct cbinfo cbinfo;
     int r;
 
-    pthread_mutex_lock(&priv->mutex);
-    if ((r = (*priv->inner->list_blocks)(priv->inner, bitmapp, num_found)) != 0) {
-        pthread_mutex_unlock(&priv->mutex);
+    if ((r = (*priv->inner->list_blocks)(priv->inner, callback, arg)) != 0)
         return r;
-    }
-    s3b_hash_foreach(priv->hashtable, block_cache_mark_dirty, *bitmapp);
+    cbinfo.callback = callback;
+    cbinfo.arg = arg;
+    pthread_mutex_lock(&priv->mutex);
+    s3b_hash_foreach(priv->hashtable, block_cache_dirty_callback, &cbinfo);
     pthread_mutex_unlock(&priv->mutex);
     return 0;
 }
@@ -840,9 +847,9 @@ block_cache_dirty_ratio(struct block_cache_private *priv)
 }
 
 static void
-block_cache_mark_dirty(void *arg, void *value)
+block_cache_dirty_callback(void *arg, void *value)
 {
-    u_int *const bitmap = arg;
+    struct cbinfo *const cbinfo = arg;
     struct cache_entry *const entry = value;
 
     switch (ENTRY_GET_STATE(entry)) {
@@ -852,7 +859,7 @@ block_cache_mark_dirty(void *arg, void *value)
     case WRITING2:
     case WRITING:
     case DIRTY:
-        bitmap[entry->block_num / sizeof(*bitmap)] |= 1 << (entry->block_num % sizeof(*bitmap));
+        (*cbinfo->callback)(cbinfo->arg, entry->block_num);
         break;
     default:
         assert(0);

@@ -88,6 +88,9 @@ typedef uint32_t    s3b_block_t;
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
+/* Block list callback function type */
+typedef void        block_list_func_t(void *arg, s3b_block_t block_num);
+
 /* Backing store instance structure */
 struct s3backer_store {
 
@@ -110,12 +113,11 @@ struct s3backer_store {
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
 
     /*
-     * Identify non-zero blocks. Allocates a bitmap and sets bits to one corresponding to
-     * non-zero blocks. On success, caller must free memory pointed to by *bitmap.
+     * Identify all non-zero blocks.
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*list_blocks)(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
+    int         (*list_blocks)(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 
     /*
      * Destroy this instance.

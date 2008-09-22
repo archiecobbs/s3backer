@@ -117,8 +117,8 @@ struct http_io {
     int                 xml_text_max;           // max chars in 'xml_text' buffer
     int                 list_truncated;         // returned list was truncated
     s3b_block_t         last_block;             // last dirty block listed
-    uintmax_t           num_dirties;            // count of dirty blocks
-    u_int               *bitmap;                // bitmap of non-zero blocks
+    block_list_func_t   *callback_func;         // callback func for listing blocks
+    void                *callback_arg;          // callback arg for listing blocks
     struct http_io_conf *config;                // configuration
 
     // Other info that needs to be passed around
@@ -138,7 +138,7 @@ typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
-static int http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found);
+static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -303,19 +303,16 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
 }
 
 static int
-http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_found)
+http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
     char urlbuf[URL_BUF_SIZE(config) + sizeof(marker) + 32];
-    const int bits_per_word = sizeof(**bitmapp) * 8;
     const char *resource;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
-    size_t nwords;
-    u_int *bitmap;
     int r;
 
     /* Initialize I/O info */
@@ -324,14 +321,8 @@ http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
     io.method = HTTP_GET;
     io.config = config;
     io.xml_error = XML_ERROR_NONE;
-
-    /* Allocate bitmap array */
-    nwords = (config->num_blocks + bits_per_word - 1) / bits_per_word;
-    if ((bitmap = calloc(nwords, sizeof(*bitmap))) == NULL) {
-        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
-        goto oom;
-    }
-    io.bitmap = bitmap;
+    io.callback_func = callback;
+    io.callback_arg = arg;
 
     /* Create XML parser */
     if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
@@ -407,21 +398,12 @@ http_io_list_blocks(struct s3backer_store *s3b, u_int **bitmapp, uintmax_t *num_
             r = EIO;
             goto fail;
         }
-
-        /* Output progress dot */
-        if (!config->quiet) {
-            fprintf(stderr, ".");
-            fflush(stderr);
-        }
-
     } while (io.list_truncated);
 
     /* Done */
     XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
-    *bitmapp = bitmap;
-    *num_found = io.num_dirties;
     return 0;
 
 oom:
@@ -437,7 +419,6 @@ fail:
         XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
-    free(bitmap);
     return r;
 }
 
@@ -491,6 +472,7 @@ static void
 http_io_list_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
+    s3b_block_t block_num;
 
     /* Handle <Truncated> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0)
@@ -498,15 +480,8 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 
     /* Handle <Key> tag */
     else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
-        const int bits_per_word = sizeof(*io->bitmap) * 8;
-        s3b_block_t block_num;
-
-        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0) {
-            io->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
-            io->last_block = block_num;
-            io->num_dirties++;
-        } else
-            (*io->config->log)(LOG_DEBUG, "failed to parse block name `%s'", io->xml_text);
+        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0)
+            (*io->callback_func)(io->callback_arg, block_num);
     }
 
     /* Update current XML path */

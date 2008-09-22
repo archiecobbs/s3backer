@@ -77,6 +77,14 @@
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
 #endif  /* __APPLE__ */
 
+/* Block counting info */
+struct list_blocks {
+    u_int       *bitmap;
+    int         print_dots;
+    uintmax_t   count;
+};
+#define BLOCKS_PER_DOT                  0x100
+
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
@@ -91,6 +99,7 @@ static int handle_unknown_option(void *data, const char *arg, int key, struct fu
 static void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static int validate_config(void);
+static void list_blocks_callback(void *arg, s3b_block_t block_num);
 static void dump_config(void);
 static void usage(void);
 
@@ -1066,8 +1075,8 @@ validate_config(void)
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
-        uintmax_t num_found;
-        u_int *bitmap;
+        struct list_blocks lb;
+        size_t nwords;
 
         /* Logging */
         if (!config.quiet) {
@@ -1079,26 +1088,47 @@ validate_config(void)
         if ((temp_store = config.test ? test_io_create(&config.http_io) : http_io_create(&config.http_io)) == NULL)
             err(1, config.test ? "test_io_create" : "http_io_create");
 
+        /* Initialize bitmap */
+        nwords = (config.num_blocks + (sizeof(*lb.bitmap) * 8) - 1) / (sizeof(*lb.bitmap) * 8);
+        if ((lb.bitmap = calloc(nwords, sizeof(*lb.bitmap))) == NULL)
+            err(1, "calloc");
+        lb.print_dots = !config.quiet;
+        lb.count = 0;
+
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*temp_store->list_blocks)(temp_store, &bitmap, &num_found)) != 0)
+        if ((r = (*temp_store->list_blocks)(temp_store, list_blocks_callback, &lb)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */
         (*temp_store->destroy)(temp_store);
 
-        /* Save bitmap */
-        config.http_io.nonzero_bitmap = bitmap;
+        /* Save generated bitmap */
+        config.http_io.nonzero_bitmap = lb.bitmap;
 
         /* Logging */
         if (!config.quiet) {
             fprintf(stderr, "done\n");
-            warnx("found %ju non-zero blocks", num_found);
+            warnx("found %ju non-zero blocks", lb.count);
         }
     }
 
     /* Done */
     return 0;
+}
+
+static void
+list_blocks_callback(void *arg, s3b_block_t block_num)
+{
+    struct list_blocks *const lb = arg;
+    const int bits_per_word = sizeof(*lb->bitmap) * 8;
+
+    lb->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+    lb->count++;
+    if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
+        fprintf(stderr, ".");
+        fflush(stderr);
+    }
 }
 
 static void
