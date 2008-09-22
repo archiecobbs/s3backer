@@ -455,6 +455,12 @@ Operate in local test mode.
 Filesystem blocks are stored as regular files in the directory
 .Ar dir .
 No network traffic occurs.
+.Pp
+Note if
+.Ar dir
+is a relative pathname (and
+.Fl f
+is not given) it will be resolved relative to the root directory.
 .It Fl \-timeout=SECONDS
 Specify a time limit in seconds for one HTTP operation attempt.
 This limits the entire operation including connection time (if not already connected) and data transfer time.
