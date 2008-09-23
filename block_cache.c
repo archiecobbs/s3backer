@@ -536,7 +536,10 @@ again:
         case WRITING2:              /* update data, stay in state WRITING2 */
         case WRITING:               /* update data, move to state WRITING2 */
         case DIRTY:                 /* update data, stay in state DIRTY */
-            memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
+            if (src != NULL)
+                memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
+            else
+                memset(ENTRY_GET_DATA(entry), 0, config->block_size);
             ENTRY_SET_DIRTY(entry);
             priv->stats.write_hits++;
             break;
@@ -562,7 +565,10 @@ again:
     entry->block_num = block_num;
     entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
     ENTRY_SET_DATA(entry, data, DIRTY);
-    memcpy(data, src, config->block_size);
+    if (src != NULL)
+        memcpy(data, src, config->block_size);
+    else
+        memset(data, 0, config->block_size);
     s3b_hash_put(priv->hashtable, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
     assert(ENTRY_GET_STATE(entry) == DIRTY);
