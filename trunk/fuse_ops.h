@@ -22,16 +22,17 @@
  * $Id$
  */
 
+/* Forward decl's */
+struct s3b_config;
+
 /* Function types */
-typedef struct s3backer_store *create_s3b_t(void *arg);
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
-typedef void print_stats_t(void *arg, void *prarg, printer_t *printer);
+typedef void print_stats_t(void *prarg, printer_t *printer);
 
 /* Configuration info structure for fuse_ops */
 struct fuse_ops_conf {
-    create_s3b_t            *create_s3b;
+    struct s3b_config       *s3bconf;
     print_stats_t           *print_stats;
-    void                    *arg;
     int                     read_only;
     const char              *filename;
     const char              *stats_filename;

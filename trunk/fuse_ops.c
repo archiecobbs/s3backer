@@ -23,7 +23,11 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
+#include "ec_protect.h"
 #include "fuse_ops.h"
+#include "http_io.h"
+#include "s3b_config.h"
 
 /****************************************************************************
  *                              DEFINITIONS                                 *
@@ -138,7 +142,7 @@ fuse_op_init(void)
     priv->file_size = config->num_blocks * config->block_size;
 
     /* Create backing store */
-    if ((priv->s3b = (*config->create_s3b)(config->arg)) == NULL) {
+    if ((priv->s3b = s3backer_create_store(config->s3bconf)) == NULL) {
         (*config->log)(LOG_ERR, "fuse_op_init(): can't create s3backer_store: %s", strerror(errno));
         free(priv);
         return NULL;
@@ -485,7 +489,7 @@ fuse_op_stats_create(struct fuse_ops_private *priv)
 
     if ((sfile = calloc(1, sizeof(*sfile))) == NULL)
         return NULL;
-    (*config->print_stats)(config->arg, sfile, fuse_op_stats_printer);
+    (*config->print_stats)(sfile, fuse_op_stats_printer);
     if (sfile->memerr != 0) {
         fuse_op_stats_destroy(sfile);
         return NULL;
