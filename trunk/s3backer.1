@@ -42,6 +42,13 @@
 .Ar dir
 .Ar /mount/point
 .Ek
+.Pp
+.Nm s3backer
+.Bk -words
+.Fl \-erase
+.Op options
+.Ar bucket
+.Ek
 .Sh DESCRIPTION
 .Nm
 is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
@@ -312,6 +319,14 @@ Both the
 and
 .Fl f
 FUSE flags imply this flag.
+.It Fl \-erase
+Completely erase the file system by deleting all non-zero blocks, and then exit.
+User confirmation is required unless the
+.Fl \-force
+flag is also given.
+.Pp
+This option implies
+.Fl \-listBlocks .
 .It Fl \-filename=NAME
 Specify the name of the backed file that appears in the
 .Nm
@@ -331,6 +346,10 @@ or
 .Fl \-size
 disagrees with the auto-detected value.
 This is will certainly lead to garbled data and should be avoided for normal use.
+.Pp
+If
+.Fl \-erase
+is given, proceed without user confirmation.
 .It Fl h Fl \-help
 Print a help message and exit.
 .It Fl \-initialRetryPause=MILLIS

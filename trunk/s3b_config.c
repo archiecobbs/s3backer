@@ -160,6 +160,7 @@ static struct s3b_config config = {
     .block_size=            0,
     .file_size=             0,
     .quiet=                 0,
+    .erase=                 0,
     .no_auto_detect=        0,
     .log=                   syslog_logger
 };
@@ -254,6 +255,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--quiet",
         .offset=    offsetof(struct s3b_config, quiet),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "--erase",
+        .offset=    offsetof(struct s3b_config, erase),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
@@ -908,14 +914,23 @@ validate_config(void)
         return -1;
     }
 
-    /* Check bucket and mount point provided */
+    /* Check bucket */
     if (config.http_io.bucket == NULL) {
         warnx("no S3 bucket specified");
         return -1;
     }
-    if (config.mount == NULL) {
-        warnx("no mount point specified");
-        return -1;
+
+    /* Check mount point */
+    if (config.erase) {
+        if (config.mount != NULL) {
+            warnx("no mount point required with `--erase'");
+            return -1;
+        }
+    } else {
+        if (config.mount == NULL) {
+            warnx("no mount point specified");
+            return -1;
+        }
     }
 
     /*
@@ -1063,6 +1078,8 @@ validate_config(void)
     config.fuse_ops.log = config.log;
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
+    if (config.erase)
+        config.list_blocks = 1;
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
         struct list_blocks lb;
@@ -1215,7 +1232,10 @@ usage(void)
 {
     int i;
 
-    fprintf(stderr, "Usage: s3backer [options] bucket /mount/point\n");
+    fprintf(stderr, "Usage:\n");
+    fprintf(stderr, "\ts3backer [options] bucket /mount/point\n");
+    fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
+    fprintf(stderr, "\ts3backer --erase [options] bucket\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
@@ -1237,6 +1257,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
+    fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
