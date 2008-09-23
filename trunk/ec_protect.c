@@ -66,8 +66,6 @@
  * If another attempt to write a block in the WRITTEN state occurs occurs before
  * min_write_delay has elapsed, the second attempt will sleep.
  *
- * A separate thread periodically scans the table and removes expired WRITTENs
- *
  * In the WRITING state, we have the data still so any reads are local. In the WRITTEN
  * state we don't have the data but we do know its MD5, so therefore we can verify what
  * comes back; if it doesn't verify, we retry as we would with any other error.
@@ -99,9 +97,11 @@ struct ec_protect_private {
     struct s3backer_store       *inner;
     struct ec_protect_stats     stats;
     struct s3b_hash             *hashtable;
+    u_int                       num_sleepers;   // count of sleeping threads
     TAILQ_HEAD(, block_info)    list;
     pthread_mutex_t             mutex;
     pthread_cond_t              space_cond;     // signaled when cache space available
+    pthread_cond_t              sleepers_cond;  // signaled when no more threads are sleeping
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
     char                        *zero_block;
 };
@@ -169,19 +169,23 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
         goto fail2;
     if ((r = pthread_cond_init(&priv->space_cond, NULL)) != 0)
         goto fail3;
-    if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
+    if ((r = pthread_cond_init(&priv->sleepers_cond, NULL)) != 0)
         goto fail4;
+    if ((r = pthread_cond_init(&priv->never_cond, NULL)) != 0)
+        goto fail5;
     TAILQ_INIT(&priv->list);
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
-        goto fail5;
+        goto fail6;
     s3b->data = priv;
 
     /* Done */
     EC_PROTECT_CHECK_INVARIANTS(priv);
     return s3b;
 
-fail5:
+fail6:
     pthread_cond_destroy(&priv->never_cond);
+fail5:
+    pthread_cond_destroy(&priv->sleepers_cond);
 fail4:
     pthread_cond_destroy(&priv->space_cond);
 fail3:
@@ -208,9 +212,14 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
 
+    /* Wait for all sleeping writers to finish */
+    while (priv->num_sleepers > 0)
+        pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
+
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
+    pthread_cond_destroy(&priv->sleepers_cond);
     pthread_cond_destroy(&priv->never_cond);
     s3b_hash_foreach(priv->hashtable, ec_protect_free_one, NULL);
     s3b_hash_destroy(priv->hashtable);
@@ -479,6 +488,8 @@ ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t curr
  * Sleep until specified time (if non-zero) or condition (if non-NULL).
  * Note: in rare cases there can be spurious early wakeups.
  * Returns number of milliseconds slept.
+ *
+ * This assumes the mutex is locked.
  */
 static uint64_t
 ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis)
@@ -490,6 +501,7 @@ ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, ui
     if (cond == NULL)
         cond = &priv->never_cond;
     time_before = ec_protect_get_time();
+    priv->num_sleepers++;
     if (wake_time_millis != 0) {
         struct timespec wake_time;
 
@@ -503,6 +515,9 @@ ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, ui
         pthread_cond_wait(cond, &priv->mutex);
         time_after = ec_protect_get_time();
     }
+    assert(priv->num_sleepers > 0);
+    if (--priv->num_sleepers == 0)
+        pthread_cond_broadcast(&priv->sleepers_cond);
     return time_after - time_before;
 }
 
