@@ -20,17 +20,6 @@ AC_DEFINE(_XOPEN_SOURCE, 500, XOpen functions)
 # Compile flags for Mac OS
 AC_DEFINE(_DARWIN_C_SOURCE, 1, MacOS functions)
 
-# Optional features
-AC_ARG_ENABLE(assertions,
-    AC_HELP_STRING([--enable-assertions],
-        [enable debugging sanity checks (default NO)]),
-    [test x"$enableval" = "xyes" || AC_DEFINE(NDEBUG, 1, [disable assertions])],
-    [AC_DEFINE(NDEBUG, 1, [disable assertions])])
-AC_ARG_ENABLE(gprof,
-    AC_HELP_STRING([--enable-gprof],
-        [Compile and link with gprof(1) support (default NO)]),
-    [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -pg"])
-
 # Check for required programs
 AC_PROG_INSTALL
 AC_PROG_CC
@@ -52,6 +41,21 @@ AC_CHECK_LIB(expat, XML_ParserCreate,,
 AC_HEADER_STDC
 AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h, [],
 	[AC_MSG_ERROR([required header file '$ac_header' missing])])
+
+# Optional features
+AC_ARG_ENABLE(assertions,
+    AC_HELP_STRING([--enable-assertions],
+        [enable debugging sanity checks (default NO)]),
+    [test x"$enableval" = "xyes" || AC_DEFINE(NDEBUG, 1, [disable assertions])],
+    [AC_DEFINE(NDEBUG, 1, [disable assertions])])
+AC_ARG_ENABLE(gprof,
+    AC_HELP_STRING([--enable-gprof],
+        [Compile and link with gprof(1) support (default NO)]),
+    [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -pg"])
+AC_ARG_ENABLE(Werror,
+    AC_HELP_STRING([--enable-Werror],
+        [enable compilation with -Werror flag (default NO)]),
+    [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -Werror"])
 
 # Generated files
 AC_CONFIG_FILES(Makefile)
