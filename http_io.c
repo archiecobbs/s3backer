@@ -480,8 +480,10 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 
     /* Handle <Key> tag */
     else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
-        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0)
+        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0) {
             (*io->callback_func)(io->callback_arg, block_num);
+            io->last_block = block_num;
+        }
     }
 
     /* Update current XML path */
