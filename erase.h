@@ -22,36 +22,6 @@
  * $Id$
  */
 
-#include "s3backer.h"
-#include "block_cache.h"
-#include "ec_protect.h"
-#include "fuse_ops.h"
-#include "http_io.h"
-#include "s3b_config.h"
-#include "erase.h"
-
-int
-main(int argc, char **argv)
-{
-    const struct fuse_operations *fuse_ops;
-    struct s3b_config *config;
-
-    /* Get configuration */
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
-        exit(1);
-
-    /* Handle `--erase' flag */
-    if (config->erase) {
-        if (s3backer_erase(config) != 0)
-            return 1;
-        return 0;
-    }
-
-    /* Get FUSE operation hooks */
-    fuse_ops = fuse_ops_create(&config->fuse_ops);
-
-    /* Start */
-    (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops);
-}
+/* erase.c */
+extern int s3backer_erase(struct s3b_config *config);
 

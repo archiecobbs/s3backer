@@ -38,6 +38,7 @@ struct s3b_config {
     off_t                       file_size;
     off_t                       num_blocks;
     int                         debug;
+    int                         erase;
     int                         quiet;
     int                         force;
     int                         test;
