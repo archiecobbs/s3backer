@@ -89,7 +89,6 @@ struct list_blocks {
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
 
-static create_s3b_t s3b_config_create_s3b;
 static print_stats_t s3b_config_print_stats;
 
 static int parse_size_string(const char *s, uintmax_t *valp);
@@ -450,9 +449,8 @@ s3backer_get_config(int argc, char **argv)
         return NULL;
 
     /* Set up fuse_ops callbacks */
-    config.fuse_ops.create_s3b = s3b_config_create_s3b;
     config.fuse_ops.print_stats = s3b_config_print_stats;
-    config.fuse_ops.arg = &config;
+    config.fuse_ops.s3bconf = &config;
 
     /* Debug */
     if (config.debug)
@@ -513,16 +511,8 @@ s3backer_create_store(struct s3b_config *conf)
  *                    INTERNAL FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
-static struct s3backer_store *
-s3b_config_create_s3b(void *arg)
-{
-    struct s3b_config *const conf = arg;
-
-    return s3backer_create_store(conf);
-}
-
 static void
-s3b_config_print_stats(void *arg, void *prarg, printer_t *printer)
+s3b_config_print_stats(void *prarg, printer_t *printer)
 {
     struct http_io_stats http_io_stats;
     struct ec_protect_stats ec_protect_stats;
