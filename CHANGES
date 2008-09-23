@@ -2,6 +2,7 @@
 Version 1.2.1
 
     - Added `--quiet' command line flag.
+    - Fixed bug in EC layer where dirty data might not be flushed at shutdown.
 
 Version 1.2.0 (r248) released 12 Sep 2008
 
