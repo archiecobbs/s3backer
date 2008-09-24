@@ -89,3 +89,8 @@ else
 fi
 
 }}}
+
+Notes:
+
+ * There will be no zeroed blocks with an encrypted filesystem (because when they get encrypted they will be different). So S3 usage and filesystem initialization time (especially with ext2) may be higher.
+ * If you worry about the privacy of your data flying over the Internet but you trust Amazon, you might consider the alternative of _not_ encrypting your filesystem but instead encrypting your communication with Amazon. To do this, simply use the `--ssl` flag.
