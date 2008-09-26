@@ -3,6 +3,8 @@ Version 1.2.1
 
     - Added `--erase' and `--quiet' command line flags.
     - Fixed bug in EC layer where dirty data might not be flushed at shutdown.
+    - Fixed bug where 'http' was shown instead of 'https' in mount(8) output
+      when the --ssl flag was given.
 
 Version 1.2.0 (r248) released 12 Sep 2008
 
