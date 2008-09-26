@@ -446,7 +446,8 @@ s3backer_get_config(int argc, char **argv)
 
     /* Set fsname based on configuration */
     snprintf(buf, sizeof(buf), "-ofsname=%s%s/%s",
-      config.test ? "" : config.http_io.baseURL, config.http_io.bucket, config.http_io.prefix);
+      config.test ? "" : config.ssl ? S3_BASE_URL_HTTPS : config.http_io.baseURL,
+      config.http_io.bucket, config.http_io.prefix);
     if (fuse_opt_insert_arg(&config.fuse_args, 1, buf) != 0)
         err(1, "fuse_opt_insert_arg");
 
