@@ -369,8 +369,8 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "?%s=%s&%s=%u", 
           LIST_PARAM_PREFIX, config->prefix, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
         if (io.list_truncated) {
-            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s%0*x",
-              LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, io.last_block);
+            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s%0*jx",
+              LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
 
         /* Perform operation */
@@ -1090,7 +1090,7 @@ http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block
 {
     int len;
 
-    len = snprintf(buf, bufsiz, "%s%s/%s%0*x", config->baseURL, config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, block_num);
+    len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     assert(len < bufsiz);
     return buf + strlen(config->baseURL) - 1;
 }
