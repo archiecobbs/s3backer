@@ -84,7 +84,7 @@ s3backer_erase(struct s3b_config *config)
             if ((bitmap[i] & (1 << j)) != 0) {
                 block_num = (s3b_block_t)i * bits_per_word + j;
                 if ((r = (*s3b->write_block)(s3b, block_num, NULL, NULL)) != 0) {
-                    warn("can't delete block %0*x", S3B_BLOCK_NUM_DIGITS, block_num);
+                    warn("can't delete block %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
                     return -1;
                 }
             }

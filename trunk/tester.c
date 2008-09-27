@@ -88,7 +88,7 @@ main(int argc, char **argv)
 
     /* Zero all blocks */
     for (i = 0; i < config->num_blocks; i++) {
-        printf("zeroing block %0*x\n", S3B_BLOCK_NUM_DIGITS, i);
+        printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)i);
         if ((r = (*store->write_block)(store, i, zero_block, NULL)) != 0)
             err(1, "write error");
     }
@@ -133,7 +133,7 @@ thread_main(void *arg)
             pthread_mutex_unlock(&mutex);
 
             // Do the read
-            logit(id, "rd %0*x START\n", S3B_BLOCK_NUM_DIGITS, block_num);
+            logit(id, "rd %0*jx START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
             if ((r = (*store->read_block)(store, block_num, data, NULL)) != 0) {
                 logit(id, "****** READ ERROR: %s", strerror(r));
                 continue;
@@ -147,11 +147,11 @@ thread_main(void *arg)
             // Verify content, but only if no write occurred while we were reading
             if (before.writing == 0 && after.writing == 0 && before.counter == after.counter) {
                 if (memcmp(data, &before.content, sizeof(before.content)) != 0) {
-                    logit(id, "got wrong content block %0*x", S3B_BLOCK_NUM_DIGITS, block_num);
+                    logit(id, "got wrong content block %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
                     exit(1);
                 }
             }
-            logit(id, "rd %0*x content=0x%08x COMPLETE\n", S3B_BLOCK_NUM_DIGITS, block_num, *(u_int *)data);
+            logit(id, "rd %0*jx content=0x%08x COMPLETE\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data);
         } else {
             struct block_state *const state = &blocks[block_num];
             u_int content;
@@ -169,10 +169,10 @@ thread_main(void *arg)
             content = (random() % ZERO_FACTOR) != 0 ? 0 : (u_int)random();
             memcpy(data, &content, sizeof(content));
             memset(data + sizeof(content), 0, config->block_size - sizeof(content));
-            logit(id, "wr %0*x content=0x%08x START\n", S3B_BLOCK_NUM_DIGITS, block_num, *(u_int *)data);
+            logit(id, "wr %0*jx content=0x%08x START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data);
             if ((r = (*store->write_block)(store, block_num, data, NULL)) != 0)
                 logit(id, "****** WRITE ERROR: %s", strerror(r));
-            logit(id, "wr %0*x content=0x%08x %s%s\n", S3B_BLOCK_NUM_DIGITS, block_num, *(u_int *)data,
+            logit(id, "wr %0*jx content=0x%08x %s%s\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data,
               r != 0 ? "FAILED: " : "COMPLETE", r != 0 ? strerror(r) : "");
 
             // Update block state
