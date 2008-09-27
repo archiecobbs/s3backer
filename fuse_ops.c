@@ -51,6 +51,9 @@ struct fuse_ops_private {
     u_int                   block_bits;
     off_t                   file_size;
     time_t                  start_time;
+    time_t                  file_atime;
+    time_t                  file_mtime;
+    time_t                  stats_atime;
 };
 
 /****************************************************************************
@@ -139,6 +142,9 @@ fuse_op_init(void)
     }
     priv->block_bits = ffs(config->block_size) - 1;
     priv->start_time = time(NULL);
+    priv->file_atime = priv->start_time;
+    priv->file_mtime = priv->start_time;
+    priv->stats_atime = priv->start_time;
     priv->file_size = config->num_blocks * config->block_size;
 
     /* Create backing store */
@@ -219,8 +225,8 @@ fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st)
     st->st_size = priv->file_size;
     st->st_blksize = config->block_size;
     st->st_blocks = config->num_blocks;
-    st->st_atime = priv->start_time;
-    st->st_mtime = priv->start_time;
+    st->st_atime = priv->file_atime;
+    st->st_mtime = priv->file_mtime;
     st->st_ctime = priv->start_time;
 }
 
@@ -235,8 +241,8 @@ fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_file *sfile, st
     st->st_size = sfile->len;
     st->st_blksize = config->block_size;
     st->st_blocks = 0;
-    st->st_atime = priv->start_time;
-    st->st_mtime = priv->start_time;
+    st->st_atime = priv->stats_atime;
+    st->st_mtime = time(NULL);
     st->st_ctime = priv->start_time;
 }
 
@@ -269,6 +275,7 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
     /* Backed file */
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         fi->fh = 0;
+        priv->file_atime = time(NULL);
         return 0;
     }
 
@@ -279,6 +286,7 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
         if ((sfile = fuse_op_stats_create(priv)) == NULL)
             return -ENOMEM;
         fi->fh = (uint64_t)(uintptr_t)sfile;
+        priv->stats_atime = time(NULL);
         return 0;
     }
 
@@ -318,6 +326,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         if (offset + size > sfile->len)
             size = sfile->len - offset;
         memcpy(buf, sfile->buf + offset, size);
+        priv->stats_atime = time(NULL);
         return size;
     }
 
@@ -371,6 +380,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     }
 
     /* Done */
+    priv->file_atime = time(NULL);
     return orig_size;
 }
 
@@ -447,6 +457,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     }
 
     /* Done */
+    priv->file_mtime = time(NULL);
     return orig_size;
 }
 
