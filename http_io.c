@@ -1257,7 +1257,7 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
     bmem = BIO_new(BIO_s_mem());
     b64 = BIO_push(b64, bmem);
     BIO_write(b64, data, len);
-    BIO_flush(b64);
+    (void)BIO_flush(b64);
     BIO_get_mem_ptr(b64, &bptr);
     snprintf(buf, bufsiz, "%.*s", bptr->length - 1, (char *)bptr->data);
     BIO_free_all(b64);
