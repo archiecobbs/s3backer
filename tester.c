@@ -95,7 +95,7 @@ main(int argc, char **argv)
 
     /* Create threads */
     for (i = 0; i < NUM_THREADS; i++)
-        pthread_create(&thread, NULL, thread_main, (void *)i);
+        pthread_create(&thread, NULL, thread_main, (void *)(intptr_t)i);
 
     /* Run for a day */
     sleep(24 * 60 * 60);
@@ -105,7 +105,7 @@ main(int argc, char **argv)
 static void *
 thread_main(void *arg)
 {
-    const int id = (int)arg;
+    const int id = (int)(intptr_t)arg;
     u_char data[config->block_size];
     s3b_block_t block_num;
     int millis;
