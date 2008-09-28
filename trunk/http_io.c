@@ -1071,7 +1071,7 @@ http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *me
             continue;
         for (value = colon + 1; isspace(*value); value++)
             ;
-        snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%.*s:%s\n", colon - headers->data, headers->data, value);
+        snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%.*s:%s\n", (int)(colon - headers->data), headers->data, value);
     }
     snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%s", resource);
 
