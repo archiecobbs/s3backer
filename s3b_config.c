@@ -1080,7 +1080,7 @@ validate_config(void)
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.erase)
-        config.list_blocks = 1;
+        config.list_blocks = 0;
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
         struct list_blocks lb;

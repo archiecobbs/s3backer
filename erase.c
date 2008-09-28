@@ -27,23 +27,41 @@
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"
+#include "test_io.h"
 #include "s3b_config.h"
 #include "erase.h"
 
-#define BLOCKS_PER_DOT      0x100
+#define BLOCKS_PER_DOT          0x100
+#define MAX_QUEUE_LENGTH        1000
+#define NUM_ERASURE_THREADS     25
+
+/* Erasure state */
+struct erase_state {
+    struct s3backer_store       *s3b;
+    s3b_block_t                 queue[MAX_QUEUE_LENGTH];
+    u_int                       qlen;
+    u_int                       num_threads;
+    int                         quiet;
+    int                         stopping;
+    uintmax_t                   count;
+    pthread_mutex_t             mutex;
+    pthread_cond_t              thread_wakeup;
+    pthread_cond_t              queue_not_full;
+    pthread_cond_t              threads_done;
+};
+
+/* Internal functions */
+static void erase_list_callback(void *arg, s3b_block_t block_num);
+static void *erase_thread_main(void *arg);
 
 int
 s3backer_erase(struct s3b_config *config)
 {
-    struct s3backer_store *s3b;
-    s3b_block_t block_num;
+    struct erase_state state;
+    struct erase_state *const priv = &state;
     char response[10];
-    u_int *bitmap;
-    const int bits_per_word = sizeof(*bitmap) * 8;
-    size_t nwords;
-    int count;
-    int i;
-    int j;
+    pthread_t thread;
+    int ok = 0;
     int r;
 
     /* Double check with user */
@@ -56,55 +74,142 @@ s3backer_erase(struct s3b_config *config)
             response[strlen(response) - 1] = '\0';
         if (strcasecmp(response, "y") != 0 && strcasecmp(response, "yes") != 0) {
             warnx("not confirmed");
-            return -1;
+            goto fail0;
         }
     }
 
-    /* Steal list of non-zero blocks */
-    assert(config->http_io.nonzero_bitmap != NULL);
-    bitmap = config->http_io.nonzero_bitmap;
-    config->http_io.nonzero_bitmap = NULL;
-
-    /* Create backing store */
-    if ((s3b = s3backer_create_store(config)) == NULL) {
-        warn("can't create s3backer_store");
-        return -1;
+    /* Initialize state */
+    memset(priv, 0, sizeof(*priv));
+    priv->quiet = config->quiet;
+    if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0) {
+        warnx("pthread_mutex_init: %s", strerror(r));
+        goto fail0;
+    }
+    if ((r = pthread_cond_init(&priv->thread_wakeup, NULL)) != 0) {
+        warnx("pthread_cond_init: %s", strerror(r));
+        goto fail1;
+    }
+    if ((r = pthread_cond_init(&priv->queue_not_full, NULL)) != 0) {
+        warnx("pthread_cond_init: %s", strerror(r));
+        goto fail2;
+    }
+    if ((r = pthread_cond_init(&priv->threads_done, NULL)) != 0) {
+        warnx("pthread_cond_init: %s", strerror(r));
+        goto fail3;
+    }
+    for (priv->num_threads = 0; priv->num_threads < NUM_ERASURE_THREADS; priv->num_threads++) {
+        if ((r = pthread_create(&thread, NULL, erase_thread_main, priv)) != 0)
+            goto fail4;
     }
 
-    /* Erase all non-zero blocks */
+    /* Logging */
     if (!config->quiet) {
-        fprintf(stderr, "s3backer: erasing blocks...");
+        fprintf(stderr, "s3backer: erasing non-zero blocks...");
         fflush(stderr);
     }
-    nwords = (config->num_blocks + bits_per_word - 1) / bits_per_word;
-    for (count = i = 0; i < nwords; i++) {
-        if (bitmap[i] == 0)
-            continue;
-        for (j = 0; j < bits_per_word; j++) {
-            if ((bitmap[i] & (1 << j)) != 0) {
-                block_num = (s3b_block_t)i * bits_per_word + j;
-                if ((r = (*s3b->write_block)(s3b, block_num, NULL, NULL)) != 0) {
-                    warn("can't delete block %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-                    return -1;
-                }
-            }
-        }
-        if ((++count % BLOCKS_PER_DOT) == 0 && !config->quiet) {
-            fprintf(stderr, ".");
-            fflush(stderr);
-        }
+
+    /* Create temporary lower layer */
+    if ((priv->s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
+        warnx(config->test ? "test_io_create" : "http_io_create");
+        goto fail4;
     }
-    if (!config->quiet)
-        fprintf(stderr, "done\n");
 
-    /* Close backing store */
-    if (!config->quiet)
-        fprintf(stderr, "s3backer: flushing cache...");
-    (*s3b->destroy)(s3b);
-    if (!config->quiet)
-        fprintf(stderr, "done\n");
+    /* Iterate over non-zero blocks */
+    if ((r = (*priv->s3b->list_blocks)(priv->s3b, erase_list_callback, priv)) != 0) {
+        warnx("can't list blocks: %s", strerror(r));
+        goto fail4;
+    }
 
-    /* Done */
-    return 0;
+    /* Success */
+    ok = 1;
+
+    /* Clean up */
+fail4:
+    pthread_mutex_lock(&priv->mutex);
+    priv->stopping = 1;
+    while (priv->num_threads > 0) {
+        pthread_cond_broadcast(&priv->thread_wakeup);
+        pthread_cond_wait(&priv->threads_done, &priv->mutex);
+    }
+    pthread_mutex_unlock(&priv->mutex);
+    if (priv->s3b != NULL) {
+        if (ok && !config->quiet) {
+            fprintf(stderr, "done\n");
+            warnx("erased %ju non-zero blocks", priv->count);
+        }
+        (*priv->s3b->destroy)(priv->s3b);
+    }
+    pthread_cond_destroy(&priv->threads_done);
+fail3:
+    pthread_cond_destroy(&priv->queue_not_full);
+fail2:
+    pthread_cond_destroy(&priv->thread_wakeup);
+fail1:
+    pthread_mutex_destroy(&priv->mutex);
+fail0:
+    return ok ? 0 : -1;
+}
+
+static void
+erase_list_callback(void *arg, s3b_block_t block_num)
+{
+    struct erase_state *const priv = arg;
+
+    pthread_mutex_lock(&priv->mutex);
+    while (priv->qlen == MAX_QUEUE_LENGTH)
+        pthread_cond_wait(&priv->queue_not_full, &priv->mutex);
+    priv->queue[priv->qlen++] = block_num;
+    pthread_cond_signal(&priv->thread_wakeup);
+    pthread_mutex_unlock(&priv->mutex);
+}
+
+static void *
+erase_thread_main(void *arg)
+{
+    struct erase_state *const priv = arg;
+    s3b_block_t block_num;
+    int r;
+
+    pthread_mutex_lock(&priv->mutex);
+    while (1) {
+
+        /* Is there a block to erase? */
+        if (priv->qlen > 0) {
+
+            /* Grab next bock */
+            if (priv->qlen == MAX_QUEUE_LENGTH)
+                pthread_cond_signal(&priv->queue_not_full);
+            block_num = priv->queue[--priv->qlen];
+
+            /* Do block deletion */
+            pthread_mutex_unlock(&priv->mutex);
+            r = (*priv->s3b->write_block)(priv->s3b, block_num, NULL, NULL);
+            pthread_mutex_lock(&priv->mutex);
+
+            /* Check for error */
+            if (r != 0) {
+                warnx("can't delete block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, strerror(r));
+                continue;
+            }
+
+            /* Update count and output a dot */
+            if ((++priv->count % BLOCKS_PER_DOT) == 0 && !priv->quiet) {
+                fprintf(stderr, ".");
+                fflush(stderr);
+            }
+
+            /* Spin again */
+            continue;
+        }
+
+        /* Are we done? */
+        if (priv->stopping)
+            break;
+
+        /* Wait for something to do */
+        pthread_cond_wait(&priv->thread_wakeup, &priv->mutex);
+    }
+    pthread_mutex_unlock(&priv->mutex);
+    return NULL;
 }
 
