@@ -669,10 +669,8 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         /* Debug flags */
         if (strcmp(arg, "-d") == 0)
             config.debug = 1;
-        if (strcmp(arg, "-d") == 0 || strcmp(arg, "-f") == 0) {
+        if (strcmp(arg, "-d") == 0 || strcmp(arg, "-f") == 0)
             config.log = stderr_logger;
-            config.debug = 1;
-        }
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
@@ -1199,6 +1197,11 @@ stderr_logger(int level, const char *fmt, ...)
     va_list args;
     time_t now;
 
+    /* Filter debug messages */
+    if (!config.debug && level == LOG_DEBUG)
+        return;
+
+    /* Get level descriptor */
     switch (level) {
     case LOG_ERR:
         levelstr = "ERROR";
@@ -1219,6 +1222,8 @@ stderr_logger(int level, const char *fmt, ...)
         levelstr = "<?>";
         break;
     }
+
+    /* Format and print log message */
     time(&now);
     strftime(timebuf, sizeof(timebuf), "%F %T", localtime(&now));
     va_start(args, fmt);
