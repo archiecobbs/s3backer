@@ -99,7 +99,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int r;
 
     /* Logging */
-    (*config->log)(LOG_DEBUG, "test_io: read %0*jx started", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->debug)
+        (*config->log)(LOG_DEBUG, "test_io: read %0*jx started", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Random delay */
     usleep((random() % 200) * 1000);
@@ -117,7 +118,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     if ((fd = open(path, O_RDONLY)) == -1) {
         if (errno == ENOENT) {
             memset(dest, 0, config->block_size);
-            (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete (zero)", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            if (config->debug)
+                (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete (zero)", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
             return 0;
         }
         return errno;
@@ -152,7 +154,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Logging */
-    (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->debug)
+        (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Done */
     return 0;
@@ -174,8 +177,10 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         src = NULL;
 
     /* Logging */
-    (*config->log)(LOG_DEBUG, "test_io: write %0*jx started%s",
-      S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, src == NULL ? " (zero block)" : "");
+    if (config->debug) {
+        (*config->log)(LOG_DEBUG, "test_io: write %0*jx started%s",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, src == NULL ? " (zero block)" : "");
+    }
 
     /* Random delay */
     usleep((random() % 200) * 1000);
@@ -226,7 +231,8 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Logging */
-    (*config->log)(LOG_DEBUG, "test_io: write %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->debug)
+        (*config->log)(LOG_DEBUG, "test_io: write %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Done */
     return 0;
