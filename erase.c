@@ -40,14 +40,13 @@ struct erase_state {
     struct s3backer_store       *s3b;
     s3b_block_t                 queue[MAX_QUEUE_LENGTH];
     u_int                       qlen;
-    u_int                       num_threads;
+    pthread_t                   threads[NUM_ERASURE_THREADS];
     int                         quiet;
     int                         stopping;
     uintmax_t                   count;
     pthread_mutex_t             mutex;
     pthread_cond_t              thread_wakeup;
     pthread_cond_t              queue_not_full;
-    pthread_cond_t              threads_done;
 };
 
 /* Internal functions */
@@ -60,8 +59,8 @@ s3backer_erase(struct s3b_config *config)
     struct erase_state state;
     struct erase_state *const priv = &state;
     char response[10];
-    pthread_t thread;
     int ok = 0;
+    int i;
     int r;
 
     /* Double check with user */
@@ -93,13 +92,9 @@ s3backer_erase(struct s3b_config *config)
         warnx("pthread_cond_init: %s", strerror(r));
         goto fail2;
     }
-    if ((r = pthread_cond_init(&priv->threads_done, NULL)) != 0) {
-        warnx("pthread_cond_init: %s", strerror(r));
-        goto fail3;
-    }
-    for (priv->num_threads = 0; priv->num_threads < NUM_ERASURE_THREADS; priv->num_threads++) {
-        if ((r = pthread_create(&thread, NULL, erase_thread_main, priv)) != 0)
-            goto fail4;
+    for (i = 0; i < NUM_ERASURE_THREADS; i++) {
+        if ((r = pthread_create(&priv->threads[i], NULL, erase_thread_main, priv)) != 0)
+            goto fail3;
     }
 
     /* Logging */
@@ -111,27 +106,30 @@ s3backer_erase(struct s3b_config *config)
     /* Create temporary lower layer */
     if ((priv->s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
-        goto fail4;
+        goto fail3;
     }
 
     /* Iterate over non-zero blocks */
     if ((r = (*priv->s3b->list_blocks)(priv->s3b, erase_list_callback, priv)) != 0) {
         warnx("can't list blocks: %s", strerror(r));
-        goto fail4;
+        goto fail3;
     }
 
     /* Success */
     ok = 1;
 
     /* Clean up */
-fail4:
+fail3:
     pthread_mutex_lock(&priv->mutex);
     priv->stopping = 1;
-    while (priv->num_threads > 0) {
-        pthread_cond_broadcast(&priv->thread_wakeup);
-        pthread_cond_wait(&priv->threads_done, &priv->mutex);
-    }
+    pthread_cond_broadcast(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
+    for (i = 0; i < NUM_ERASURE_THREADS; i++) {
+        if (priv->threads[i] == (pthread_t)0)
+            continue;
+        if ((r = pthread_join(priv->threads[i], NULL)) != 0)
+            warnx("pthread_join: %s", strerror(r));
+    }
     if (priv->s3b != NULL) {
         if (ok && !config->quiet) {
             fprintf(stderr, "done\n");
@@ -139,8 +137,6 @@ fail4:
         }
         (*priv->s3b->destroy)(priv->s3b);
     }
-    pthread_cond_destroy(&priv->threads_done);
-fail3:
     pthread_cond_destroy(&priv->queue_not_full);
 fail2:
     pthread_cond_destroy(&priv->thread_wakeup);
@@ -170,7 +166,10 @@ erase_thread_main(void *arg)
     s3b_block_t block_num;
     int r;
 
+    /* Acquire lock */
     pthread_mutex_lock(&priv->mutex);
+
+    /* Erase blocks until there are no more */
     while (1) {
 
         /* Is there a block to erase? */
@@ -209,6 +208,8 @@ erase_thread_main(void *arg)
         /* Wait for something to do */
         pthread_cond_wait(&priv->thread_wakeup, &priv->mutex);
     }
+
+    /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return NULL;
 }
