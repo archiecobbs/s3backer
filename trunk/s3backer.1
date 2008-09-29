@@ -313,12 +313,10 @@ flag documented in
 Enable logging of debug messages.
 Note that this flag is different from
 .Fl d ,
-which is a flag to FUSE.
-Both the
+which is a flag to FUSE;
+however, the
 .Fl d
-and
-.Fl f
-FUSE flags imply this flag.
+FUSE flag implies this flag.
 .It Fl \-erase
 Completely erase the file system by deleting all non-zero blocks, and then exit.
 User confirmation is required unless the
@@ -505,14 +503,11 @@ Do synchronous reads.
 Set maximum read-ahead (in bytes).
 .It Fl f
 Run in the foreground (do not fork).
-Implies
-.Fl \-debug .
+Causes logging to be sent to standard error.
 .It Fl d
 Enable FUSE debug mode.
 Implies
-.Fl f
-and
-.Fl \-debug .
+.Fl f .
 .It Fl s
 Run in single-threaded mode.
 .El
