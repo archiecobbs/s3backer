@@ -1,6 +1,7 @@
 TODO
 
 - compressed GETs and PUTs using Content-Encoding and Accept-Encoding headers
+- improve write speed (less data copying) when using large block sizes (Bug #5)
 - interrupt active write when new write happens (instead of waiting)
 - allow block cache to live on disk and persist (possibly dirty) across restarts
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
