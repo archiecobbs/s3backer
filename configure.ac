@@ -32,7 +32,7 @@ PKG_CHECK_MODULES(FUSE, fuse,,
 # Check for required libraries
 AC_CHECK_LIB(curl, curl_version,,
 	[AC_MSG_ERROR([required library libcurl missing])])
-AC_CHECK_LIB(crypto, OPENSSL_config,,
+AC_CHECK_LIB(crypto, BIO_new,,
 	[AC_MSG_ERROR([required library libcrypto missing])])
 AC_CHECK_LIB(expat, XML_ParserCreate,,
 	[AC_MSG_ERROR([required library expat missing])])
