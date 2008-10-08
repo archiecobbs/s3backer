@@ -155,6 +155,7 @@ to take advantage of the parallelism inherent in the network, vastly improving w
 .Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheSize ,
+.Fl \-blockCacheSync ,
 .Fl \-blockCacheThreads ,
 .Fl \-blockCacheTimeout ,
 and
@@ -281,6 +282,17 @@ A value of zero configures a ``write-through'' policy; greater values configure 
 Larger values increase performance when a small number of blocks are accessed repeatedly, at the cost of
 greater inconsistency with the underlying S3 data store.
 Default value is zero.
+.It Fl \-blockCacheSync
+Forces synchronous writes in the block cache layer.
+Instead of returning immediately and scheduling the actual write to operation happen later,
+write requests will not return until the write has completed.
+This flags is a stricter requirement than
+.Fl \-blockCacheWriteDelay=0 ,
+which merely causes the writes to be initiated as soon as possible (but still after the write request returns).
+.Pp
+This flag requires
+.Fl \-blockCacheWriteDelay
+to be zero.
 .It Fl \-blockSize=SIZE
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.

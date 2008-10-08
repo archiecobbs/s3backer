@@ -142,6 +142,7 @@ struct block_cache_private {
     pthread_cond_t                  end_reading;    // some entry in state READING changed state
     pthread_cond_t                  worker_work;    // there is new work for worker thread(s)
     pthread_cond_t                  worker_exit;    // a worker thread has exited
+    pthread_cond_t                  write_complete; // a write has completed
 };
 
 /* Callback info */
@@ -221,10 +222,12 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail5;
     if ((r = pthread_cond_init(&priv->worker_exit, NULL)) != 0)
         goto fail6;
+    if ((r = pthread_cond_init(&priv->write_complete, NULL)) != 0)
+        goto fail7;
     TAILQ_INIT(&priv->cleans);
     TAILQ_INIT(&priv->dirties);
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
-        goto fail7;
+        goto fail8;
     s3b->data = priv;
 
     /* Grab lock */
@@ -234,20 +237,22 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     /* Create threads */
     for (priv->num_threads = 0; priv->num_threads < config->num_threads; priv->num_threads++) {
         if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
-            goto fail8;
+            goto fail9;
     }
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return s3b;
 
-fail8:
+fail9:
     priv->stopping = 1;
     while (priv->num_threads > 0) {
         pthread_cond_broadcast(&priv->worker_work);
         pthread_cond_wait(&priv->worker_exit, &priv->mutex);
     }
     s3b_hash_destroy(priv->hashtable);
+fail8:
+    pthread_cond_destroy(&priv->write_complete);
 fail7:
     pthread_cond_destroy(&priv->worker_exit);
 fail6:
@@ -290,6 +295,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     /* Free structures */
     s3b_hash_foreach(priv->hashtable, block_cache_free_one, NULL);
     s3b_hash_destroy(priv->hashtable);
+    pthread_cond_destroy(&priv->write_complete);
     pthread_cond_destroy(&priv->worker_exit);
     pthread_cond_destroy(&priv->worker_work);
     pthread_cond_destroy(&priv->end_reading);
@@ -577,6 +583,31 @@ again:
     pthread_cond_signal(&priv->worker_work);
 
 done:
+    /* If doing synchronous writes, wait for write to complete */
+    if (r == 0 && config->synchronous) {
+        while (1) {
+            int state;
+
+            /* Wait for notification */
+            pthread_cond_wait(&priv->write_complete, &priv->mutex);
+
+            /* Sanity check */
+            S3BCACHE_CHECK_INVARIANTS(priv);
+
+            /* Find cache entry */
+            if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL)
+                break;
+
+            /* See if it is now clean */
+            state = ENTRY_GET_STATE(entry);
+            if (state == CLEAN || state == READING)
+                break;
+
+            /* Not written yet, go back to sleep */
+            continue;
+        }
+    }
+
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return r;
@@ -734,6 +765,8 @@ block_cache_worker_main(void *arg)
                 entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
                 priv->num_cleans++;
                 pthread_cond_signal(&priv->space_avail);
+                if (config->synchronous)
+                    pthread_cond_broadcast(&priv->write_complete);
                 continue;
             }
 
