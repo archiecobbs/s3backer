@@ -208,6 +208,11 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--blockCacheSync",
+        .offset=    offsetof(struct s3b_config, block_cache.synchronous),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--blockCacheThreads=%u",
         .offset=    offsetof(struct s3b_config, block_cache.num_threads),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -912,6 +917,10 @@ validate_config(void)
         warnx("invalid block cache thread pool size %u", config.block_cache.num_threads);
         return -1;
     }
+    if (config.block_cache.write_delay > 0 && config.block_cache.synchronous) {
+        warnx("`--blockCacheSync' requires setting `--blockCacheWriteDelay=0'");
+        return -1;
+    }
 
     /* Check bucket */
     if (config.http_io.bucket == NULL) {
@@ -1172,6 +1181,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
@@ -1253,6 +1263,7 @@ usage(void)
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
