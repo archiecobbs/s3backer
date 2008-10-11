@@ -353,7 +353,7 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
         priv->seq_count++;
         if (priv->ra_count > 0)
             priv->ra_count--;
-    } else {
+    } else if (block_num != priv->seq_last) {
         priv->seq_count = 1;
         priv->ra_count = 0;
     }
