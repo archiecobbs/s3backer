@@ -159,7 +159,6 @@ static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
 static int block_cache_do_read_block(struct block_cache_private *priv, s3b_block_t block_num, void *dest, const u_char *expect_md5);
-static void block_cache_read_from_entry(struct block_cache_private *priv, struct cache_entry *entry, void *dest);
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_one(void *arg, void *value);
@@ -388,15 +387,24 @@ again:
     /* Check to see if a cache entry already exists */
     if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
         assert(entry->block_num == block_num);
-
-        /* If READING, wait for other thread already reading this block to finish */
-        if (ENTRY_GET_STATE(entry) == READING) {
+        switch (ENTRY_GET_STATE(entry)) {
+        case READING:       /* Wait for other thread already reading this block to finish */
             pthread_cond_wait(&priv->end_reading, &priv->mutex);
             goto again;
+        case CLEAN:         /* Update timestamp and move to the end of the list to maintain LRU ordering */
+            TAILQ_REMOVE(&priv->cleans, entry, link);
+            TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+            entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
+            // FALLTHROUGH
+        case DIRTY:
+        case WRITING:
+        case WRITING2:      /* Copy the cached data */
+            memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
+            break;
+        default:
+            assert(0);
+            break;
         }
-
-        /* Copy data from the cache entry */
-        block_cache_read_from_entry(priv, entry, dest);
         priv->stats.read_hits++;
         return 0;
     }
@@ -457,40 +465,6 @@ again:
 
     /* Done */
     return 0;
-}
-
-/*
- * Read block's data from a cache entry and update the entry.
- *
- * Assumes the entry is not in state READING and the mutex is held.
- */
-static void
-block_cache_read_from_entry(struct block_cache_private *priv, struct cache_entry *entry, void *dest)
-{
-    struct block_cache_conf *const config = priv->config;
-
-    switch (ENTRY_GET_STATE(entry)) {
-    case CLEAN:
-
-        /* Update timestamp and move to the end of the list to maintain LRU ordering */
-        TAILQ_REMOVE(&priv->cleans, entry, link);
-        TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
-        entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
-
-        // FALLTHROUGH
-    case DIRTY:
-    case WRITING:
-    case WRITING2:
-
-        /* Copy the cached data */
-        memcpy(dest, ENTRY_GET_DATA(entry), config->block_size);
-        break;
-
-    case READING:
-    default:
-        assert(0);
-        break;
-    }
 }
 
 /*
