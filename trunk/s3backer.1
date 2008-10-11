@@ -293,6 +293,7 @@ which merely causes the writes to be initiated as soon as possible (but still af
 This flag requires
 .Fl \-blockCacheWriteDelay
 to be zero.
+Using this flag is likely to drastically reduce write performance.
 .It Fl \-blockSize=SIZE
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.
