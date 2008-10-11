@@ -449,16 +449,14 @@ s3backer_get_config(int argc, char **argv)
     if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0)
         return NULL;
 
-    /* Set fsname based on configuration */
-    snprintf(buf, sizeof(buf), "-ofsname=%s%s/%s",
-      config.test ? "" : config.ssl ? S3_BASE_URL_HTTPS : config.http_io.baseURL,
-      config.http_io.bucket, config.http_io.prefix);
-    if (fuse_opt_insert_arg(&config.fuse_args, 1, buf) != 0)
-        err(1, "fuse_opt_insert_arg");
-
     /* Validate configuration */
     if (validate_config() != 0)
         return NULL;
+
+    /* Set fsname based on configuration */
+    snprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
+    if (fuse_opt_insert_arg(&config.fuse_args, 1, buf) != 0)
+        err(1, "fuse_opt_insert_arg");
 
     /* Set up fuse_ops callbacks */
     config.fuse_ops.print_stats = s3b_config_print_stats;
@@ -940,6 +938,11 @@ validate_config(void)
             return -1;
         }
     }
+
+    /* Format descriptive string of what we're mounting */
+    snprintf(config.description, sizeof(config.description), "%s%s/%s",
+      config.test ? "file://" : config.ssl ? S3_BASE_URL_HTTPS : config.http_io.baseURL,
+      config.http_io.bucket, config.http_io.prefix);
 
     /*
      * Read the first block (if any) to determine existing file and block size,

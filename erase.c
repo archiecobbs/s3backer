@@ -65,7 +65,7 @@ s3backer_erase(struct s3b_config *config)
 
     /* Double check with user */
     if (!config->force) {
-        warnx("`--erase' flag given: erasing all blocks!");
+        warnx("`--erase' flag given: erasing all blocks in %s", config->description);
         fprintf(stderr, "s3backer: is this correct? [y/N] ");
         *response = '\0';
         fgets(response, sizeof(response), stdin);

@@ -34,6 +34,7 @@ struct s3b_config {
     /* Common/global stuff */
     const char                  *accessFile;
     const char                  *mount;
+    char                        description[768];
     u_int                       block_size;
     off_t                       file_size;
     off_t                       num_blocks;
