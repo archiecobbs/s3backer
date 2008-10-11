@@ -420,24 +420,14 @@ again:
 
     /* Read the block from the underlying s3backer_store */
     pthread_mutex_unlock(&priv->mutex);
-    r = (*priv->inner->read_block)(priv->inner, block_num, dest, expect_md5);
+    r = (*priv->inner->read_block)(priv->inner, block_num, data, expect_md5);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /*
-     * While we were reading anything could have happened to the entry,
-     * including a simultaneous write, write-back, and eviction. We can
-     * assume nothing at this point so we have to find the entry again.
-     * If not found, just return the data we read without caching it.
-     */
-    if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL)
-        return r;
-
-    /* A simultaneous write would have changed the entry's state */
-    if (ENTRY_GET_STATE(entry) != READING) {
-        block_cache_read_from_entry(priv, entry, dest);
-        return 0;
-    }
+    /* The entry should still exist and be in state READING */
+    assert(s3b_hash_get(priv->hashtable, block_num) == entry);
+    assert(ENTRY_GET_STATE(entry) == READING);
+    assert(ENTRY_GET_DATA(entry) == data);
 
     /*
      * We know two things at this point: the state is going to
@@ -450,13 +440,13 @@ again:
     /* Check for error from underlying s3backer_store */
     if (r != 0) {
         s3b_hash_remove(priv->hashtable, entry->block_num);
-        free(ENTRY_GET_DATA(entry));
+        free(data);
         free(entry);
         return r;
     }
 
-    /* Copy the data we read into the cache entry */
-    memcpy(ENTRY_GET_DATA(entry), dest, config->block_size);
+    /* Copy the block data into the destination buffer */
+    memcpy(dest, data, config->block_size);
 
     /* Change entry from READING to CLEAN */
     assert(ENTRY_GET_STATE(entry) == READING);
@@ -524,20 +514,17 @@ again:
 
     /* Find cache entry */
     if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
-        const int state = ENTRY_GET_STATE(entry);
-
         assert(entry->block_num == block_num);
-        switch (state) {
+        switch (ENTRY_GET_STATE(entry)) {
+        case READING:               /* wait for entry to leave READING */
+            pthread_cond_wait(&priv->end_reading, &priv->mutex);
+            goto again;
         case CLEAN:                 /* update data, move to state DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
-            // FALLTHROUGH
-        case READING:               /* update data, move to state DIRTY */
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
             pthread_cond_signal(&priv->worker_work);
-            if (state == READING)
-                pthread_cond_broadcast(&priv->end_reading);
             // FALLTHROUGH
         case WRITING2:              /* update data, stay in state WRITING2 */
         case WRITING:               /* update data, move to state WRITING2 */
