@@ -312,7 +312,6 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
     size_t orig_size = size;
-    char *fragment = NULL;
     s3b_block_t block_num;
     size_t num_blocks;
     int r;
@@ -348,10 +347,8 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         if (fraglen > size)
             fraglen = size;
         block_num = offset >> priv->block_bits;
-        fragment = alloca(config->block_size);
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
+        if ((r = (*priv->s3b->read_block_part)(priv->s3b, block_num, fragoff, fraglen, buf)) != 0)
             return -r;
-        memcpy(buf, fragment + fragoff, fraglen);
         buf += fraglen;
         offset += fraglen;
         size -= fraglen;
@@ -372,11 +369,8 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
-        if (fragment == NULL)
-            fragment = alloca(config->block_size);
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
+        if ((r = (*priv->s3b->read_block_part)(priv->s3b, block_num, 0, fraglen, buf)) != 0)
             return -r;
-        memcpy(buf, fragment, fraglen);
     }
 
     /* Done */
@@ -390,7 +384,6 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     const u_int mask = config->block_size - 1;
     size_t orig_size = size;
-    char *fragment = NULL;
     s3b_block_t block_num;
     size_t num_blocks;
     int r;
@@ -413,6 +406,10 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
         orig_size = size;
     }
 
+    /* Handle request to write nothing */
+    if (size == 0)
+        return 0;
+
     /* Write first block fragment (if any) */
     if ((offset & mask) != 0) {
         size_t fragoff = (size_t)(offset & mask);
@@ -421,11 +418,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
         if (fraglen > size)
             fraglen = size;
         block_num = offset >> priv->block_bits;
-        fragment = alloca(config->block_size);
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
-            return -r;
-        memcpy(fragment + fragoff, buf, fraglen);
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num, fragment, NULL)) != 0)
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, buf)) != 0)
             return -r;
         buf += fraglen;
         offset += fraglen;
@@ -447,12 +440,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
-        if (fragment == NULL)
-            fragment = alloca(config->block_size);
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num, fragment, NULL)) != 0)
-            return -r;
-        memcpy(fragment, buf, fraglen);
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num, fragment, NULL)) != 0)
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, buf)) != 0)
             return -r;
     }
 

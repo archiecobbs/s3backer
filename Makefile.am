@@ -36,9 +36,28 @@ doc_DATA=           CHANGES COPYING README INSTALL TODO
 
 EXTRA_DIST=         CHANGES s3backer.1 s3backer.spec
 
-s3backer_SOURCES=   main.c block_cache.c ec_protect.c erase.c fuse_ops.c hash.c http_io.c s3b_config.c test_io.c svnrev.c
+s3backer_SOURCES=   main.c \
+		    block_cache.c \
+		    block_part.c \
+		    ec_protect.c \
+		    erase.c \
+		    fuse_ops.c \
+		    hash.c \
+		    http_io.c \
+		    s3b_config.c \
+		    test_io.c \
+		    svnrev.c
 
-tester_SOURCES=     tester.c block_cache.c ec_protect.c erase.c hash.c http_io.c s3b_config.c test_io.c svnrev.c
+tester_SOURCES=     tester.c \
+		    block_cache.c \
+		    block_part.c \
+		    ec_protect.c \
+		    erase.c \
+		    hash.c \
+		    http_io.c \
+		    s3b_config.c \
+		    test_io.c \
+		    svnrev.c
 
 AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS)
 

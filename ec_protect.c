@@ -24,6 +24,7 @@
 
 #include "s3backer.h"
 #include "ec_protect.h"
+#include "block_part.h"
 #include "hash.h"
 
 /*
@@ -115,6 +116,8 @@ struct cbinfo {
 /* s3backer_store functions */
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
+static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
 /* Misc */
@@ -157,6 +160,8 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     }
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
+    s3b->read_block_part = ec_protect_read_block_part;
+    s3b->write_block_part = ec_protect_write_block_part;
     s3b->list_blocks = ec_protect_list_blocks;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -441,6 +446,24 @@ writeit:
     binfo->u.data = src;
     TAILQ_REMOVE(&priv->list, binfo, link);
     goto writeit;
+}
+
+static int
+ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
+{
+    struct ec_protect_private *const priv = s3b->data;
+    struct ec_protect_conf *const config = priv->config;
+
+    return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
+}
+
+static int
+ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
+{
+    struct ec_protect_private *const priv = s3b->data;
+    struct ec_protect_conf *const config = priv->config;
+
+    return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
 
 /*

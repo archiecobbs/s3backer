@@ -24,6 +24,7 @@
 
 #include "s3backer.h"
 #include "http_io.h"
+#include "block_part.h"
 #include "test_io.h"
 
 /* Do we want random errors? */
@@ -38,6 +39,8 @@ struct test_io_private {
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
+static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static void test_io_destroy(struct s3backer_store *s3b);
 
@@ -57,6 +60,8 @@ test_io_create(struct http_io_conf *config)
         return NULL;
     s3b->read_block = test_io_read_block;
     s3b->write_block = test_io_write_block;
+    s3b->read_block_part = test_io_read_block_part;
+    s3b->write_block_part = test_io_write_block_part;
     s3b->list_blocks = test_io_list_blocks;
     s3b->destroy = test_io_destroy;
     if ((priv = calloc(1, sizeof(*priv) + config->block_size)) == NULL) {
@@ -236,6 +241,24 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Done */
     return 0;
+}
+
+static int
+test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
+{
+    struct test_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+
+    return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
+}
+
+static int
+test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
+{
+    struct test_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+
+    return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
 
 static int
