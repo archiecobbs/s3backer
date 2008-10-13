@@ -102,6 +102,13 @@ struct s3backer_store {
     int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
 
     /*
+     * Read part of one block.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     */
+    int         (*read_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
+
+    /*
      * Write one block. Blocks that are all zeroes are actually deleted instead
      * of being written.
      *
@@ -111,6 +118,13 @@ struct s3backer_store {
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+
+    /*
+     * Write part of one block.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     */
+    int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
      * Identify all non-zero blocks.
