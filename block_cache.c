@@ -480,7 +480,7 @@ block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     void *data;
-    int r = 0;
+    int r;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
@@ -512,8 +512,8 @@ again:
              */
             if ((data = malloc(config->block_size)) == NULL) {
                 priv->stats.out_of_memory_errors++;
-                r = ENOMEM;
-                goto done;
+                r = errno;
+                goto fail;
             }
             ENTRY_SET_DATA(entry, data, DIRTY);
             break;
@@ -532,12 +532,12 @@ again:
             memset(ENTRY_GET_DATA(entry), 0, config->block_size);
         ENTRY_SET_DIRTY(entry);
         priv->stats.write_hits++;
-        goto done;
+        goto success;
     }
 
     /* Get a cache entry, evicting a CLEAN entry if necessary */
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
-        goto done;
+        goto fail;
 
     /* If cache is full, wait for an entry to go CLEAN so we can evict it */
     if (entry == NULL) {
@@ -561,9 +561,9 @@ again:
     /* Wake up a worker thread to go write it */
     pthread_cond_signal(&priv->worker_work);
 
-done:
+success:
     /* If doing synchronous writes, wait for write to complete */
-    if (r == 0 && config->synchronous) {
+    if (config->synchronous) {
         while (1) {
             int state;
 
@@ -586,7 +586,9 @@ done:
             continue;
         }
     }
+    r = 0;
 
+fail:
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return r;
