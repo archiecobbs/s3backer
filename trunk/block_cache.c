@@ -50,7 +50,10 @@
  * block moves to CLEAN if still in state WRITING, or DIRTY if in WRITING2.
  *
  * Because we allow writes to update the data in a block while that block is being
- * written, the worker threads must make a copy of the data before they send it.
+ * written, the worker threads always write from the original buffer, and a new buffer
+ * will get created on demand when a block moves to state WRITING2. When it completes
+ * its write attempt, the worker thread then checks for this condition and, if indeed
+ * the block has changed to WRITING2, it knows to free the original buffer.
  *
  * Blocks in the READING, WRITING and WRITING2 states are not in either list.
  *
@@ -493,27 +496,42 @@ again:
         case READING:               /* wait for entry to leave READING */
             pthread_cond_wait(&priv->end_reading, &priv->mutex);
             goto again;
-        case CLEAN:                 /* update data, move to state DIRTY */
+        case CLEAN:                 /* move to state DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
             pthread_cond_signal(&priv->worker_work);
-            // FALLTHROUGH
-        case WRITING2:              /* update data, stay in state WRITING2 */
-        case WRITING:               /* update data, move to state WRITING2 */
-        case DIRTY:                 /* update data, stay in state DIRTY */
-            if (src != NULL)
-                memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
-            else
-                memset(ENTRY_GET_DATA(entry), 0, config->block_size);
-            ENTRY_SET_DIRTY(entry);
-            priv->stats.write_hits++;
+            break;
+        case WRITING:               /* move to state WRITING2 */
+
+            /*
+             * Create a new buffer so we don't mess up the buffer being written.
+             * The thread doing the writing will know this has happened (and to
+             * free its buffer) when it sees the state has changed to WRITING2.
+             */
+            if ((data = malloc(config->block_size)) == NULL) {
+                priv->stats.out_of_memory_errors++;
+                r = ENOMEM;
+                goto done;
+            }
+            ENTRY_SET_DATA(entry, data, DIRTY);
+            break;
+        case WRITING2:              /* stay in state WRITING2 */
+        case DIRTY:                 /* stay in state DIRTY */
             break;
         default:
             assert(0);
             break;
         }
+
+        /* Copy in the new data being written */
+        if (src != NULL)
+            memcpy(ENTRY_GET_DATA(entry), src, config->block_size);
+        else
+            memset(ENTRY_GET_DATA(entry), 0, config->block_size);
+        ENTRY_SET_DIRTY(entry);
+        priv->stats.write_hits++;
         goto done;
     }
 
@@ -646,12 +664,7 @@ block_cache_worker_main(void *arg)
     /* Assign myself a thread ID (for debugging purposes) */
     thread_id = priv->thread_id++;
 
-    /*
-     * Allocate buffer for outgoing block data. We have to copy it before
-     * we send it in case another write to this block comes in and updates
-     * the data associated with the cache entry. Use heap space because
-     * it will likely be page-aligned.
-     */
+    /* Allocate buffer for speculative read-ahead */
     if ((buf = malloc(block_size)) == NULL) {
         (*config->log)(LOG_ERR, "block_cache worker %u can't alloc buffer, exiting: %s", thread_id, strerror(errno));
         goto done;
@@ -688,6 +701,7 @@ block_cache_worker_main(void *arg)
 
         /* See if there is a block that needs writing */
         if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL && (priv->stopping || adjusted_now >= entry->timeout)) {
+            void *entry_data;
 
             /* If we are also supposed to do read-ahead, wake up a sibling to handle it */
             if (priv->seq_count >= config->read_ahead_trigger && priv->ra_count < config->read_ahead)
@@ -701,17 +715,22 @@ block_cache_worker_main(void *arg)
             entry->timeout = 0;
             assert(ENTRY_GET_STATE(entry) == WRITING);
 
-            /* Copy data to private buffer */
-            memcpy(buf, ENTRY_GET_DATA(entry), block_size);
+            /* Record the buffer address, it may change and then we'll have to free it */
+            entry_data = ENTRY_GET_DATA(entry);
 
             /* Attempt to write the block */
             pthread_mutex_unlock(&priv->mutex);
-            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, NULL);
+            r = (*priv->inner->write_block)(priv->inner, entry->block_num, entry_data, NULL);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv);
 
-            /* Sanity check */
+            /* Sanity checks */
             assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
+            assert(ENTRY_IS_DIRTY(entry) == (ENTRY_GET_DATA(entry) != entry_data));
+
+            /* If state changed to WRITING2, we must free the old buffer ourselves */
+            if (ENTRY_IS_DIRTY(entry))
+                free(entry_data);
 
             /* If that failed, go back to the DIRTY state and try again */
             if (r != 0) {
