@@ -286,7 +286,7 @@ Default value is zero.
 Forces synchronous writes in the block cache layer.
 Instead of returning immediately and scheduling the actual write to operation happen later,
 write requests will not return until the write has completed.
-This flags is a stricter requirement than
+This flag is a stricter requirement than
 .Fl \-blockCacheWriteDelay=0 ,
 which merely causes the writes to be initiated as soon as possible (but still after the write request returns).
 .Pp
