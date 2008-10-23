@@ -1,5 +1,5 @@
 
-Version 1.2.1
+Version 1.2.1 (r300) released 23 Oct 2008
 
     - Added `--erase' and `--quiet' command line flags.
     - Added `--blockCacheSync' command line flag.

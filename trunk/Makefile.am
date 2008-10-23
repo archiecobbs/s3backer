@@ -26,7 +26,16 @@ bin_PROGRAMS=       s3backer
 
 noinst_PROGRAMS=    tester
 
-noinst_HEADERS=     s3backer.h block_cache.h ec_protect.h erase.h fuse_ops.h hash.h http_io.h test_io.h s3b_config.h
+noinst_HEADERS=     s3backer.h \
+			block_cache.h \
+			block_part.h \
+			ec_protect.h \
+			erase.h \
+			fuse_ops.h \
+			hash.h \
+			http_io.h \
+			test_io.h \
+			s3b_config.h
 
 man_MANS=           s3backer.1
 
@@ -64,5 +73,5 @@ AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS)
 AM_LDFLAGS=         $(FUSE_LIBS)
 
 svnrev.c:
-					printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.c
+			printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.c
 
