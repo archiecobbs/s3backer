@@ -12,6 +12,8 @@ SYNOPSIS
 
      s3backer --test [options] dir /mount/point
 
+     s3backer --erase [options] bucket
+
 DESCRIPTION
      s3backer is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).  As a filesys-
      tem, it is quite small and simple: it provides a single normal file having a fixed size.  The file is divided up into blocks,
@@ -83,7 +85,7 @@ DESCRIPTION
      through FUSE filesystems one at a time, performing writes asynchronously allows s3backer to take advantage of the parallelism
      inherent in the network, vastly improving write performance.
 
-     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheThreads,
+     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheSync, --blockCacheThreads,
      --blockCacheTimeout, and --blockCacheWriteDelay.
 
    Read Ahead
@@ -164,6 +166,15 @@ OPTIONS
              are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.  Default value is
              zero.
 
+     --blockCacheSync
+             Forces synchronous writes in the block cache layer.  Instead of returning immediately and scheduling the actual write
+             to operation happen later, write requests will not return until the write has completed.  This flag is a stricter
+             requirement than --blockCacheWriteDelay=0, which merely causes the writes to be initiated as soon as possible (but
+             still after the write request returns).
+
+             This flag requires --blockCacheWriteDelay to be zero.  Using this flag is likely to drastically reduce write perfor-
+             mance.
+
      --blockSize=SIZE
              Specify the block size.  This must be a power of two and should be a multiple of the kernel's native page size.  The
              size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
@@ -183,8 +194,14 @@ OPTIONS
              tions.  Equivalent to the --cacert flag documented in curl(1).
 
      --debug
-             Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE.  Both the -d and
-             -f FUSE flags imply this flag.
+             Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE; however, the -d
+             FUSE flag implies this flag.
+
+     --erase
+             Completely erase the file system by deleting all non-zero blocks, and then exit.  User confirmation is required unless
+             the --force flag is also given.
+
+             This option implies --listBlocks.
 
      --filename=NAME
              Specify the name of the backed file that appears in the s3backer filesystem.  Default is `file'.
@@ -196,6 +213,8 @@ OPTIONS
      --force
              Proceed even if the value specified by --blockSize or --size disagrees with the auto-detected value.  This is will
              certainly lead to garbled data and should be avoided for normal use.
+
+             If --erase is given, proceed without user confirmation.
 
      -h --help
              Print a help message and exit.
@@ -253,6 +272,9 @@ OPTIONS
              Specify a prefix to prepend to the resource names within bucket that identify each block.  Default is the empty
              string.
 
+     --quiet
+             Suppress progress output during initial startup.
+
      --readAhead=NUM
              Configure the number of blocks of read ahead.  This determines how many blocks will be read into the block cache ahead
              of the last block read by the kernel when read ahead is active.  This option has no effect if the block cache is dis-
@@ -283,6 +305,8 @@ OPTIONS
      --test  Operate in local test mode.  Filesystem blocks are stored as regular files in the directory dir.  No network traffic
              occurs.
 
+             Note if dir is a relative pathname (and -f is not given) it will be resolved relative to the root directory.
+
      --timeout=SECONDS
              Specify a time limit in seconds for one HTTP operation attempt.  This limits the entire operation including connection
              time (if not already connected) and data transfer time.  Default is 30 seconds.  See also --maxRetryPause.
@@ -304,9 +328,9 @@ OPTIONS
      -o max_readahead=NUM
              Set maximum read-ahead (in bytes).
 
-     -f      Run in the foreground (do not fork).  Implies --debug.
+     -f      Run in the foreground (do not fork).  Causes logging to be sent to standard error.
 
-     -d      Enable FUSE debug mode.  Implies -f and --debug.
+     -d      Enable FUSE debug mode.  Implies -f.
 
      -s      Run in single-threaded mode.
 
