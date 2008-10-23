@@ -900,6 +900,10 @@ validate_config(void)
             warnx("invalid block size `%s'", config.block_size_str);
             return -1;
         }
+        if ((u_int)value != value) {
+            warnx("block size `%s' is too big", config.block_size_str);
+            return -1;
+        }
         config.block_size = value;
     }
     if (config.file_size_str != NULL) {
