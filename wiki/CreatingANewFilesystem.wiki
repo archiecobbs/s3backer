@@ -17,9 +17,10 @@ Creating your own new filesystem is very easy. Just follow these simple steps:
 }}}
 
  * Decide how big you want your filesystem to be. Let's say we want a modest 1 terabyte of storage.
+ * Decide what you want your *s3backer* block size to be. See ChoosingBlockSize for more info. You may want to use a larger block size than the default of 4k. Let's use 128k for this example.
  * Decide what bucket you want to store the filesystem blocks in. For this example, we'll use `bigspace`. You will have to create and use your own bucket of course.
  * Create a directory where the *s3backer* filesystem can be mounted: `mkdir ~/mnt-s3b`
- * Fire up s3backer: `s3backer --size=1t --listBlocks bigspace ~/mnt-s3b`.
+ * Fire up s3backer: `s3backer --blockSize=128k --size=1t --listBlocks bigspace ~/mnt-s3b`.
  * Now create your filesystem, pretending that `~/mnt-s3b/file` was a block device such as a disk partition: `mkreiserfs -f -b 4096 -s 513 ~/mnt-s3b/file`. Of course, you don't have to use the Reiser filesystem, you can use ext2, XFS, minix, NTFS, or whatever.
  * Finally, mount your newly-created filesystem using a loopback mount: `sudo mount -o loop ~/mnt-s3b/file /mnt`
  * You now have 1 terabyte of storage mounted under `/mnt` to play with!
