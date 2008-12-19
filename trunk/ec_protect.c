@@ -45,7 +45,7 @@
  *      can be initiated.
  *  cache_time
  *      How long after writing a block we'll remember its MD5 checksum. This
- *      must be at least as long as min_write_delay.
+ *      must be at least as long as min_write_delay. Zero means infinity.
  *  cache_size
  *      Maximum number of blocks we'll track at one time. When table
  *      is full, additional writes will block.
@@ -376,7 +376,13 @@ again:
 
         /* If we have reached max cache capacity, wait until there's more room */
         if (s3b_hash_size(priv->hashtable) >= config->cache_size) {
-            if ((binfo = TAILQ_FIRST(&priv->list)) != NULL)
+
+            /* Report deadlock situation */
+            if (config->cache_time == 0)
+                (*config->log)(LOG_ERR, "md5 cache is full, but timeout is infinite: you have write deadlock!");
+
+            /* Sleep until space becomes available */
+            if ((binfo = TAILQ_FIRST(&priv->list)) != NULL && config->cache_time > 0)
                 delay = ec_protect_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
                 delay = ec_protect_sleep_until(priv, &priv->space_cond, 0);
@@ -489,11 +495,13 @@ ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t curr
     struct block_info *binfo;
     int num_removed = 0;
 
-    while ((binfo = TAILQ_FIRST(&priv->list)) != NULL && current_time >= binfo->timestamp + config->cache_time) {
-        TAILQ_REMOVE(&priv->list, binfo, link);
-        s3b_hash_remove(priv->hashtable, binfo->block_num);
-        free(binfo);
-        num_removed++;
+    if (config->cache_time > 0) {
+        while ((binfo = TAILQ_FIRST(&priv->list)) != NULL && current_time >= binfo->timestamp + config->cache_time) {
+            TAILQ_REMOVE(&priv->list, binfo, link);
+            s3b_hash_remove(priv->hashtable, binfo->block_num);
+            free(binfo);
+            num_removed++;
+        }
     }
     switch (num_removed) {
     case 0:

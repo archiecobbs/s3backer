@@ -1,6 +1,8 @@
 
 Version 1.2.2
 
+    - Disable the MD5 cache when the `--readOnly' flag is given.
+    - Make `--md5CacheTime=0' really mean `infinite' as promised in man page.
     - Fixed a few minor issues with statistics reporting.
 
 Version 1.2.1 (r300) released 23 Oct 2008
