@@ -602,7 +602,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_write_hit_ratio", write_hit_ratio);
-        total_oom += ec_protect_stats.out_of_memory_errors;
+        total_oom += block_cache_stats.out_of_memory_errors;
     }
     if (ec_protect_store != NULL) {
         (*printer)(prarg, "%-28s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
@@ -611,7 +611,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
           (uintmax_t)(ec_protect_stats.cache_full_delay / 1000), (u_int)(ec_protect_stats.cache_full_delay % 1000));
         (*printer)(prarg, "%-28s %ju.%03u sec\n", "md5_cache_write_delays",
           (uintmax_t)(ec_protect_stats.repeated_write_delay / 1000), (u_int)(ec_protect_stats.repeated_write_delay % 1000));
-        total_oom += block_cache_stats.out_of_memory_errors;
+        total_oom += ec_protect_stats.out_of_memory_errors;
     }
     (*printer)(prarg, "%-28s %u\n", "out_of_memory_errors", total_oom);
 }
@@ -646,6 +646,10 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
     uintmax_t unit;
     int i;
 
+    if (value == 0) {
+        snprintf(buf, bmax, "0");
+        return;
+    }
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
         const struct size_suffix *const ss = &size_suffixes[i];
 

@@ -523,7 +523,7 @@ again:
     va_start(args, fmt);
     added = vsnprintf(sfile->buf + sfile->len, sfile->bufsiz - sfile->len, fmt, args);
     va_end(args);
-    if (added <= remain) {
+    if (added + 1 <= remain) {
         sfile->len += added;
         return;
     }
