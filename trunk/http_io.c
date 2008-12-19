@@ -1182,7 +1182,8 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
         if (config->cacert != NULL)
             curl_easy_setopt(curl, CURLOPT_CAINFO, config->cacert);
     }
-    //curl_easy_setopt(curl, CURLOPT_VERBOSE);
+    if (config->debug_http)
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
     return curl;
 }
 
