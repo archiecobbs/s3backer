@@ -35,6 +35,7 @@ struct http_io_conf {
     int                 debug;
     int                 debug_http;
     int                 quiet;
+    int                 compress;
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()
     int                 insecure;
     u_int               block_size;

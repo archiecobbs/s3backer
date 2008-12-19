@@ -156,19 +156,16 @@ struct cbinfo {
 
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
-static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
-static int block_cache_read(struct block_cache_private *priv, s3b_block_t block_num,
-    u_int off, u_int len, void *dest, const u_char *expect_md5);
-static int block_cache_do_read(struct block_cache_private *priv, s3b_block_t block_num,
-    u_int off, u_int len, void *dest, const u_char *expect_md5, int stats);
-static int block_cache_write(struct block_cache_private *priv, s3b_block_t block_num,
-    u_int off, u_int len, const void *src, const u_char *md5);
+static int block_cache_read(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, void *dest);
+static int block_cache_do_read(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats);
+static int block_cache_write(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_one(void *arg, void *value);
@@ -351,7 +348,8 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
 
-    return block_cache_read(priv, block_num, 0, config->block_size, dest, expect_md5);
+    assert(expect_md5 == NULL);
+    return block_cache_read(priv, block_num, 0, config->block_size, dest);
 }
 
 static int
@@ -359,15 +357,14 @@ block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
 {
     struct block_cache_private *const priv = s3b->data;
 
-    return block_cache_read(priv, block_num, off, len, dest, NULL);
+    return block_cache_read(priv, block_num, off, len, dest);
 }
 
 /*
  * Read a block, and trigger read-ahead if necessary.
  */
 static int
-block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num,
-    u_int off, u_int len, void *dest, const u_char *expect_md5)
+block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest)
 {
     struct block_cache_conf *const config = priv->config;
     int r = 0;
@@ -392,7 +389,7 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num,
         pthread_cond_signal(&priv->worker_work);
 
     /* Peform the read */
-    r = block_cache_do_read(priv, block_num, off, len, dest, expect_md5, 1);
+    r = block_cache_do_read(priv, block_num, off, len, dest, 1);
 
     /* Release lock */
     pthread_mutex_unlock(&priv->mutex);
@@ -405,8 +402,7 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num,
  * Assumes the mutex is held.
  */
 static int
-block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_num,
-    u_int off, u_int len, void *dest, const u_char *expect_md5, int stats)
+block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats)
 {
     struct cache_entry *entry;
     void *data;
@@ -416,7 +412,6 @@ block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_nu
     assert(off <= priv->config->block_size);
     assert(len <= priv->config->block_size);
     assert(off + len <= priv->config->block_size);
-    assert(expect_md5 == NULL || (off == 0 && len == priv->config->block_size));
 
 again:
     /* Check to see if a cache entry already exists */
@@ -465,7 +460,7 @@ again:
 
     /* Read the block from the underlying s3backer_store */
     pthread_mutex_unlock(&priv->mutex);
-    r = (*priv->inner->read_block)(priv->inner, block_num, data, expect_md5);
+    r = (*priv->inner->read_block)(priv->inner, block_num, data, NULL);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
@@ -505,12 +500,13 @@ again:
 }
 
 static int
-block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
+block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *md5)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
 
-    return block_cache_write(priv, block_num, 0, config->block_size, src, md5);
+    assert(md5 == NULL);
+    return block_cache_write(priv, block_num, 0, config->block_size, src);
 }
 
 static int
@@ -518,15 +514,14 @@ block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, 
 {
     struct block_cache_private *const priv = s3b->data;
 
-    return block_cache_write(priv, block_num, off, len, src, NULL);
+    return block_cache_write(priv, block_num, off, len, src);
 }
 
 /*
  * Write a block or a portion thereof.
  */
 static int
-block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
-    u_int off, u_int len, const void *src, const u_char *md5)
+block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, const void *src)
 {
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
@@ -538,7 +533,6 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
     assert(off <= config->block_size);
     assert(len <= config->block_size);
     assert(off + len <= config->block_size);
-    assert(md5 == NULL || (off == 0 && len == config->block_size));
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
@@ -605,7 +599,7 @@ again:
      * we have to read it into the cache first.
      */
     if (off != 0 || len != config->block_size) {
-        if ((r = block_cache_do_read(priv, block_num, 0, 0, NULL, NULL, 0)) != 0)
+        if ((r = block_cache_do_read(priv, block_num, 0, 0, NULL, 0)) != 0)
             goto fail;
         goto again;
     }
@@ -843,7 +837,7 @@ block_cache_worker_main(void *arg)
                     continue;
 
                 /* Perform a speculative read of the block so it will get stored in the cache */
-                (void)block_cache_do_read(priv, ra_block, 0, 0, NULL, NULL, 0);
+                (void)block_cache_do_read(priv, ra_block, 0, 0, NULL, 0);
                 break;
             }
             continue;

@@ -28,6 +28,7 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-root
 BuildRequires:  curl-devel
 BuildRequires:  fuse-devel >= 2.5
 BuildRequires:  openssl-devel
+BuildRequires:  zlib-devel
 %if 0%{?suse_version} < 1000 || 0%{?fedora_version} != 0 || 0%{?centos_version} != 0
 BuildRequires:  expat
 %else

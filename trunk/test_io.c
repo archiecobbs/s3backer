@@ -38,7 +38,7 @@ struct test_io_private {
 
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
-static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
@@ -167,12 +167,14 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 }
 
 static int
-test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
+test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
+    u_char md5[MD5_DIGEST_LENGTH];
     char temp[PATH_MAX];
     char path[PATH_MAX];
+    MD5_CTX ctx;
     int total;
     int fd;
     int r;
@@ -180,6 +182,18 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Check for zero block */
     if (src != NULL && memcmp(src, priv->zero_block, config->block_size) == 0)
         src = NULL;
+
+    /* Compute MD5 */
+    if (src != NULL) {
+        MD5_Init(&ctx);
+        MD5_Update(&ctx, src, config->block_size);
+        MD5_Final(md5, &ctx);
+    } else
+        memset(md5, 0, MD5_DIGEST_LENGTH);
+
+    /* Return MD5 to caller */
+    if (caller_md5 != NULL)
+        memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
 
     /* Logging */
     if (config->debug) {
