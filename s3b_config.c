@@ -880,6 +880,13 @@ validate_config(void)
         return -1;
     }
 
+    /* Disable md5 cache when in read only mode */
+    if (config.fuse_ops.read_only) {
+        config.ec_protect.cache_size = 0;
+        config.ec_protect.cache_time = 0;
+        config.ec_protect.min_write_delay = 0;
+    }
+
     /* Check time/cache values */
     if (config.ec_protect.cache_size == 0 && config.ec_protect.cache_time > 0) {
         warnx("`md5CacheTime' must zero when MD5 cache is disabled");
@@ -889,7 +896,8 @@ validate_config(void)
         warnx("`minWriteDelay' must zero when MD5 cache is disabled");
         return -1;
     }
-    if (config.ec_protect.cache_time < config.ec_protect.min_write_delay) {
+    if (config.ec_protect.cache_time > 0
+      && config.ec_protect.cache_time < config.ec_protect.min_write_delay) {
         warnx("`md5CacheTime' must be at least `minWriteDelay'");
         return -1;
     }
@@ -1047,6 +1055,14 @@ validate_config(void)
     if (sizeof(s3b_block_t) < sizeof(config.num_blocks)
       && config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
         warnx("more than 2^%d blocks: decrease file size or increase block size", (int)(sizeof(s3b_block_t) * 8));
+        return -1;
+    }
+
+    /* Check that MD5 cache won't eventually deadlock */
+    if (config.ec_protect.cache_size > 0
+      && config.ec_protect.cache_time == 0
+      && config.ec_protect.cache_size < config.num_blocks) {
+        warnx("`md5CacheTime' is infinite but `md5CacheSize' is less than the number of blocks, so eventually deadlock will result");
         return -1;
     }
 
