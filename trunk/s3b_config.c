@@ -1066,6 +1066,12 @@ validate_config(void)
         return -1;
     }
 
+    /* No point in the caches being bigger than necessary */
+    if (config.ec_protect.cache_size > config.num_blocks)
+        config.ec_protect.cache_size = config.num_blocks;
+    if (config.block_cache.cache_size > config.num_blocks)
+        config.block_cache.cache_size = config.num_blocks;
+
 #ifdef __APPLE__
     /* On MacOS, warn if kernel timeouts can happen prior to our own timeout */
     {
