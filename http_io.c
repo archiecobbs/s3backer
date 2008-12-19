@@ -38,9 +38,12 @@
 #define DATE_HEADER                 "Date"
 #define AUTH_HEADER                 "Authorization"
 #define CTYPE_HEADER                "Content-Type"
+#define CONTENT_ENCODING_HEADER     "Content-Encoding"
+#define CONTENT_ENCODING_DEFLATE    "deflate"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
+#define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
 #define IF_MATCH_HEADER             "If-Match"
 
 /* MIME type for blocks */
@@ -89,7 +92,6 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
-    u_char                      *zero_block;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
 };
 
@@ -128,9 +130,10 @@ struct http_io {
     struct curl_slist   *headers;               // HTTP headers
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
-    u_int               block_size;             // Block's size
+    u_int               buf_size;               // Size of data buffer
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
+    u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
 };
 
 /* CURL prepper function type */
@@ -138,7 +141,7 @@ typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
-static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
@@ -176,6 +179,7 @@ static void http_io_release_curl(struct http_io_private *priv, CURL *curl, int m
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
 static unsigned long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
+static int http_io_is_zero_block(const void *data, u_int block_size);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -292,7 +296,6 @@ http_io_destroy(struct s3backer_store *const s3b)
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
     free(priv->non_zero);
-    free(priv->zero_block);
     free(priv);
     free(s3b);
 }
@@ -433,6 +436,8 @@ http_io_list_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_list_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
 }
 
 static size_t
@@ -566,6 +571,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
+    u_int content_len;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
@@ -575,8 +581,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     memset(&io, 0, sizeof(io));
     io.url = urlbuf;
     io.method = HTTP_HEAD;
-    io.block_size = config->block_size;
-    io.content_lengthp = block_sizep;
+    io.content_lengthp = &content_len;
 
     /* Construct URL for the first block */
     resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, 0);
@@ -593,16 +598,23 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     }
 
     /* Perform operation */
-    r = http_io_perform_io(priv, &io, http_io_detect_prepper);
+    if ((r = http_io_perform_io(priv, &io, http_io_detect_prepper)) != 0)
+        goto done;
 
-    /* If successful, extract filesystem sizing information */
-    if (r == 0) {
-        if (io.file_size > 0)
-            *file_sizep = (off_t)io.file_size;
-        else
-            r = ENXIO;
+    /* Extract filesystem sizing information */
+    if (io.file_size == 0) {
+        r = ENXIO;
+        goto done;
     }
+    *file_sizep = (off_t)io.file_size;
+    if (io.block_size != 0)
+        *block_sizep = io.block_size;
+    else if (content_len != 0)
+        *block_sizep = content_len;         /* backward compatible */
+    else
+        r = ENXIO;
 
+done:
     /*  Clean up */
     curl_slist_free_all(io.headers);
     return r;
@@ -630,6 +642,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
+    u_int did_read;
     int r;
 
     /* Sanity check */
@@ -656,8 +669,16 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     memset(&io, 0, sizeof(io));
     io.url = urlbuf;
     io.method = HTTP_GET;
-    io.dest = dest;
-    io.block_size = config->block_size;
+
+    /* Allocate a buffer in case compressed data is larger */
+    io.buf_size = compressBound(config->block_size);
+    if ((io.dest = malloc(io.buf_size)) == NULL) {
+        (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
+        pthread_mutex_lock(&priv->mutex);
+        priv->stats.out_of_memory_errors++;
+        pthread_mutex_unlock(&priv->mutex);
+        return ENOMEM;
+    }
 
     /* Construct URL for this block */
     resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
@@ -686,12 +707,21 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
 
-    /* Check for short read */
-    if (r == 0 && io.bufs.rdremain != 0) {
-        (*config->log)(LOG_WARNING, "read of block #%u returned %lu < %lu bytes",
-          block_num, (u_long)(config->block_size - io.bufs.rdremain), (u_long)config->block_size);
-        memset((char *)dest + config->block_size - io.bufs.rdremain, 0, io.bufs.rdremain);
+    /* Check for wrong length read and copy data to desination buffer */
+    if (r == 0) {
+        did_read = io.buf_size - io.bufs.rdremain;
+        if (did_read != config->block_size) {
+            (*config->log)(LOG_WARNING, "read of block #%u returned %lu != %lu bytes",
+              block_num, (u_long)did_read, (u_long)config->block_size);
+            if (did_read < config->block_size) {
+                memcpy(dest, io.dest, did_read);
+                memset((char *)dest + did_read, 0, config->block_size - did_read);
+            } else
+                memcpy(dest, io.dest, config->block_size);
+        } else
+            memcpy(dest, io.dest, config->block_size);
     }
+    free(io.dest);
 
     /* Update stats */
     pthread_mutex_lock(&priv->mutex);
@@ -722,28 +752,34 @@ static void
 http_io_read_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
-    io->bufs.rdremain = io->block_size;
+    io->bufs.rdremain = io->buf_size;
     io->bufs.rddata = io->dest;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
-    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->block_size);
+    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
 }
 
 /*
  * Write block if src != NULL, otherwise delete block.
  */
 static int
-http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
+http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    const char *resource;
     char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
+    u_char md5[MD5_DIGEST_LENGTH];
+    void *compress_buf = NULL;
+    const char *resource;
+    u_long compress_len;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
+    MD5_CTX ctx;
     int r;
 
     /* Sanity check */
@@ -751,15 +787,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         return EINVAL;
 
     /* Detect zero blocks (if not done already by upper layer) */
-    if (src != NULL && md5 == NULL) {
-        pthread_mutex_lock(&priv->mutex);
-        if (priv->zero_block == NULL && (priv->zero_block = calloc(1, config->block_size)) == NULL) {
-            priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
-            return ENOMEM;
-        }
-        pthread_mutex_unlock(&priv->mutex);
-        if (memcmp(src, priv->zero_block, config->block_size) == 0)
+    if (src != NULL) {
+        if (http_io_is_zero_block(src, config->block_size))
             src = NULL;
     }
 
@@ -786,7 +815,58 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.url = urlbuf;
     io.method = src != NULL ? HTTP_PUT : HTTP_DELETE;
     io.src = src;
-    io.block_size = config->block_size;
+    io.buf_size = config->block_size;
+
+    /* Compress block if desired */
+    if (src != NULL && config->compress) {
+
+        /* Allocate buffer */
+        compress_len = compressBound(io.buf_size);
+        if ((compress_buf = malloc(compress_len)) == NULL) {
+            (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.out_of_memory_errors++;
+            pthread_mutex_unlock(&priv->mutex);
+            return ENOMEM;
+        }
+
+        /* Compress data */
+        r = compress(compress_buf, &compress_len, io.src, io.buf_size);
+        switch (r) {
+        case Z_OK:
+            break;
+        case Z_MEM_ERROR:
+            (*config->log)(LOG_ERR, "zlib compress: %s", strerror(ENOMEM));
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.out_of_memory_errors++;
+            pthread_mutex_unlock(&priv->mutex);
+            free(compress_buf);
+            return ENOMEM;
+        default:
+            (*config->log)(LOG_ERR, "unknown zlib compress() error %d", r);
+            free(compress_buf);
+            return EIO;
+        }
+
+        /* Update POST data */
+        io.src = compress_buf;
+        io.buf_size = compress_len;
+
+        /* Include Content-Encoding HTTP header */
+        io.headers = http_io_add_header(io.headers, "%s: %s", CONTENT_ENCODING_HEADER, CONTENT_ENCODING_DEFLATE);
+    }
+
+    /* Compute MD5 checksum */
+    if (src != NULL) {
+        MD5_Init(&ctx);
+        MD5_Update(&ctx, io.src, io.buf_size);
+        MD5_Final(md5, &ctx);
+    } else
+        memset(md5, 0, MD5_DIGEST_LENGTH);
+
+    /* Report MD5 back to caller */
+    if (caller_md5 != NULL)
+        memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
 
     /* Construct URL for this block */
     resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
@@ -804,15 +884,14 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         /* Add ACL header */
         io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
 
-        /* Add Content-MD5 header (if provided) */
-        if (md5 != NULL) {
-            http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
-            io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
-        }
+        /* Add Content-MD5 header */
+        http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
+        io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
     }
 
     /* Add file size meta-data to zero'th block */
-    if (block_num == 0) {
+    if (src != NULL && block_num == 0) {
+        io.headers = http_io_add_header(io.headers, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
         io.headers = http_io_add_header(io.headers, "%s: %ju",
           FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
     }
@@ -820,7 +899,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Add Authorization header */
     if (config->accessId != NULL) {
         http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey, io.method,
-          src != NULL ? CONTENT_TYPE : NULL, src != NULL && md5 != NULL ? md5buf : NULL,
+          src != NULL ? CONTENT_TYPE : NULL, src != NULL ? md5buf : NULL,
           datebuf, io.headers, resource);
         io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
     }
@@ -840,6 +919,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /*  Clean up */
     curl_slist_free_all(io.headers);
+    if (compress_buf != NULL)
+        free(compress_buf);
     return r;
 }
 
@@ -848,7 +929,7 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     if (io->src != NULL) {
-        io->bufs.wrremain = io->block_size;
+        io->bufs.wrremain = io->buf_size;
         io->bufs.wrdata = io->src;
     }
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
@@ -857,7 +938,7 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
     if (io->src != NULL) {
         curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
-        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->block_size);
+        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size);
     }
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
@@ -1071,6 +1152,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
 /*
  * Compute S3 authorization hash using secret access key.
+ *
+ * Note: "x-amz" headers must be unique, not wrapped, and sorted lexicographically.
  */
 static void
 http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *method,
@@ -1230,6 +1313,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 
     /* Check for interesting headers */
     (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
+    (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
     return total;
 }
 
@@ -1285,5 +1369,22 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
     BIO_get_mem_ptr(b64, &bptr);
     snprintf(buf, bufsiz, "%.*s", bptr->length - 1, (char *)bptr->data);
     BIO_free_all(b64);
+}
+
+static int
+http_io_is_zero_block(const void *data, u_int block_size)
+{
+    static const u_long zero;
+    const u_int *ptr;
+    int i;
+
+    if (block_size <= sizeof(zero))
+        return memcmp(data, &zero, block_size) == 0;
+    ptr = (const u_int *)data;
+    for (i = 0; i < block_size / sizeof(*ptr); i++) {
+        if (*ptr++ != 0)
+            return 0;
+    }
+    return 1;
 }
 

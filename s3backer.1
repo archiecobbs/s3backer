@@ -322,6 +322,16 @@ Equivalent to the
 .Fl \-cacert
 flag documented in
 .Xr curl 1 .
+.It Fl \-compress
+Compress blocks before sending them over the network.
+This should result in less network traffic (in both directions) and lower storage costs.
+.Pp
+This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropriate.
+Therefore, it is safe to switch this flag on or off between different invocations of
+.Nm
+on the same filesystem.
+.Pp
+When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
 .It Fl \-debug
 Enable logging of debug messages.
 Note that this flag is different from

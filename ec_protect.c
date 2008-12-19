@@ -104,7 +104,6 @@ struct ec_protect_private {
     pthread_cond_t              space_cond;     // signaled when cache space available
     pthread_cond_t              sleepers_cond;  // signaled when no more threads are sleeping
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
-    char                        *zero_block;
 };
 
 /* Callback info */
@@ -115,7 +114,7 @@ struct cbinfo {
 
 /* s3backer_store functions */
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
-static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void ec_protect_destroy(struct s3backer_store *s3b);
@@ -138,7 +137,7 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 #define EC_PROTECT_CHECK_INVARIANTS(priv)     do { } while (0)
 #endif
 
-/* Special MD5 value signifying a zeroed block */
+/* Special all-zeroes MD5 value signifying a zeroed block */
 static const u_char zero_md5[MD5_DIGEST_LENGTH];
 
 /*
@@ -228,7 +227,6 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     pthread_cond_destroy(&priv->never_cond);
     s3b_hash_foreach(priv->hashtable, ec_protect_free_one, NULL);
     s3b_hash_destroy(priv->hashtable);
-    free(priv->zero_block);
     free(priv);
     free(s3b);
 }
@@ -296,6 +294,8 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 
         /* In WRITTEN state: special case: zero block */
         if (memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) == 0) {
+            if (expect_md5 != NULL && memcmp(md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
+                (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected MD5?");
             memset(dest, 0, config->block_size);
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
@@ -317,45 +317,19 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 }
 
 static int
-ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, const u_char *md5)
+ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
 {
     struct ec_protect_private *const priv = s3b->data;
     struct ec_protect_conf *const config = priv->config;
-    u_char md5buf[MD5_DIGEST_LENGTH];
+    u_char md5[MD5_DIGEST_LENGTH];
     struct block_info *binfo;
     uint64_t current_time;
-    MD5_CTX md5ctx;
     uint64_t delay;
     int r;
 
     /* Sanity check */
     if (config->block_size == 0)
         return EINVAL;
-
-    /* Allocate zero block if necessary */
-    if (priv->zero_block == NULL) {
-        pthread_mutex_lock(&priv->mutex);
-        if ((priv->zero_block = calloc(1, config->block_size)) == NULL) {
-            priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
-            return ENOMEM;
-        }
-        pthread_mutex_unlock(&priv->mutex);
-    }
-
-    /* Special case handling for all-zeroes blocks */
-    if (src == NULL || (md5 == NULL && memcmp(src, priv->zero_block, config->block_size) == 0)) {
-        src = NULL;
-        md5 = zero_md5;
-    }
-
-    /* Compute MD5 of block (if not already provided) */
-    if (src != NULL && md5 == NULL) {
-        MD5_Init(&md5ctx);
-        MD5_Update(&md5ctx, src, config->block_size);
-        MD5_Final(md5buf, &md5ctx);
-        md5 = md5buf;
-    }
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
@@ -421,6 +395,10 @@ writeit:
         memcpy(binfo->u.md5, md5, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(&priv->list, binfo, link);
         pthread_mutex_unlock(&priv->mutex);
+
+        /* Copy expected MD5 for caller */
+        if (caller_md5 != NULL)
+            memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
         return 0;
     }
 

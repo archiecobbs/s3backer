@@ -6,6 +6,7 @@ To build and install s3backer:
         curl-devel
         fuse-devel
         openssl-devel
+        zlib-devel
         expat
         pkgconfig
 

@@ -68,6 +68,8 @@
 #include <openssl/hmac.h>
 #include <openssl/md5.h>
 
+#include <zlib.h>
+
 #define FUSE_USE_VERSION 25
 #include <fuse.h>
 
@@ -97,6 +99,8 @@ struct s3backer_store {
     /*
      * Read one block. Never-written-to blocks will return containing all zeroes.
      *
+     * If 'expect_md5' is not NULL it should be the value returned from a previous call to write_block().
+     *
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
@@ -109,15 +113,16 @@ struct s3backer_store {
     int         (*read_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 
     /*
-     * Write one block. Blocks that are all zeroes are actually deleted instead
-     * of being written.
+     * Write one block.
      *
-     * If src == NULL, block contains all zeroes; otherwise, if md5 == NULL, contents of block are unknown;
-     * otherwise, contents of block are known to NOT be all zeroes.
+     * Passing src == NULL is equivalent to passing a block containing all zeroes.
+     *
+     * Upon successful return, md5 (if not NULL) will get updated with a value suitable for the 'expect_md5'
+     * parameter of read_block(); if the block is all zeroes, md5 will be zeroed.
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, const u_char *md5);
+    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 
     /*
      * Write part of one block.
