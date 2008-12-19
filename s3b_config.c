@@ -258,6 +258,11 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--debug-http",
+        .offset=    offsetof(struct s3b_config, http_io.debug_http),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--quiet",
         .offset=    offsetof(struct s3b_config, quiet),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -1306,6 +1311,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
+    fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
     fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
     fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
