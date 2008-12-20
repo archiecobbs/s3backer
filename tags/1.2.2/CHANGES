@@ -1,0 +1,94 @@
+
+Version 1.2.2 (r316) released 20 Dec 2008
+
+    - Added `--compress' flag enabling compression of file blocks.
+      Note: compressed blocks are not compatible with versions < 1.2.2.
+    - Disable the MD5 cache when the `--readOnly' flag is given.
+    - Make `--md5CacheTime=0' really mean `infinite' as promised in man page.
+    - Added `--debug-http' flag for debugging HTTP headers.
+    - Don't let block and MD5 caches be configured larger than necessary.
+    - Fixed a few minor issues with statistics reporting.
+
+Version 1.2.1 (r300) released 23 Oct 2008
+
+    - Added `--erase' and `--quiet' command line flags.
+    - Added `--blockCacheSync' command line flag.
+    - Fixed extra copying slowdown when using large block sizes (issue #5).
+    - Eliminate extra copy of blocks when written by block_cache worker threads.
+    - Fixed bug in EC layer where dirty data might not be flushed at shutdown.
+    - Fixed bug where 'http' was shown instead of 'https' in mount(8) output
+      when the --ssl flag was given.
+
+Version 1.2.0 (r248) released 12 Sep 2008
+
+    - Use new custom hash table implementation; this removes glib dependency.
+    - Replaced `--assumeEmpty' flag with safer and more useful `--listBlocks'.
+    - Fixed bug where the zero block optimization got disabled when the
+      MD5 cache was disabled.
+    - Supply `-o allow_other' option by default, since default mode is 0600.
+    - Fixed bug where cp(1)'ing the backed file gave `Illegal seek' error.
+    - Use FUSE version 25 API so code builds on older O/S distributions.
+
+Version 1.1.1 (r202) released 5 Aug 2008
+
+    - Added `--ssl' as an alias for `--baseURL https://s3.amazonaws.com/'.
+    - Added `--insecure' and `--cacert' flags to configure cURL SSL checks.
+    - Implemented `--blockCacheWriteDelay' and `--blockCacheTimeout' flags.
+    - Implemented read-ahead using `--readAhead' and `--readAheadTrigger' flags.
+    - Set FUSE max_readahead option to zero by default since we do it too now.
+    - Added new `--test' flag which turns on local test mode.
+    - Display the URL, bucket, and prefix in the output of mount(8).
+    - Fixed bug where an error during auto-detection would cause a segfault.
+    - Fixed bug where read errors from the underlying store were being ignored
+      by the block cache layer.
+
+Version 1.1.0 (r150) released 26 July 2008
+
+    - Added a block cache with parallel writes which vastly improves performance.
+    - Added a new `stats' file to the filesystem containing various statistics.
+    - Added `--noAutoDetect' flag to disable auto-detection at startup.
+    - Fixed a few small race conditions and memory leaks.
+    - Return zeroes for unwritten blocks with `assumeEmpty'.
+
+Version 1.0.5 (r111) released 15 July 2008
+
+    - Avoid reuse of CURL instance after receiving any HTTP error (issue #3)
+    - On MacOS, prevent kernel timeouts prior to our own timeout (issue #2)
+    - Replaced `--connectTimeout' and `--ioTimeout' with `--timeout' because
+      CURL's I/O timeout includes in it the connection time as well.
+
+Version 1.0.4 (r82) released 9 July 2008
+
+    - Retry on all HTTP error codes, not just 500 or greater. Tests show that
+      a valid request can return a 4xx response due to network issues.
+    - Added `--fileMode' and `--readOnly' flags.
+    - Added `--assumeEmpty' flag.
+    - Support 'E' for 'exabytes'.
+    - Port to Mac OS (issue #1)
+
+Version 1.0.3 (r39) released 30 June 2008
+
+    - Implement exponential backoff: replace ``--maxRetry'' and ``--retryPause''
+      with ``--initialRetryPause'' and ``--maxRetryPause''.
+    - Fix `--accessType' flag which was not being properly handled.
+    - Improvements to the man page.
+
+Version 1.0.2 (r25) released 20 June 2008
+
+    - Fix bug in setting User-Agent HTTP header.
+    - Fix glitch in man page.
+
+Version 1.0.1 (r18) released 20 June 2008
+
+    - Store filesystem size in meta-data associated with the first block and
+      use it to auto-detect filesystem block and file sizes if not specified.
+      As a result, `--size' flag is now optional.
+    - Log a warning and zero remaining bytes when we encounter a short read.
+    - Add User-Agent HTTP header to all HTTP requests.
+    - Include SVN revision in version string.
+    - Don't log every HTTP operation unless `-d' is passed.
+    - Added `--force' flag.
+
+Version 1.0.0 released 19 June 2008
+
+$Id$
