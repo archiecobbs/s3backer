@@ -1,5 +1,5 @@
 
-Version 1.2.2
+Version 1.2.2 (r316) released 20 Dec 2008
 
     - Added `--compress' flag enabling compression of file blocks.
       Note: compressed blocks are not compatible with versions < 1.2.2.
