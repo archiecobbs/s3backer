@@ -17,7 +17,7 @@
 # 
 
 Name:           s3backer
-Version:        1.2.2
+Version:        1.2.3
 Release:        1
 License:        GNU General Public License, Version 2
 Summary:        FUSE-based single file backing store via Amazon S3
