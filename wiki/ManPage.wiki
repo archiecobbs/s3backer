@@ -193,9 +193,22 @@ OPTIONS
              Specify SSL certificate file to be used when verifying the remote server's identity when operating over SSL connec-
              tions.  Equivalent to the --cacert flag documented in curl(1).
 
+     --compress
+             Compress blocks before sending them over the network.  This should result in less network traffic (in both directions)
+             and lower storage costs.
+
+             This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropri-
+             ate.  Therefore, it is safe to switch this flag on or off between different invocations of s3backer on the same
+             filesystem.
+
+             When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
+
      --debug
              Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE; however, the -d
              FUSE flag implies this flag.
+
+     --debug-http
+             Enable printing of HTTP headers to standard output.
 
      --erase
              Completely erase the file system by deleting all non-zero blocks, and then exit.  User confirmation is required unless
@@ -287,7 +300,7 @@ OPTIONS
 
      --readOnly
              Assume the filesystem is going to be mounted read-only, and return EROFS in response to any attempt to write.  This
-             flag also changes the default mode of the backed file from 0600 to 0400.
+             flag also changes the default mode of the backed file from 0600 to 0400 and disables the MD5 checksum cache.
 
      --size=SIZE
              Specify the size (in bytes) of the backed file to be exported by the filesystem.  The size may have an optional suffix
