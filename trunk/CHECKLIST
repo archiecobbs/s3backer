@@ -2,7 +2,7 @@ Checklist for releasing version VERSION
 ---------------------------------------
 
 Final check
-    make dist
+    make distcheck
     test tarball builds and works on Linux, MacOS...
 
 Release tarball
