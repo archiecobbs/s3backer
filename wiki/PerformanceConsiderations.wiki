@@ -21,7 +21,7 @@ When *s3backer* receives a write request from FUSE, the block is added to the bl
 
 In the MD5 cache layer, reads pass right through, except that they are annotated with the expected MD5 checksum (if the block is in the MD5 cache). As a result, reads of stale data from Amazon S3 will be rejected and retried in the HTTP I/O layer. Writes cause an entry to be added to the MD5 cache for the corresponding block; if the block is in the MD5 cache already and `--minWriteDelay` milliseconds have not passed since the previous write, the thread will block until they have before passing the write request on to the HTTP I/O layer.
 
-The HTTP I/O layer is straightforward, converting read and write requests into GET, PUT, and DELETE HTTP requests.
+The HTTP I/O layer is straightforward, converting read and write requests into GET, PUT, and DELETE HTTP requests. This is also the layer where compression of blocks occurs, if enabled (decompression always occurs when necessary).
 
 ===Caching===
 
@@ -121,6 +121,10 @@ Another thing to remember: larger block sizes take longer to transfer. Depending
 Ideally, the correct number of block cache threads should be determined empirically. At some point I hope to write a utility program that performs tests for the best setting.
 
 But generally speaking, the faster your Internet connection, the more threads you'll want; the larger your block size, the fewer threads you'll want. The default value of 20 is just a wild guess.
+
+*Compression*
+
+Unless you have a good reason not to, you probably want to enable compression, as it will reduce network transfer time and Amazon S3 charges. One good reason not to, however, is if you are using an encrypted file system on top of the backed file. In this case, every block written will appear to contain random data and therefore won't compress at all.
 
 ===Tips & Tricks===
 
