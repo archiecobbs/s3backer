@@ -72,6 +72,8 @@ AM_CFLAGS=          $(CFLAGS) $(FUSE_CFLAGS)
 
 AM_LDFLAGS=         $(FUSE_LIBS)
 
+SUBDIRS=            debian
+
 svnrev.c:
 			printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed -r 's/^.*Rev: //g'` > svnrev.c
 

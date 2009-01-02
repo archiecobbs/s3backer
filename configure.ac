@@ -61,6 +61,7 @@ AC_ARG_ENABLE(Werror,
 
 # Generated files
 AC_CONFIG_FILES(Makefile)
+AC_CONFIG_FILES(debian/Makefile)
 AM_CONFIG_HEADER(config.h)
 
 # Go
