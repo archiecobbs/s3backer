@@ -1238,6 +1238,11 @@ syslog_logger(int level, const char *fmt, ...)
 {
     va_list args;
 
+    /* Filter debug messages */
+    if (!config.debug && level == LOG_DEBUG)
+        return;
+
+    /* Send message to syslog */
     va_start(args, fmt);
     vsyslog(level, fmt, args);
     va_end(args);
