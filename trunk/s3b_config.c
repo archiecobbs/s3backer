@@ -1255,6 +1255,7 @@ stderr_logger(int level, const char *fmt, ...)
     char timebuf[32];
     va_list args;
     time_t now;
+    struct tm;
 
     /* Filter debug messages */
     if (!config.debug && level == LOG_DEBUG)
@@ -1284,7 +1285,7 @@ stderr_logger(int level, const char *fmt, ...)
 
     /* Format and print log message */
     time(&now);
-    strftime(timebuf, sizeof(timebuf), "%F %T", localtime(&now));
+    strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
     va_start(args, fmt);
     fprintf(stderr, "%s %s: ", timebuf, levelstr);
     vfprintf(stderr, fmt, args);
