@@ -1210,8 +1210,7 @@ http_io_get_date(char *buf, size_t bufsiz)
     time_t now = time(NULL);
     struct tm tm;
 
-    gmtime_r(&now, &tm);
-    strftime(buf, bufsiz, DATE_BUF_FMT, &tm);
+    strftime(buf, bufsiz, DATE_BUF_FMT, gmtime_r(&now, &tm));
 }
 
 static struct curl_slist *
