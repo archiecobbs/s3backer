@@ -1254,8 +1254,8 @@ stderr_logger(int level, const char *fmt, ...)
     const char *levelstr;
     char timebuf[32];
     va_list args;
+    struct tm tm;
     time_t now;
-    struct tm;
 
     /* Filter debug messages */
     if (!config.debug && level == LOG_DEBUG)
