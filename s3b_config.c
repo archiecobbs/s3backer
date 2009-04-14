@@ -165,10 +165,20 @@ static struct s3b_config config = {
     .log=                   syslog_logger
 };
 
-/* Command line flags */
+/*
+ * Command line flags
+ *
+ * Note: each entry here is listed twice, so both version "--foo=X" and "-o foo=X" work.
+ * See http://code.google.com/p/s3backer/issues/detail?id=7
+ */
 static const struct fuse_opt option_list[] = {
     {
         .templ=     "--accessFile=%s",
+        .offset=    offsetof(struct s3b_config, accessFile),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "accessFile=%s",
         .offset=    offsetof(struct s3b_config, accessFile),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -178,7 +188,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "accessId=%s",
+        .offset=    offsetof(struct s3b_config, http_io.accessId),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--accessKey=%s",
+        .offset=    offsetof(struct s3b_config, http_io.accessKey),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "accessKey=%s",
         .offset=    offsetof(struct s3b_config, http_io.accessKey),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -188,7 +208,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "accessType=%s",
+        .offset=    offsetof(struct s3b_config, http_io.accessType),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--assumeEmpty",                    /* deprecated */
+        .offset=    offsetof(struct s3b_config, list_blocks),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "assumeEmpty",                    /* deprecated */
         .offset=    offsetof(struct s3b_config, list_blocks),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -198,7 +228,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "listBlocks",
+        .offset=    offsetof(struct s3b_config, list_blocks),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--baseURL=%s",
+        .offset=    offsetof(struct s3b_config, http_io.baseURL),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "baseURL=%s",
         .offset=    offsetof(struct s3b_config, http_io.baseURL),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -208,7 +248,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "blockCacheSize=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.cache_size),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--blockCacheSync",
+        .offset=    offsetof(struct s3b_config, block_cache.synchronous),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "blockCacheSync",
         .offset=    offsetof(struct s3b_config, block_cache.synchronous),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -218,7 +268,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "blockCacheThreads=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.num_threads),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--blockCacheTimeout=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.timeout),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "blockCacheTimeout=%u",
         .offset=    offsetof(struct s3b_config, block_cache.timeout),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -228,7 +288,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "blockCacheWriteDelay=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.write_delay),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--readAhead=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "readAhead=%u",
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -238,7 +308,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "readAheadTrigger=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--blockSize=%s",
+        .offset=    offsetof(struct s3b_config, block_size_str),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -248,7 +328,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "md5CacheSize=%u",
+        .offset=    offsetof(struct s3b_config, ec_protect.cache_size),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--md5CacheTime=%u",
+        .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "md5CacheTime=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -258,7 +348,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "debug",
+        .offset=    offsetof(struct s3b_config, debug),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--debug-http",
+        .offset=    offsetof(struct s3b_config, http_io.debug_http),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "debug-http",
         .offset=    offsetof(struct s3b_config, http_io.debug_http),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -268,7 +368,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "quiet",
+        .offset=    offsetof(struct s3b_config, quiet),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--erase",
+        .offset=    offsetof(struct s3b_config, erase),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "erase",
         .offset=    offsetof(struct s3b_config, erase),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -278,7 +388,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "fileMode=%o",
+        .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--filename=%s",
+        .offset=    offsetof(struct s3b_config, fuse_ops.filename),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "filename=%s",
         .offset=    offsetof(struct s3b_config, fuse_ops.filename),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -288,7 +408,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "force",
+        .offset=    offsetof(struct s3b_config, force),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--noAutoDetect",
+        .offset=    offsetof(struct s3b_config, no_auto_detect),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "noAutoDetect",
         .offset=    offsetof(struct s3b_config, no_auto_detect),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -298,7 +428,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "initialRetryPause=%u",
+        .offset=    offsetof(struct s3b_config, http_io.initial_retry_pause),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--maxRetryPause=%u",
+        .offset=    offsetof(struct s3b_config, http_io.max_retry_pause),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "maxRetryPause=%u",
         .offset=    offsetof(struct s3b_config, http_io.max_retry_pause),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -308,7 +448,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "minWriteDelay=%u",
+        .offset=    offsetof(struct s3b_config, ec_protect.min_write_delay),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--prefix=%s",
+        .offset=    offsetof(struct s3b_config, http_io.prefix),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "prefix=%s",
         .offset=    offsetof(struct s3b_config, http_io.prefix),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -318,7 +468,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "readOnly",
+        .offset=    offsetof(struct s3b_config, fuse_ops.read_only),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--size=%s",
+        .offset=    offsetof(struct s3b_config, file_size_str),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "size=%s",
         .offset=    offsetof(struct s3b_config, file_size_str),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -328,7 +488,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "statsFilename=%s",
+        .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--ssl",
+        .offset=    offsetof(struct s3b_config, ssl),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "ssl",
         .offset=    offsetof(struct s3b_config, ssl),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -338,7 +508,17 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "cacert=%s",
+        .offset=    offsetof(struct s3b_config, http_io.cacert),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--insecure",
+        .offset=    offsetof(struct s3b_config, http_io.insecure),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "insecure",
         .offset=    offsetof(struct s3b_config, http_io.insecure),
         .value=     FUSE_OPT_KEY_DISCARD
     },
@@ -348,12 +528,27 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "compress",
+        .offset=    offsetof(struct s3b_config, http_io.compress),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--test",
         .offset=    offsetof(struct s3b_config, test),
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "test",
+        .offset=    offsetof(struct s3b_config, test),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--timeout=%u",
+        .offset=    offsetof(struct s3b_config, http_io.timeout),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "timeout=%u",
         .offset=    offsetof(struct s3b_config, http_io.timeout),
         .value=     FUSE_OPT_KEY_DISCARD
     },

@@ -220,9 +220,17 @@ flags,
 .Nm
 will log to standard error.
 .Sh OPTIONS
-Options specific to
+Each command line flag has two forms, for example
+.Fl \-accessFile=FILE
+and
+.Fl o Ar accessFile=FILE .
+Only the first form is shown below.
+Either form many be used; both forms are equivalent.
+The second form allows mount options to be specified directly in
+.Pa /etc/fstab
+and passed seamlessly to
 .Nm
-are as follows:
+by FUSE.
 .Bl -tag -width Ds
 .It Fl \-accessFile=FILE
 Specify a file containing `accessID:accessKey' pairs, one per-line.
@@ -614,5 +622,8 @@ settings allow HTTP retries to take longer than this value.
 A warning is emitted on startup in this case.
 .Pp
 Filesystem size is limited by the maximum allowable size of a single file.
+.Pp
+The default block size of 4k is non-optimal.
+Typically, users will want a larger value to minimize transaction costs, e.g., 1m.
 .Sh AUTHOR
 .An Archie L. Cobbs Aq archie@dellroad.org
