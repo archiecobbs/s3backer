@@ -39,9 +39,8 @@ AC_CHECK_LIB(expat, XML_ParserCreate,,
 AC_CHECK_LIB(z, compressBound,,
 	[AC_MSG_ERROR([required library zlib missing])])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#ifndef CURLOPT_HTTP_CONTENT_DECODING
-#error fail
-#endif
+#include <curl/curl.h>
+long x = CURLOPT_HTTP_CONTENT_DECODING;
 ]])],, [AC_MSG_ERROR([version of curl is not 7.16.2 or later])])
 
 # Check for required header files
