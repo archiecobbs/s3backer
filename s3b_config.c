@@ -383,6 +383,16 @@ static const struct fuse_opt option_list[] = {
         .value=     FUSE_OPT_KEY_DISCARD
     },
     {
+        .templ=     "--vhost",
+        .offset=    offsetof(struct s3b_config, http_io.vhost),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
+        .templ=     "vhost",
+        .offset=    offsetof(struct s3b_config, http_io.vhost),
+        .value=     FUSE_OPT_KEY_DISCARD
+    },
+    {
         .templ=     "--fileMode=%o",
         .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
         .value=     FUSE_OPT_KEY_DISCARD
@@ -1065,6 +1075,21 @@ validate_config(void)
         config.http_io.baseURL = S3_BASE_URL_HTTPS;
     }
 
+    /* Handle virtual host style URL (prefix hostname with bucket name) */
+    if (config.http_io.vhost) {
+        size_t buflen;
+        int schemelen;
+        char *buf;
+
+        schemelen = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
+        buflen = strlen(config.http_io.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
+        if ((buf = malloc(buflen)) == NULL)
+            err(1, "malloc(%u)", buflen);
+        snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL,
+          config.http_io.bucket, config.http_io.baseURL + schemelen);
+        config.http_io.baseURL = buf;
+    }
+
     /* Check S3 access privilege */
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++) {
         if (strcmp(config.http_io.accessType, s3_acls[i]) == 0)
@@ -1141,12 +1166,6 @@ validate_config(void)
         return -1;
     }
 
-    /* Check bucket */
-    if (config.http_io.bucket == NULL) {
-        warnx("no S3 bucket specified");
-        return -1;
-    }
-
     /* Check mount point */
     if (config.erase) {
         if (config.mount != NULL) {
@@ -1161,9 +1180,15 @@ validate_config(void)
     }
 
     /* Format descriptive string of what we're mounting */
-    snprintf(config.description, sizeof(config.description), "%s%s/%s",
-      config.test ? "file://" : config.ssl ? S3_BASE_URL_HTTPS : config.http_io.baseURL,
-      config.http_io.bucket, config.http_io.prefix);
+    if (config.test) {
+        snprintf(config.description, sizeof(config.description), "%s%s/%s",
+          "file://", config.http_io.bucket, config.http_io.prefix);
+    } else if (config.http_io.vhost)
+        snprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.http_io.prefix);
+    else {
+        snprintf(config.description, sizeof(config.description), "%s%s/%s",
+          config.http_io.baseURL, config.http_io.bucket, config.http_io.prefix);
+    }
 
     /*
      * Read the first block (if any) to determine existing file and block size,
@@ -1539,6 +1564,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
+    fprintf(stderr, "\t--%-27s %s\n", "vhost", "Use virtual host bucket style URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "version", "Show version information and exit");
     fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "Default values:\n");

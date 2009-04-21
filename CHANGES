@@ -1,6 +1,7 @@
 
 Version 1.2.3
 
+    - Added `--vhost' flag for virtual hosted style URLs in all requests.
     - Don't send LOG_DEBUG messages to syslog unless --debug flag given.
     - Fix race condition when generating HTTP Date: headers.
     - Allow command line flags to be specified in /etc/fstab.

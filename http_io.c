@@ -155,7 +155,7 @@ static void http_io_list_prepper(CURL *curl, struct http_io *io);
 
 /* S3 REST API functions */
 static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
-static void http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *method,
+static void http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource);
 
 /* Bucket listing functions */
@@ -317,7 +317,6 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     struct http_io_conf *const config = priv->config;
     char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
     char urlbuf[URL_BUF_SIZE(config) + sizeof(marker) + 32];
-    const char *resource;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
@@ -359,8 +358,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
         /* Format URL */
-        snprintf(urlbuf, sizeof(urlbuf), "%s%s", config->baseURL, config->bucket);
-        resource = urlbuf + strlen(config->baseURL) - 1;
+        snprintf(urlbuf, sizeof(urlbuf), "%s%s", config->baseURL, config->vhost ? "" : config->bucket);
 
         /* Add Date header */
         http_io_get_date(datebuf, sizeof(datebuf));
@@ -368,8 +366,8 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
         /* Add Authorization header */
         if (config->accessId != NULL) {
-            http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey,
-              io.method, NULL, NULL, datebuf, io.headers, resource);
+            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers,
+              config->vhost ? "/" : "");
             io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
         }
 
@@ -592,8 +590,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
 
     /* Add Authorization header */
     if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey,
-          io.method, NULL, NULL, datebuf, io.headers, resource);
+        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
         io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
     }
 
@@ -699,8 +696,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Add Authorization header */
     if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey,
-          io.method, NULL, NULL, datebuf, io.headers, resource);
+        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
         io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
     }
 
@@ -898,7 +894,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Add Authorization header */
     if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config->accessKey, io.method,
+        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method,
           src != NULL ? CONTENT_TYPE : NULL, src != NULL ? md5buf : NULL,
           datebuf, io.headers, resource);
         io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
@@ -1156,7 +1152,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
  * Note: "x-amz" headers must be unique, not wrapped, and sorted lexicographically.
  */
 static void
-http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *method,
+http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource)
 {
     const EVP_MD *sha1_md = EVP_sha1();
@@ -1179,26 +1175,35 @@ http_io_get_auth(char *buf, size_t bufsiz, const char *accessKey, const char *me
             ;
         snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%.*s:%s\n", (int)(colon - headers->data), headers->data, value);
     }
-    snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%s", resource);
+    snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "/%s%s", config->bucket, resource);
 
     /* Compute hash */
-    HMAC(sha1_md, accessKey, strlen(accessKey), (unsigned char *)tosign, strlen(tosign), digest, &digest_len);
+    HMAC(sha1_md, config->accessKey, strlen(config->accessKey), (unsigned char *)tosign, strlen(tosign), digest, &digest_len);
 
     /* Write it out base64 encoded */
     http_io_base64_encode(buf, bufsiz, digest, digest_len);
 }
 
 /*
- * Create URL for a block, and return pointer to the URL's path.
+ * Create URL for a block, and return pointer to the URL's path not including any "/bucket" prefix.
  */
 static char *
 http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
+    char *resource;
     int len;
 
-    len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->vhost) {
+        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL,
+          config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        resource = buf + strlen(config->baseURL) - 1;
+    } else {
+        len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket,
+          config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        resource = buf + strlen(config->baseURL) + strlen(config->bucket);
+    }
     assert(len < bufsiz);
-    return buf + strlen(config->baseURL) - 1;
+    return resource;
 }
 
 /*
