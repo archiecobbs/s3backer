@@ -1,5 +1,5 @@
 
-Version 1.2.3
+Version 1.2.3 (r333) released 15 May 2009
 
     - Added `--vhost' flag for virtual hosted style URLs in all requests.
     - Don't send LOG_DEBUG messages to syslog unless --debug flag given.
