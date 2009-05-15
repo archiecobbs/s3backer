@@ -118,7 +118,9 @@ DESCRIPTION
      In normal operation s3backer will log via syslog(3).  When run with the -d or -f flags, s3backer will log to standard error.
 
 OPTIONS
-     Options specific to s3backer are as follows:
+     Each command line flag has two forms, for example --accessFile=FILE and -o accessFile=FILE.  Only the first form is shown
+     below.  Either form many be used; both forms are equivalent.  The second form allows mount options to be specified directly in
+     /etc/fstab and passed seamlessly to s3backer by FUSE.
 
      --accessFile=FILE
              Specify a file containing `accessID:accessKey' pairs, one per-line.  Blank lines and lines beginning with a `#' are
@@ -327,6 +329,12 @@ OPTIONS
      --version
              Output version and exit.
 
+     --vhost
+             Use virtual hosted style requests.  For example, this will cause s3backer to use the URL
+             http://mybucket.s3.amazonaws.com/path/uri instead of http://s3.amazonaws.com/mybucket/path/uri.
+
+             This flag is required (for example) when S3 buckets have been created with location constraints.
+
      In addition, s3backer accepts all of the generic FUSE options as well.  Here is a partial list:
 
      -o uid=UID
@@ -393,6 +401,9 @@ BUGS
      retries to take longer than this value.  A warning is emitted on startup in this case.
 
      Filesystem size is limited by the maximum allowable size of a single file.
+
+     The default block size of 4k is non-optimal.  Typically, users will want a larger value to minimize transaction costs, e.g.,
+     1m.
 
 AUTHOR
      Archie L. Cobbs <archie@dellroad.org>
