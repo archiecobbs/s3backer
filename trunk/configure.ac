@@ -1,6 +1,6 @@
 # $Id$
 
-AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.2.3], [http://s3backer.googlecode.com/], [s3backer])
+AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.2.4], [http://s3backer.googlecode.com/], [s3backer])
 AC_CONFIG_AUX_DIR(scripts)
 AM_INIT_AUTOMAKE
 dnl AM_MAINTAINER_MODE
