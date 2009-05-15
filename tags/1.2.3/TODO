@@ -1,0 +1,8 @@
+TODO
+
+- interrupt active write when new write happens (instead of waiting)
+- allow block cache to live on disk and persist (possibly dirty) across restarts
+- support alternate backends, generalize `--test' to `--backend=localfs', etc.
+- HMAC blocks into x-amz-meta header to verify they weren't mucked with by amazon
+
+$Id$
