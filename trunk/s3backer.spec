@@ -25,7 +25,11 @@ Group:          System/Filesystems
 Source:         http://%{name}.googlecode.com/files/%{name}-%{version}.tar.gz
 URL:            http://%{name}.googlecode.com/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root
+%if 0%{?suse_version} >= 1100
+BuildRequires:  libcurl-devel >= 7.16.2
+%else
 BuildRequires:  curl-devel >= 7.16.2
+%endif
 BuildRequires:  fuse-devel >= 2.5
 BuildRequires:  openssl-devel
 BuildRequires:  zlib-devel
