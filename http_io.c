@@ -814,7 +814,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.buf_size = config->block_size;
 
     /* Compress block if desired */
-    if (src != NULL && config->compress) {
+    if (src != NULL && config->compress != Z_NO_COMPRESSION) {
 
         /* Allocate buffer */
         compress_len = compressBound(io.buf_size);
@@ -827,7 +827,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         }
 
         /* Compress data */
-        r = compress(compress_buf, &compress_len, io.src, io.buf_size);
+        r = compress2(compress_buf, &compress_len, io.src, io.buf_size, config->compress);
         switch (r) {
         case Z_OK:
             break;
@@ -839,7 +839,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             free(compress_buf);
             return ENOMEM;
         default:
-            (*config->log)(LOG_ERR, "unknown zlib compress() error %d", r);
+            (*config->log)(LOG_ERR, "unknown zlib compress2() error %d", r);
             free(compress_buf);
             return EIO;
         }

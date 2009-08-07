@@ -330,9 +330,12 @@ Equivalent to the
 .Fl \-cacert
 flag documented in
 .Xr curl 1 .
-.It Fl \-compress
+.It Fl \-compress=LEVEL
 Compress blocks before sending them over the network.
 This should result in less network traffic (in both directions) and lower storage costs.
+.Pp
+The compression level is optional; if given, it must be between 1 (fast compression) and 9 (most compression), inclusive.
+If omitted, the default compression level is used.
 .Pp
 This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropriate.
 Therefore, it is safe to switch this flag on or off between different invocations of
