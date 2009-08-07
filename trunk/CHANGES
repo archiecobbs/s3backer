@@ -1,4 +1,8 @@
 
+Version 1.2.4
+
+    - Allow configurable compression level via --compress=LEVEL.
+
 Version 1.2.3 (r333) released 15 May 2009
 
     - Added `--vhost' flag for virtual hosted style URLs in all requests.

@@ -35,7 +35,7 @@ struct http_io_conf {
     int                 debug;
     int                 debug_http;
     int                 quiet;
-    int                 compress;
+    int                 compress;                   // zlib compression level
     int                 vhost;                      // use virtual host style URL
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()
     int                 insecure;

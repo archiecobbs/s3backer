@@ -66,6 +66,7 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT        0
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
+#define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -127,6 +128,7 @@ static struct s3b_config config = {
         .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .user_agent=            user_agent_buf,
+        .compress=              S3BACKER_DEFAULT_COMPRESSION,
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
@@ -489,12 +491,20 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--compress",
         .offset=    offsetof(struct s3b_config, http_io.compress),
-        .value=     1
+        .value=     Z_DEFAULT_COMPRESSION
     },
     {
         .templ=     "compress",
         .offset=    offsetof(struct s3b_config, http_io.compress),
-        .value=     1
+        .value=     Z_DEFAULT_COMPRESSION
+    },
+    {
+        .templ=     "--compress=%d",
+        .offset=    offsetof(struct s3b_config, http_io.compress),
+    },
+    {
+        .templ=     "compress=%d",
+        .offset=    offsetof(struct s3b_config, http_io.compress),
     },
     {
         .templ=     "--test",
@@ -1062,6 +1072,19 @@ validate_config(void)
         return -1;
     }
 
+    /* Check compression level */
+    switch (config.http_io.compress) {
+    case Z_DEFAULT_COMPRESSION:
+    case Z_NO_COMPRESSION:
+        break;
+    default:
+        if (config.http_io.compress < Z_BEST_SPEED || config.http_io.compress > Z_BEST_COMPRESSION) {
+            warnx("illegal compression level `%d'", config.http_io.compress);
+            return -1;
+        }
+        break;
+    }
+
     /* Disable md5 cache when in read only mode */
     if (config.fuse_ops.read_only) {
         config.ec_protect.cache_size = 0;
@@ -1386,7 +1409,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)config.num_blocks);
     (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
     (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "compress", config.http_io.compress ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
@@ -1512,7 +1535,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
-    fprintf(stderr, "\t--%-27s %s\n", "compress", "Enable compression of blocks");
+    fprintf(stderr, "\t--%-27s %s\n", "compress=LEVEL", "Enable block compression, with 1=fast up to 9=small");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
