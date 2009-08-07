@@ -1,5 +1,6 @@
 TODO
 
+- make compression level configurable; use compress2() instead of compress()
 - interrupt active write when new write happens (instead of waiting)
 - allow block cache to live on disk and persist (possibly dirty) across restarts
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
