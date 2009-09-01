@@ -31,7 +31,8 @@
 #include "hash.h"
 
 /* Definitions */
-#define LOAD_FACTOR     0.666666
+#define LOAD_FACTOR                 0.666666
+#define HASH_NEXT(hash, index)      ((index) + 1 < (hash)->alen ? (index) + 1 : 0)
 
 /* Hash table structure */
 struct s3b_hash {
@@ -81,7 +82,7 @@ s3b_hash_get(struct s3b_hash *hash, s3b_block_t key)
     void *value;
     u_int i;
 
-    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = i + 1 < hash->alen ? i + 1 : 0) {
+    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
         if (*(s3b_block_t *)value == key)
             return (void *)value;
     }
@@ -95,7 +96,7 @@ s3b_hash_put(struct s3b_hash *hash, void *value)
     void *entry;
     u_int i;
 
-    for (i = s3b_hash_index(hash, key); (entry = hash->array[i]) != NULL; i = i + 1 < hash->alen ? i + 1 : 0) {
+    for (i = s3b_hash_index(hash, key); (entry = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
         if (*(s3b_block_t *)entry == key) {
             hash->array[i] = value;
             return;
@@ -115,7 +116,7 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
     u_int k;
 
     /* Find entry */
-    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = i + 1 < hash->alen ? i + 1 : 0) {
+    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
         if (*(s3b_block_t *)value == key)
             break;
     }
@@ -123,7 +124,7 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
         return;
 
     /* Repair subsequent entries as necessary */
-    for (j = i + 1 < hash->alen ? i + 1 : 0; (value = hash->array[j]) != NULL; j = j + 1 < hash->alen ? j + 1 : 0) {
+    for (j = HASH_NEXT(hash, i); (value = hash->array[j]) != NULL; j = HASH_NEXT(hash, j)) {
         k = s3b_hash_index(hash, *(s3b_block_t *)value);
         if (j > i ? (k <= i || k > j) : (k <= i && k > j)) {
             hash->array[i] = value;
