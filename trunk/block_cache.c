@@ -451,7 +451,7 @@ again:
     entry->timeout = READING_TIMEOUT;
     ENTRY_SET_DATA(entry, data, CLEAN);
     ENTRY_RESET_LINK(entry);
-    s3b_hash_put(priv->hashtable, entry);
+    s3b_hash_put_new(priv->hashtable, entry);
     assert(ENTRY_GET_STATE(entry) == READING);
 
     /* Update stats */
@@ -624,7 +624,7 @@ again:
         memcpy(data, src, config->block_size);
     else
         memset(data, 0, config->block_size);
-    s3b_hash_put(priv->hashtable, entry);
+    s3b_hash_put_new(priv->hashtable, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
     assert(ENTRY_GET_STATE(entry) == DIRTY);
 

@@ -43,7 +43,8 @@ extern int s3b_hash_create(struct s3b_hash **hashp, u_int maxkeys);
 extern void s3b_hash_destroy(struct s3b_hash *hash);
 extern u_int s3b_hash_size(struct s3b_hash *hash);
 extern void *s3b_hash_get(struct s3b_hash *hash, s3b_block_t key);
-extern void s3b_hash_put(struct s3b_hash *hash, void *value);
+extern void *s3b_hash_put(struct s3b_hash *hash, void *value);
+extern void s3b_hash_put_new(struct s3b_hash *hash, void *value);
 extern void s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key);
 extern void s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t visitor, void *arg);
 

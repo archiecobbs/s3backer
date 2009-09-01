@@ -372,7 +372,7 @@ again:
         }
         binfo->block_num = block_num;
         binfo->u.data = src;
-        s3b_hash_put(priv->hashtable, binfo);
+        s3b_hash_put_new(priv->hashtable, binfo);
 
 writeit:
         /* Write the block */
