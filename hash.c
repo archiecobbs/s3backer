@@ -32,7 +32,11 @@
 
 /* Definitions */
 #define LOAD_FACTOR                 0.666666
-#define HASH_NEXT(hash, index)      ((index) + 1 < (hash)->alen ? (index) + 1 : 0)
+#define FIRST(hash, key)            (s3b_hash_index((hash), (key)))
+#define NEXT(hash, index)           ((index) + 1 < (hash)->alen ? (index) + 1 : 0)
+#define EMPTY(value)                ((value) == NULL)
+#define VALUE(hash, index)          ((hash)->array[(index)])
+#define KEY(value)                  (*(s3b_block_t *)(value))
 
 /* Hash table structure */
 struct s3b_hash {
@@ -79,73 +83,106 @@ s3b_hash_size(struct s3b_hash *hash)
 void *
 s3b_hash_get(struct s3b_hash *hash, s3b_block_t key)
 {
-    void *value;
     u_int i;
 
-    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
-        if (*(s3b_block_t *)value == key)
-            return (void *)value;
+    for (i = FIRST(hash, key); 1; i = NEXT(hash, i)) {
+        void *const value = VALUE(hash, i);
+
+        if (EMPTY(value))
+            return NULL;
+        if (KEY(value) == key)
+            return value;
     }
-    return NULL;
 }
 
-void
+void *
 s3b_hash_put(struct s3b_hash *hash, void *value)
 {
-    const s3b_block_t key = *(s3b_block_t *)value;
-    void *entry;
+    const s3b_block_t key = KEY(value);
     u_int i;
 
-    for (i = s3b_hash_index(hash, key); (entry = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
-        if (*(s3b_block_t *)entry == key) {
-            hash->array[i] = value;
-            return;
+    for (i = FIRST(hash, key); 1; i = NEXT(hash, i)) {
+        void *const value2 = VALUE(hash, i);
+
+        if (EMPTY(value))
+            break;
+        if (KEY(value2) == key) {
+            VALUE(hash, i) = value;         /* replace existing value having the same key with new value */
+            return value2;
         }
     }
     assert(hash->numkeys < hash->maxkeys);
-    hash->array[i] = value;
+    VALUE(hash, i) = value;
+    hash->numkeys++;
+    return NULL;
+}
+
+/*
+ * Optimization of s3b_hash_put() for when it is known that no matching entry exists.
+ */
+void
+s3b_hash_put_new(struct s3b_hash *hash, void *value)
+{
+    const s3b_block_t key = KEY(value);
+    u_int i;
+
+    for (i = FIRST(hash, key); 1; i = NEXT(hash, i)) {
+        void *const value2 = VALUE(hash, i);
+
+        if (EMPTY(value2))
+            break;
+        assert(KEY(value2) != key);
+    }
+    assert(hash->numkeys < hash->maxkeys);
+    VALUE(hash, i) = value;
     hash->numkeys++;
 }
 
 void
 s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
 {
-    void *value;
     u_int i;
     u_int j;
     u_int k;
 
     /* Find entry */
-    for (i = s3b_hash_index(hash, key); (value = hash->array[i]) != NULL; i = HASH_NEXT(hash, i)) {
-        if (*(s3b_block_t *)value == key)
+    for (i = FIRST(hash, key); 1; i = NEXT(hash, i)) {
+        void *const value = VALUE(hash, i);
+
+        if (EMPTY(value))               /* no such entry */
+            return;
+        if (KEY(value) == key)          /* entry found */
             break;
     }
-    if (value == NULL)
-        return;
 
     /* Repair subsequent entries as necessary */
-    for (j = HASH_NEXT(hash, i); (value = hash->array[j]) != NULL; j = HASH_NEXT(hash, j)) {
-        k = s3b_hash_index(hash, *(s3b_block_t *)value);
+    for (j = NEXT(hash, i); 1; j = NEXT(hash, j)) {
+        void *const value = VALUE(hash, j);
+
+        if (value == NULL)
+            break;
+        k = FIRST(hash, KEY(value));
         if (j > i ? (k <= i || k > j) : (k <= i && k > j)) {
-            hash->array[i] = value;
+            VALUE(hash, i) = value;
             i = j;
         }
     }
 
     /* Remove entry */
-    assert(hash->array[i] != NULL);
-    hash->array[i] = NULL;
+    assert(VALUE(hash, i) != NULL);
+    VALUE(hash, i) = NULL;
     hash->numkeys--;
 }
 
 void
 s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t visitor, void *arg)
 {
-    void *value;
     u_int i;
 
     for (i = 0; i < hash->alen; i++) {
-        if ((value = hash->array[i]) != NULL)
+        void *const value = VALUE(hash, i);
+
+        if (value != NULL)
             (*visitor)(arg, value);
     }
 }
