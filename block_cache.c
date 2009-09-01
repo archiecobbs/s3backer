@@ -89,7 +89,7 @@
  *  WRITING     NO                  NO                  NO
  *  WRITING2    NO                  YES                 NO
  *
- * Timeouts: we trak time in units of TIME_UNIT_MILLIS milliseconds from when we start.
+ * Timeouts: we track time in units of TIME_UNIT_MILLIS milliseconds from when we start.
  * This is so we can jam them into 32 bits instead of 64. It's theoretically possible
  * for these time values to wrap, but the effect is harmless (an early write or eviction).
  */
