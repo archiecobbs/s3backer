@@ -220,6 +220,9 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     while (priv->num_sleepers > 0)
         pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
 
+    /* Destroy inner store */
+    (*priv->inner->destroy)(priv->inner);
+
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
