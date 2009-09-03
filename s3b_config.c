@@ -179,15 +179,7 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, accessFile),
     },
     {
-        .templ=     "accessFile=%s",
-        .offset=    offsetof(struct s3b_config, accessFile),
-    },
-    {
         .templ=     "--accessId=%s",
-        .offset=    offsetof(struct s3b_config, http_io.accessId),
-    },
-    {
-        .templ=     "accessId=%s",
         .offset=    offsetof(struct s3b_config, http_io.accessId),
     },
     {
@@ -195,24 +187,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.accessKey),
     },
     {
-        .templ=     "accessKey=%s",
-        .offset=    offsetof(struct s3b_config, http_io.accessKey),
-    },
-    {
         .templ=     "--accessType=%s",
         .offset=    offsetof(struct s3b_config, http_io.accessType),
     },
     {
-        .templ=     "accessType=%s",
-        .offset=    offsetof(struct s3b_config, http_io.accessType),
-    },
-    {
         .templ=     "--assumeEmpty",                    /* deprecated */
-        .offset=    offsetof(struct s3b_config, list_blocks),
-        .value=     1
-    },
-    {
-        .templ=     "assumeEmpty",                    /* deprecated */
         .offset=    offsetof(struct s3b_config, list_blocks),
         .value=     1
     },
@@ -222,24 +201,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "listBlocks",
-        .offset=    offsetof(struct s3b_config, list_blocks),
-        .value=     1
-    },
-    {
         .templ=     "--baseURL=%s",
         .offset=    offsetof(struct s3b_config, http_io.baseURL),
     },
     {
-        .templ=     "baseURL=%s",
-        .offset=    offsetof(struct s3b_config, http_io.baseURL),
-    },
-    {
         .templ=     "--blockCacheSize=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.cache_size),
-    },
-    {
-        .templ=     "blockCacheSize=%u",
         .offset=    offsetof(struct s3b_config, block_cache.cache_size),
     },
     {
@@ -248,16 +214,7 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "blockCacheSync",
-        .offset=    offsetof(struct s3b_config, block_cache.synchronous),
-        .value=     1
-    },
-    {
         .templ=     "--blockCacheThreads=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.num_threads),
-    },
-    {
-        .templ=     "blockCacheThreads=%u",
         .offset=    offsetof(struct s3b_config, block_cache.num_threads),
     },
     {
@@ -265,15 +222,7 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.timeout),
     },
     {
-        .templ=     "blockCacheTimeout=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.timeout),
-    },
-    {
         .templ=     "--blockCacheWriteDelay=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.write_delay),
-    },
-    {
-        .templ=     "blockCacheWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, block_cache.write_delay),
     },
     {
@@ -281,15 +230,7 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
     },
     {
-        .templ=     "readAhead=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
-    },
-    {
         .templ=     "--readAheadTrigger=%u",
-        .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
-    },
-    {
-        .templ=     "readAheadTrigger=%u",
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
     },
     {
@@ -297,15 +238,7 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_size_str),
     },
     {
-        .templ=     "blockSize=%s",
-        .offset=    offsetof(struct s3b_config, block_size_str),
-    },
-    {
         .templ=     "--md5CacheSize=%u",
-        .offset=    offsetof(struct s3b_config, ec_protect.cache_size),
-    },
-    {
-        .templ=     "md5CacheSize=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.cache_size),
     },
     {
@@ -313,16 +246,7 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
     },
     {
-        .templ=     "md5CacheTime=%u",
-        .offset=    offsetof(struct s3b_config, ec_protect.cache_time),
-    },
-    {
         .templ=     "--debug",
-        .offset=    offsetof(struct s3b_config, debug),
-        .value=     1
-    },
-    {
-        .templ=     "debug",
         .offset=    offsetof(struct s3b_config, debug),
         .value=     1
     },
@@ -332,17 +256,7 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "debug-http",
-        .offset=    offsetof(struct s3b_config, http_io.debug_http),
-        .value=     1
-    },
-    {
         .templ=     "--quiet",
-        .offset=    offsetof(struct s3b_config, quiet),
-        .value=     1
-    },
-    {
-        .templ=     "quiet",
         .offset=    offsetof(struct s3b_config, quiet),
         .value=     1
     },
@@ -352,17 +266,7 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "erase",
-        .offset=    offsetof(struct s3b_config, erase),
-        .value=     1
-    },
-    {
         .templ=     "--vhost",
-        .offset=    offsetof(struct s3b_config, http_io.vhost),
-        .value=     1
-    },
-    {
-        .templ=     "vhost",
         .offset=    offsetof(struct s3b_config, http_io.vhost),
         .value=     1
     },
@@ -371,24 +275,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
     },
     {
-        .templ=     "fileMode=%o",
-        .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
-    },
-    {
         .templ=     "--filename=%s",
         .offset=    offsetof(struct s3b_config, fuse_ops.filename),
     },
     {
-        .templ=     "filename=%s",
-        .offset=    offsetof(struct s3b_config, fuse_ops.filename),
-    },
-    {
         .templ=     "--force",
-        .offset=    offsetof(struct s3b_config, force),
-        .value=     1
-    },
-    {
-        .templ=     "force",
         .offset=    offsetof(struct s3b_config, force),
         .value=     1
     },
@@ -398,16 +289,7 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "noAutoDetect",
-        .offset=    offsetof(struct s3b_config, no_auto_detect),
-        .value=     1
-    },
-    {
         .templ=     "--initialRetryPause=%u",
-        .offset=    offsetof(struct s3b_config, http_io.initial_retry_pause),
-    },
-    {
-        .templ=     "initialRetryPause=%u",
         .offset=    offsetof(struct s3b_config, http_io.initial_retry_pause),
     },
     {
@@ -415,23 +297,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.max_retry_pause),
     },
     {
-        .templ=     "maxRetryPause=%u",
-        .offset=    offsetof(struct s3b_config, http_io.max_retry_pause),
-    },
-    {
         .templ=     "--minWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.min_write_delay),
     },
     {
-        .templ=     "minWriteDelay=%u",
-        .offset=    offsetof(struct s3b_config, ec_protect.min_write_delay),
-    },
-    {
         .templ=     "--prefix=%s",
-        .offset=    offsetof(struct s3b_config, http_io.prefix),
-    },
-    {
-        .templ=     "prefix=%s",
         .offset=    offsetof(struct s3b_config, http_io.prefix),
     },
     {
@@ -440,24 +310,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "readOnly",
-        .offset=    offsetof(struct s3b_config, fuse_ops.read_only),
-        .value=     1
-    },
-    {
         .templ=     "--size=%s",
         .offset=    offsetof(struct s3b_config, file_size_str),
     },
     {
-        .templ=     "size=%s",
-        .offset=    offsetof(struct s3b_config, file_size_str),
-    },
-    {
         .templ=     "--statsFilename=%s",
-        .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
-    },
-    {
-        .templ=     "statsFilename=%s",
         .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
     },
     {
@@ -466,25 +323,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "ssl",
-        .offset=    offsetof(struct s3b_config, ssl),
-        .value=     1
-    },
-    {
         .templ=     "--cacert=%s",
         .offset=    offsetof(struct s3b_config, http_io.cacert),
     },
     {
-        .templ=     "cacert=%s",
-        .offset=    offsetof(struct s3b_config, http_io.cacert),
-    },
-    {
         .templ=     "--insecure",
-        .offset=    offsetof(struct s3b_config, http_io.insecure),
-        .value=     1
-    },
-    {
-        .templ=     "insecure",
         .offset=    offsetof(struct s3b_config, http_io.insecure),
         .value=     1
     },
@@ -494,16 +337,7 @@ static const struct fuse_opt option_list[] = {
         .value=     Z_DEFAULT_COMPRESSION
     },
     {
-        .templ=     "compress",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
-        .value=     Z_DEFAULT_COMPRESSION
-    },
-    {
         .templ=     "--compress=%d",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
-    },
-    {
-        .templ=     "compress=%d",
         .offset=    offsetof(struct s3b_config, http_io.compress),
     },
     {
@@ -512,19 +346,9 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "test",
-        .offset=    offsetof(struct s3b_config, test),
-        .value=     1
-    },
-    {
         .templ=     "--timeout=%u",
         .offset=    offsetof(struct s3b_config, http_io.timeout),
     },
-    {
-        .templ=     "timeout=%u",
-        .offset=    offsetof(struct s3b_config, http_io.timeout),
-    },
-    FUSE_OPT_END
 };
 
 /* Default flags we send to FUSE */
@@ -599,6 +423,8 @@ struct s3backer_store *test_io_store;
 struct s3b_config *
 s3backer_get_config(int argc, char **argv)
 {
+    const int num_options = sizeof(option_list) / sizeof(*option_list);
+    struct fuse_opt dup_option_list[2 * sizeof(option_list) + 1];
     char buf[1024];
     int i;
 
@@ -622,8 +448,15 @@ s3backer_get_config(int argc, char **argv)
             err(1, "fuse_opt_insert_arg");
     }
 
+    /* Create the equivalent fstab options (without the "--") for each option in the option list */
+    memcpy(dup_option_list, option_list, sizeof(option_list));
+    memcpy(dup_option_list + num_options, option_list, sizeof(option_list));
+    for (i = num_options; i < 2 * num_options; i++)
+        dup_option_list[i].templ += 2;
+    dup_option_list[2 * num_options].templ = NULL;
+
     /* Parse command line flags */
-    if (fuse_opt_parse(&config.fuse_args, &config, option_list, handle_unknown_option) != 0)
+    if (fuse_opt_parse(&config.fuse_args, &config, dup_option_list, handle_unknown_option) != 0)
         return NULL;
 
     /* Validate configuration */
