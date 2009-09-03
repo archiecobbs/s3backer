@@ -300,6 +300,9 @@ block_cache_destroy(struct s3backer_store *const s3b)
         pthread_cond_wait(&priv->worker_exit, &priv->mutex);
     }
 
+    /* Destroy inner store */
+    (*priv->inner->destroy)(priv->inner);
+
     /* Free structures */
     s3b_hash_foreach(priv->hashtable, block_cache_free_one, NULL);
     s3b_hash_destroy(priv->hashtable);
@@ -694,6 +697,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
             free(entry);
             return ENOMEM;
         }
+        assert(((intptr_t)data & (intptr_t)1) == 0);
         goto done;
     }
 
