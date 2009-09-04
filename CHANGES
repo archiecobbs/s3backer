@@ -2,6 +2,7 @@
 Version 1.2.4
 
     - Allow configurable compression level via --compress=LEVEL.
+    - Fix bug that caused spurious "impossible expected MD5" log messages
 
 Version 1.2.3 (r333) released 15 May 2009
 

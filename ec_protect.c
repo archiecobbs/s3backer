@@ -297,7 +297,7 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 
         /* In WRITTEN state: special case: zero block */
         if (memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) == 0) {
-            if (expect_md5 != NULL && memcmp(md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
+            if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
                 (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected MD5?");
             memset(dest, 0, config->block_size);
             priv->stats.cache_data_hits++;
