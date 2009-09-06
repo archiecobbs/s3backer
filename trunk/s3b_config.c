@@ -575,6 +575,8 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
         (*printer)(prarg, "%-28s %u\n", "http_forbidden", http_io_stats.http_forbidden);
         (*printer)(prarg, "%-28s %u\n", "http_stale", http_io_stats.http_stale);
+        (*printer)(prarg, "%-28s %u\n", "http_verified", http_io_stats.http_verified);
+        (*printer)(prarg, "%-28s %u\n", "http_mismatch", http_io_stats.http_mismatch);
         (*printer)(prarg, "%-28s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_other_error", http_io_stats.http_other_error);

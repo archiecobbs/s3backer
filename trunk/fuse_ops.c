@@ -360,7 +360,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 
     /* Read intermediate complete blocks */
     while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num++, buf, NULL)) != 0)
+        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num++, buf, NULL, 0)) != 0)
             return -r;
         buf += config->block_size;
     }

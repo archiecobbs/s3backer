@@ -31,6 +31,7 @@
 #define HTTP_PUT                    "PUT"
 #define HTTP_DELETE                 "DELETE"
 #define HTTP_HEAD                   "HEAD"
+#define HTTP_NOT_MODIFIED           304
 #define HTTP_UNAUTHORIZED           401
 #define HTTP_FORBIDDEN              403
 #define HTTP_NOT_FOUND              404
@@ -45,6 +46,7 @@
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
 #define IF_MATCH_HEADER             "If-Match"
+#define IF_NONE_MATCH_HEADER        "If-None-Match"
 
 /* MIME type for blocks */
 #define CONTENT_TYPE                "application/x-s3backer-block"
@@ -134,13 +136,14 @@ struct http_io {
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
+    u_int               expect_304;             // a verify request; expect a 304 response
 };
 
 /* CURL prepper function type */
 typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
-static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
+static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -184,6 +187,7 @@ static int http_io_is_zero_block(const void *data, u_int block_size);
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
+static u_char zero_md5[MD5_DIGEST_LENGTH];
 
 /*
  * Constructor
@@ -630,7 +634,7 @@ http_io_detect_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5)
+http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -684,10 +688,18 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     http_io_get_date(datebuf, sizeof(datebuf));
     io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
 
-    /* Add If-Match header */
-    if (expect_md5 != NULL) {
+    /* Add If-Match or If-None-Match header as required */
+    if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0) {
+        const char *header;
+
+        if (strict)
+            header = IF_MATCH_HEADER;
+        else {
+            header = IF_NONE_MATCH_HEADER;
+            io.expect_304 = 1;
+        }
         io.headers = http_io_add_header(io.headers,
-          "%s: \"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\"", IF_MATCH_HEADER,
+          "%s: \"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\"", header,
           expect_md5[0], expect_md5[1], expect_md5[2], expect_md5[3],
           expect_md5[4], expect_md5[5], expect_md5[6], expect_md5[7],
           expect_md5[8], expect_md5[9], expect_md5[10], expect_md5[11],
@@ -732,6 +744,43 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         break;
     }
     pthread_mutex_unlock(&priv->mutex);
+
+    /* Check expected MD5 */
+    if (expect_md5 != NULL) {
+        const int expected_not_found = memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) == 0;
+
+        /* Compare result with expectation */
+        switch (r) {
+        case 0:
+            if (expected_not_found)
+                r = strict ? EIO : 0;
+            break;
+        case ENOENT:
+            if (expected_not_found)
+                r = strict ? 0 : EEXIST;
+            break;
+        default:
+            break;
+        }
+
+        /* Update stats */
+        if (!strict) {
+            switch (r) {
+            case 0:
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_mismatch++;
+                pthread_mutex_unlock(&priv->mutex);
+                break;
+            case EEXIST:
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_verified++;
+                pthread_mutex_unlock(&priv->mutex);
+                break;
+            default:
+                break;
+            }
+        }
+    }
 
     /* Treat `404 Not Found' all zeroes */
     if (r == ENOENT) {
@@ -991,6 +1040,12 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, io->method, io->url);
         curl_code = curl_easy_perform(curl);
 
+        /* Work around the fact that libcurl converts a 304 HTTP code as success */
+        if (curl_code == 0
+          && curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) == 0
+          && http_code == HTTP_NOT_MODIFIED)
+            curl_code = CURLE_HTTP_RETURNED_ERROR;
+
         /* Handle success */
         if (curl_code == 0) {
             double curl_time;
@@ -1084,6 +1139,13 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 priv->stats.http_stale++;
                 pthread_mutex_unlock(&priv->mutex);
                 break;
+            case HTTP_NOT_MODIFIED:
+                if (io->expect_304) {
+                    if (config->debug)
+                        (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
+                    return EEXIST;
+                }
+                /* FALLTHROUGH */
             default:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);

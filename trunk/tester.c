@@ -134,7 +134,7 @@ thread_main(void *arg)
 
             // Do the read
             logit(id, "rd %0*jx START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-            if ((r = (*store->read_block)(store, block_num, data, NULL)) != 0) {
+            if ((r = (*store->read_block)(store, block_num, data, NULL, 0)) != 0) {
                 logit(id, "****** READ ERROR: %s", strerror(r));
                 continue;
             }
