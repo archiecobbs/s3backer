@@ -362,7 +362,7 @@ again:
             if ((binfo = TAILQ_FIRST(&priv->list)) != NULL && config->cache_time > 0)
                 delay = ec_protect_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
-                delay = ec_protect_sleep_until(priv, &priv->space_cond, 0);
+                delay = ec_protect_sleep_until(priv, &priv->space_cond, 0);         /* sleep indefinitely... */
             priv->stats.cache_full_delay += delay;
             goto again;
         }
@@ -392,6 +392,13 @@ writeit:
             free(binfo);
             return r;
         }
+
+        /*
+         * Wake up at least one thread that might be sleeping indefinitely (see above). This handles an obscure
+         * case where the cache is full and every entry is in the WRITING state. The next thread that attempts
+         * to write could be stuck waiting indefinitely unless we wake it up here.
+         */
+        pthread_cond_signal(&priv->space_cond);
 
         /* Move to state WRITTEN */
         binfo->timestamp = ec_protect_get_time();
