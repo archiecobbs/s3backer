@@ -1,6 +1,7 @@
 
 Version 1.2.4
 
+    - Fix obscure and unlikely deadlock bug in ec_protect.c.
     - Allow configurable compression level via --compress=LEVEL.
     - Fix bug that caused spurious "impossible expected MD5" log messages
 
