@@ -97,13 +97,21 @@ typedef void        block_list_func_t(void *arg, s3b_block_t block_num);
 struct s3backer_store {
 
     /*
-     * Read one block. Never-written-to blocks will return containing all zeroes.
+     * Read one block. Never-written-to blocks will return all zeroes.
      *
-     * If 'expect_md5' is not NULL it should be the value returned from a previous call to write_block().
+     * If 'expect_md5' is not NULL:
+     *  - expect_md5 should be the expected MD5 of the block, or all zeroes if block is expected to be all zeroes.
+     *  - If strict != 0, expect_md5 must be the value returned from the most recent call to write_block(),
+     *    and the data must match it or else an error is returned. Aside from this check, read normally.
+     *  - If strict == 0:
+     *    - If block's MD5 does not match expect_md5, expect_md5 is ignored and the block is read normally
+     *    - If block's MD5 matches expect_md5, the implementation may either:
+     *      - Ignore expect_md5 and read the block normally; OR
+     *      - Return EEXIST; the block may or may not also be read normally into *dest
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
+    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
 
     /*
      * Read part of one block.

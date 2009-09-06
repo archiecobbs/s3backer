@@ -33,13 +33,16 @@
  * Blocks in the cache are in one of these states:
  *
  *  CLEAN       Data is consistent with underlying s3backer_store
+ *  CLEAN2      Data is belived consistent with underlying s3backer_store, but need to verify
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
  *  READING     Data is being read from the underlying s3backer_store
+ *  READING2    Data is being read/verified from the underlying s3backer_store
  *  WRITING     Data is being written to underlying s3backer_store
  *  WRITING2    Same as WRITING, but a subsequent write has stored new data
  *
- * Blocks in the CLEAN state are linked in a list in order from least recently used
- * to most recently used (where 'used' means either read or written).
+ * Blocks in the CLEAN and CLEAN2 states are linked in a list in order from least recently
+ * used to most recently used (where 'used' means either read or written). CLEAN2 is the
+ * same as CLEAN except that the data must be MD5 verified before being used.
  *
  * Blocks in the DIRTY state are linked in a list in the order they should be written.
  * A pool of worker threads picks them off and writes them through to the underlying
@@ -57,16 +60,18 @@
  *
  * Blocks in the READING, WRITING and WRITING2 states are not in either list.
  *
- * Only CLEAN blocks are eligible to be evicted from the cache. We evict CLEAN entries
+ * Only CLEAN and CLEAN2 blocks are eligible to be evicted from the cache. We evict entries
  * either when they timeout or the cache is full and we need to add a new entry to it.
  */
 
 /* Cache entry states */
 #define CLEAN           0
-#define DIRTY           1
-#define READING         2
-#define WRITING         3
-#define WRITING2        4
+#define CLEAN2          1
+#define DIRTY           2
+#define READING         3
+#define READING2        4
+#define WRITING         5
+#define WRITING2        6
 
 /*
  * One cache entry. In order to keep this structure as small as possible, we do
@@ -80,22 +85,25 @@
  *
  * Invariants:
  *
- *  State       ENTRY_IN_LIST()?    ENTRY_IS_DIRTY()?   entry->timeout == -1
- *  -----       ----------------    -----------------   --------------------
+ *  State       ENTRY_IN_LIST()?    ENTRY_IS_DIRTY()?   entry->timeout == -1  verify
+ *  -----       ----------------    -----------------   --------------------  ------
  *
- *  CLEAN       YES: priv->cleans   NO                  ?
- *  DIRTY       YES: priv->dirties  YES                 ?
- *  READING     NO                  NO                  YES
- *  WRITING     NO                  NO                  NO
- *  WRITING2    NO                  YES                 NO
+ *  CLEAN       YES: priv->cleans   NO                  ?                       0
+ *  CLEAN2      YES: priv->cleans   NO                  ?                       1
+ *  READING     NO                  NO                  YES                     0
+ *  READING2    NO                  NO                  YES                     1
+ *  DIRTY       YES: priv->dirties  YES                 ?                       ?
+ *  WRITING     NO                  NO                  NO                      ?
+ *  WRITING2    NO                  YES                 NO                      ?
  *
  * Timeouts: we track time in units of TIME_UNIT_MILLIS milliseconds from when we start.
- * This is so we can jam them into 32 bits instead of 64. It's theoretically possible
- * for these time values to wrap, but the effect is harmless (an early write or eviction).
+ * This is so we can jam them into 31 bits instead of 64. It's possible for the time value
+ * to wrap after about two years; the effect would be mis-timed writes and evictions.
  */
 struct cache_entry {
     s3b_block_t                     block_num;      // block number - MUST BE FIRST
-    uint32_t                        timeout;        // when to evict (CLEAN) or write (DIRTY)
+    u_int                           verify:1;       // data should be verified first
+    uint32_t                        timeout:31;     // when to evict (CLEAN[2]) or write (DIRTY)
     TAILQ_ENTRY(cache_entry)        link;           // next in list (cleans or dirties)
     void                            *_data;         // block's data (bit zero = dirty bit)
 };
@@ -108,19 +116,20 @@ struct cache_entry {
 #define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_prev != NULL)
 #define ENTRY_RESET_LINK(entry)             do { (entry)->link.tqe_prev = NULL; } while (0)
 #define ENTRY_GET_STATE(entry)              (ENTRY_IN_LIST(entry) ?                             \
-                                                (ENTRY_IS_DIRTY(entry) ? DIRTY : CLEAN) :       \
+                                                (ENTRY_IS_DIRTY(entry) ? DIRTY :                \
+                                                  ((entry)->verify ? CLEAN2 : CLEAN)) :         \
                                                 ((entry)->timeout == READING_TIMEOUT ?          \
-                                                  READING :                                     \
+                                                  ((entry)->verify ? READING2 : READING) :      \
                                                   ENTRY_IS_DIRTY(entry) ? WRITING2 : WRITING))
 
 /* One time unit in milliseconds */
-#define TIME_UNIT_MILLIS            16
+#define TIME_UNIT_MILLIS            32
 
 /* The dirty ratio at which we want to be writing out dirty blocks immediately */
 #define DIRTY_RATIO_WRITE_ASAP      0.90            // 90%
 
-/* Special timeout value for entries in state READING */
-#define READING_TIMEOUT             (~(uint32_t)0)
+/* Special timeout value for entries in state READING and READING2 */
+#define READING_TIMEOUT             ((uint32_t)0x7fffffff)
 
 /* Private data */
 struct block_cache_private {
@@ -142,7 +151,7 @@ struct block_cache_private {
     int                             stopping;       // signals worker threads to exit
     pthread_mutex_t                 mutex;          // my mutex
     pthread_cond_t                  space_avail;    // there is new space available in cache
-    pthread_cond_t                  end_reading;    // some entry in state READING changed state
+    pthread_cond_t                  end_reading;    // some entry in state READING[2] changed state
     pthread_cond_t                  worker_work;    // there is new work for worker thread(s)
     pthread_cond_t                  worker_exit;    // a worker thread has exited
     pthread_cond_t                  write_complete; // a write has completed
@@ -155,7 +164,7 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
-static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
+static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -169,6 +178,7 @@ static int block_cache_write(struct block_cache_private *priv, s3b_block_t block
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_one(void *arg, void *value);
+static void block_cache_compute_md5(struct block_cache_private *priv, struct cache_entry *entry, u_char *md5);
 static void block_cache_dirty_callback(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
@@ -346,7 +356,7 @@ block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback,
 }
 
 static int
-block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5)
+block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
@@ -408,6 +418,7 @@ static int
 block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats)
 {
     struct cache_entry *entry;
+    u_char md5[MD5_DIGEST_LENGTH];
     void *data;
     int r;
 
@@ -422,8 +433,25 @@ again:
         assert(entry->block_num == block_num);
         switch (ENTRY_GET_STATE(entry)) {
         case READING:       /* Wait for other thread already reading this block to finish */
+        case READING2:
             pthread_cond_wait(&priv->end_reading, &priv->mutex);
             goto again;
+        case CLEAN2:        /* Go into READING2 state to read/verify the data */
+
+            /* Compute MD5 of existing data */
+            block_cache_compute_md5(priv, entry, md5);
+
+            /* Change from CLEAN2 to READING2 */
+            TAILQ_REMOVE(&priv->cleans, entry, link);
+            ENTRY_RESET_LINK(entry);
+            priv->num_cleans--;
+            entry->timeout = READING_TIMEOUT;
+            assert(entry->verify == 1);
+            assert(ENTRY_GET_STATE(entry) == READING2);
+
+            /* Now go read/verify the data */
+            data = ENTRY_GET_DATA(entry);
+            goto read;
         case CLEAN:         /* Update timestamp and move to the end of the list to maintain LRU ordering */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
@@ -451,6 +479,7 @@ again:
         goto again;
     }
     entry->block_num = block_num;
+    entry->verify = 0;
     entry->timeout = READING_TIMEOUT;
     ENTRY_SET_DATA(entry, data, CLEAN);
     ENTRY_RESET_LINK(entry);
@@ -461,24 +490,36 @@ again:
     if (stats)
         priv->stats.read_misses++;
 
+read:
     /* Read the block from the underlying s3backer_store */
     pthread_mutex_unlock(&priv->mutex);
-    r = (*priv->inner->read_block)(priv->inner, block_num, data, NULL);
+    r = (*priv->inner->read_block)(priv->inner, block_num, data, entry->verify ? md5 : NULL, 0);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* The entry should still exist and be in state READING */
+    /* The entry should still exist and be in state READING[2] */
     assert(s3b_hash_get(priv->hashtable, block_num) == entry);
-    assert(ENTRY_GET_STATE(entry) == READING);
+    assert(ENTRY_GET_STATE(entry) == READING || ENTRY_GET_STATE(entry) == READING2);
     assert(ENTRY_GET_DATA(entry) == data);
 
     /*
      * We know two things at this point: the state is going to
-     * change from READING and we will create new available space
+     * change from READING[2] and we will create new available space
      * in the cache. Wake up any threads waiting on those events.
      */
     pthread_cond_broadcast(&priv->end_reading);
     pthread_cond_signal(&priv->space_avail);
+
+    /* Handle READING2 blocks that were verified (revert to READING) */
+    if (entry->verify) {
+        entry->verify = 0;
+        if (r == EEXIST) {                  /* md5 matched our expectation, download avoided */
+            priv->stats.read_hits++;
+            r = 0;
+        } else if (r == 0)
+            priv->stats.read_misses++;
+        assert(ENTRY_GET_STATE(entry) == READING);
+    }
 
     /* Check for error from underlying s3backer_store */
     if (r != 0) {
@@ -493,6 +534,7 @@ again:
 
     /* Change entry from READING to CLEAN */
     assert(ENTRY_GET_STATE(entry) == READING);
+    assert(entry->verify == 0);
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
     TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
     priv->num_cleans++;
@@ -549,9 +591,11 @@ again:
         assert(entry->block_num == block_num);
         switch (ENTRY_GET_STATE(entry)) {
         case READING:               /* wait for entry to leave READING */
+        case READING2:
             pthread_cond_wait(&priv->end_reading, &priv->mutex);
             goto again;
         case CLEAN:                 /* move to state DIRTY */
+        case CLEAN2:
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
@@ -607,11 +651,11 @@ again:
         goto again;
     }
 
-    /* Get a cache entry, evicting a CLEAN entry if necessary */
+    /* Get a cache entry, evicting a CLEAN[2] entry if necessary */
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
         goto fail;
 
-    /* If cache is full, wait for an entry to go CLEAN so we can evict it */
+    /* If cache is full, wait for an entry to go CLEAN[2] so we can evict it */
     if (entry == NULL) {
         pthread_cond_wait(&priv->space_avail, &priv->mutex);
         goto again;
@@ -652,7 +696,7 @@ success:
 
             /* See if it is now clean */
             state = ENTRY_GET_STATE(entry);
-            if (state == CLEAN || state == READING)
+            if (state == CLEAN || state == CLEAN2 || state == READING || state == READING2)
                 break;
 
             /* Not written yet, go back to sleep */
@@ -669,7 +713,7 @@ fail:
 
 /*
  * Acquire a new cache entry. If the cache is full, and there is at least one
- * CLEAN entry, evict and return it (uninitialized). Otherwise, return NULL entry.
+ * CLEAN[2] entry, evict and return it (uninitialized). Otherwise, return NULL entry.
  *
  * This assumes the mutex is held.
  *
@@ -701,7 +745,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
         goto done;
     }
 
-    /* Is there a CLEAN entry we can evict? */
+    /* Is there a CLEAN[2] entry we can evict? */
     if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
         TAILQ_REMOVE(&priv->cleans, entry, link);
         s3b_hash_remove(priv->hashtable, entry->block_num);
@@ -747,7 +791,7 @@ block_cache_worker_main(void *arg)
         /* Get current time */
         now = block_cache_get_time(priv);
 
-        /* Evict any CLEAN blocks that have timed out (if enabled) */
+        /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
                 s3b_hash_remove(priv->hashtable, clean_entry->block_num);
@@ -800,7 +844,7 @@ block_cache_worker_main(void *arg)
             if (ENTRY_IS_DIRTY(entry))
                 free(entry_data);
 
-            /* If that failed, go back to the DIRTY state and try again */
+            /* If write attempt failed, go back to the DIRTY state and try again later */
             if (r != 0) {
                 ENTRY_SET_DIRTY(entry);
                 TAILQ_INSERT_HEAD(&priv->dirties, entry, link);
@@ -810,8 +854,10 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!ENTRY_IS_DIRTY(entry)) {
                 TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+                entry->verify = 0;
                 entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
                 priv->num_cleans++;
+                assert(ENTRY_GET_STATE(entry) == CLEAN);
                 pthread_cond_signal(&priv->space_avail);
                 if (config->synchronous)
                     pthread_cond_broadcast(&priv->write_complete);
@@ -917,9 +963,19 @@ block_cache_free_one(void *arg, void *value)
     free(entry);
 }
 
+static void
+block_cache_compute_md5(struct block_cache_private *priv, struct cache_entry *entry, u_char *md5)
+{
+    struct block_cache_conf *const config = priv->config;
+    MD5_CTX ctx;
+
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, ENTRY_GET_DATA(entry), config->block_size);
+    MD5_Final(md5, &ctx);
+}
+
 /*
- * Compute dirty ratio, i.e., percent of total cache space occupied by
- * non-CLEAN entries.
+ * Compute dirty ratio, i.e., percent of total cache space occupied by non-CLEAN[2] entries.
  */
 static double
 block_cache_dirty_ratio(struct block_cache_private *priv)
@@ -937,7 +993,9 @@ block_cache_dirty_callback(void *arg, void *value)
 
     switch (ENTRY_GET_STATE(entry)) {
     case CLEAN:
+    case CLEAN2:
     case READING:
+    case READING2:
         break;
     case WRITING2:
     case WRITING:
@@ -970,9 +1028,9 @@ block_cache_check_invariants(struct block_cache_private *priv)
     int clean_len = 0;
     int dirty_len = 0;
 
-    /* Check CLEANs */
+    /* Check CLEANs and CLEAN2s */
     for (entry = TAILQ_FIRST(&priv->cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
-        assert(ENTRY_GET_STATE(entry) == CLEAN);
+        assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
         assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
         clean_len++;
     }
@@ -1011,12 +1069,14 @@ block_cache_check_one(void *arg, void *value)
     assert(entry != NULL);
     switch (ENTRY_GET_STATE(entry)) {
     case CLEAN:
+    case CLEAN2:
         info->num_clean++;
         break;
     case DIRTY:
         info->num_dirty++;
         break;
     case READING:
+    case READING2:
         assert(!ENTRY_IS_DIRTY(entry));
         info->num_reading++;
         break;

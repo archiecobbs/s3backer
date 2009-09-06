@@ -37,7 +37,7 @@ struct test_io_private {
 };
 
 /* s3backer_store functions */
-static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5);
+static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -92,14 +92,14 @@ test_io_destroy(struct s3backer_store *const s3b)
 }
 
 static int
-test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5)
+test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     u_char md5[MD5_DIGEST_LENGTH];
     char path[PATH_MAX];
+    int zero_block;
     MD5_CTX ctx;
-    int total;
     int fd;
     int r;
 
@@ -120,50 +120,75 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     snprintf(path, sizeof(path), "%s/%s%0*jx", config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Read block */
-    if ((fd = open(path, O_RDONLY)) == -1) {
-        if (errno == ENOENT) {
-            memset(dest, 0, config->block_size);
-            if (config->debug)
-                (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete (zero)", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-            return 0;
-        }
-        return errno;
-    }
-    for (total = 0; total < config->block_size; total += r) {
-        if ((r = read(fd, (char *)dest + total, config->block_size - total)) == -1) {
-            r = errno;
-            (*config->log)(LOG_ERR, "can't read %s: %s", path, strerror(r));
-            close(fd);
-            return r;
-        }
-        if (r == 0)
-            break;
-    }
-    close(fd);
+    if ((fd = open(path, O_RDONLY)) != -1) {
+        int total;
 
-    /* Check for short read */
-    if (total != config->block_size) {
-        (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
-        return EINVAL;
+        /* Read file */
+        for (total = 0; total < config->block_size; total += r) {
+            if ((r = read(fd, (char *)dest + total, config->block_size - total)) == -1) {
+                r = errno;
+                (*config->log)(LOG_ERR, "can't read %s: %s", path, strerror(r));
+                close(fd);
+                return r;
+            }
+            if (r == 0)
+                break;
+        }
+        close(fd);
+
+        /* Check for short read */
+        if (total != config->block_size) {
+            (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
+            return EIO;
+        }
+
+        /* Done */
+        r = 0;
+    } else
+        r = errno;
+
+    /* Convert ENOENT into a read of all zeroes */
+    if ((zero_block = (r == ENOENT))) {
+        memset(dest, 0, config->block_size);
+        r = 0;
     }
 
-    /* Compare MD5 checksum */
-    if (expect_md5 != NULL) {
+    /* Check for other error */
+    if (r != 0) {
+        (*config->log)(LOG_ERR, "can't open %s: %s", path, strerror(r));
+        return r;
+    }
+
+    /* Compute MD5 */
+    if (zero_block)
+        memset(md5, 0, MD5_DIGEST_LENGTH);
+    else {
         MD5_Init(&ctx);
         MD5_Update(&ctx, dest, config->block_size);
         MD5_Final(md5, &ctx);
-        if (memcmp(md5, expect_md5, MD5_DIGEST_LENGTH) != 0) {
-            (*config->log)(LOG_ERR, "%s: wrong MD5 checksum", path);
-            return EBADF;               /* or, what? */
-        }
+    }
+
+    /* Check expected MD5 */
+    if (expect_md5 != NULL) {
+        const int match = memcmp(md5, expect_md5, MD5_DIGEST_LENGTH);
+
+        if (strict) {
+            if (!match) {
+                (*config->log)(LOG_ERR, "%s: wrong MD5 checksum?!", path);
+                return EINVAL;
+            }
+        } else if (match)
+            r = EEXIST;
     }
 
     /* Logging */
-    if (config->debug)
-        (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->debug) {
+        (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete%s%s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+          zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
+    }
 
     /* Done */
-    return 0;
+    return r;
 }
 
 static int
