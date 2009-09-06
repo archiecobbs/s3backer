@@ -175,7 +175,7 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
 }
 
 void
-s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t visitor, void *arg)
+s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t *visitor, void *arg)
 {
     u_int i;
 
