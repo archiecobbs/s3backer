@@ -144,7 +144,7 @@ fuse_op_init(void)
     /* Create private structure */
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         (*config->log)(LOG_ERR, "fuse_op_init(): %s", strerror(errno));
-        return NULL;
+        exit(1);
     }
     priv->block_bits = ffs(config->block_size) - 1;
     priv->start_time = time(NULL);
