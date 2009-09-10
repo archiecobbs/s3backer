@@ -289,7 +289,7 @@ Blocks may be written sooner when there is cache pressure.
 A value of zero configures a ``write-through'' policy; greater values configure a ``write-back'' policy.
 Larger values increase performance when a small number of blocks are accessed repeatedly, at the cost of
 greater inconsistency with the underlying S3 data store.
-Default value is zero.
+Default value is 250 milliseconds.
 .It Fl \-blockCacheSync
 Forces synchronous writes in the block cache layer.
 Instead of returning immediately and scheduling the actual write to operation happen later,
