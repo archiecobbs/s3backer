@@ -32,6 +32,8 @@ struct block_cache_conf {
     u_int               num_threads;
     u_int               read_ahead;
     u_int               read_ahead_trigger;
+    u_int               no_verify;
+    const char          *cache_file;
     log_func_t          *log;
 };
 
@@ -43,6 +45,8 @@ struct block_cache_stats {
     u_int               read_misses;
     u_int               write_hits;
     u_int               write_misses;
+    u_int               verified;
+    u_int               mismatch;
     u_int               out_of_memory_errors;
 };
 

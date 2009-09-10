@@ -234,6 +234,15 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
     },
     {
+        .templ=     "--blockCacheFile=%s",
+        .offset=    offsetof(struct s3b_config, block_cache.cache_file),
+    },
+    {
+        .templ=     "--blockCacheNoVerify",
+        .offset=    offsetof(struct s3b_config, block_cache.no_verify),
+        1
+    },
+    {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
     },
@@ -614,6 +623,8 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
         (*printer)(prarg, "%-28s %.4f\n", "block_cache_write_hit_ratio", write_hit_ratio);
+        (*printer)(prarg, "%-28s %u\n", "block_cache_verified", block_cache_stats.verified);
+        (*printer)(prarg, "%-28s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
         total_oom += block_cache_stats.out_of_memory_errors;
     }
     if (ec_protect_store != NULL) {
@@ -975,6 +986,16 @@ validate_config(void)
         warnx("`--blockCacheSync' requires setting `--blockCacheWriteDelay=0'");
         return -1;
     }
+    if (config.block_cache.cache_size > 0 && config.block_cache.cache_file != NULL) {
+        int bs_bits = ffs(config.block_size) - 1;
+        int cs_bits = ffs(config.block_cache.cache_size);
+
+        if (bs_bits + cs_bits >= sizeof(off_t) * 8 - 1) {
+            warnx("the block cache is too big to fit within a single file (%u blocks x %u bytes)",
+              config.block_cache.cache_size, config.block_size);
+            return -1;
+        }
+    }
 
     /* Check mount point */
     if (config.erase) {
@@ -1258,6 +1279,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file", config.block_cache.cache_file);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -1342,7 +1365,9 @@ usage(void)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
-    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");

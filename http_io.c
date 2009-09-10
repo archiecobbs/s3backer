@@ -40,6 +40,7 @@
 #define AUTH_HEADER                 "Authorization"
 #define CTYPE_HEADER                "Content-Type"
 #define CONTENT_ENCODING_HEADER     "Content-Encoding"
+#define ETAG_HEADER                 "ETag"
 #define CONTENT_ENCODING_DEFLATE    "deflate"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
@@ -137,13 +138,15 @@ struct http_io {
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
     u_int               expect_304;             // a verify request; expect a 304 response
+    u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
 };
 
 /* CURL prepper function type */
 typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
-static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
+static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -634,7 +637,8 @@ http_io_detect_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
+http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -661,6 +665,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             priv->stats.empty_blocks_read++;
             pthread_mutex_unlock(&priv->mutex);
             memset(dest, 0, config->block_size);
+            if (actual_md5 != NULL)
+                memset(actual_md5, 0, MD5_DIGEST_LENGTH);
             return 0;
         }
         pthread_mutex_unlock(&priv->mutex);
@@ -788,6 +794,10 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         r = 0;
     }
 
+    /* Copy actual MD5 */
+    if (actual_md5 != NULL)
+        memcpy(actual_md5, io.md5, MD5_DIGEST_LENGTH);
+
     /*  Clean up */
     curl_slist_free_all(io.headers);
     return r;
@@ -803,6 +813,8 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
 }
@@ -1382,6 +1394,34 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     /* Check for interesting headers */
     (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
     (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
+
+    /* ETag header requires parsing */
+    if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {
+        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+        char fmtbuf[64];
+        u_int byte;
+        int i;
+        int j;
+
+        snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", MD5_DIGEST_LENGTH * 2);
+        if (sscanf(buf + sizeof(ETAG_HEADER), fmtbuf, md5buf) == 1) {
+            for (i = 0; i < MD5_DIGEST_LENGTH; i++) {
+                for (byte = j = 0; j < 2; j++) {
+                    const char ch = md5buf[2 * i + j];
+
+                    if (!isxdigit(ch))
+                        break;
+                    byte <<= 4;
+                    byte |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+                }
+                io->md5[i] = byte;
+            }
+            if (i < MD5_DIGEST_LENGTH)
+                memset(io->md5, 0, sizeof(io->md5));
+        }
+    }
+
+    /* Done */
     return total;
 }
 

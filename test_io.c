@@ -37,7 +37,8 @@ struct test_io_private {
 };
 
 /* s3backer_store functions */
-static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
+static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -92,7 +93,8 @@ test_io_destroy(struct s3backer_store *const s3b)
 }
 
 static int
-test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
+test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -167,6 +169,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         MD5_Update(&ctx, dest, config->block_size);
         MD5_Final(md5, &ctx);
     }
+    if (actual_md5 != NULL)
+        memcpy(actual_md5, md5, MD5_DIGEST_LENGTH);
 
     /* Check expected MD5 */
     if (expect_md5 != NULL) {

@@ -43,6 +43,9 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 long x = CURLOPT_HTTP_CONTENT_DECODING;
 ]])],, [AC_MSG_ERROR([version of curl is not 7.16.2 or later])])
 
+# Check for some O/S specific functions
+AC_CHECK_FUNCS(fdatasync)
+
 # Check for required header files
 AC_HEADER_STDC
 AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h zlib.h, [],

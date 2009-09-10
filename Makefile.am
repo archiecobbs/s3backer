@@ -29,6 +29,7 @@ noinst_PROGRAMS=    tester
 noinst_HEADERS=     s3backer.h \
 			block_cache.h \
 			block_part.h \
+			dcache.h \
 			ec_protect.h \
 			erase.h \
 			fuse_ops.h \
@@ -48,6 +49,7 @@ EXTRA_DIST=         CHANGES s3backer.1 s3backer.spec
 s3backer_SOURCES=   main.c \
 		    block_cache.c \
 		    block_part.c \
+		    dcache.c \
 		    ec_protect.c \
 		    erase.c \
 		    fuse_ops.c \
@@ -60,6 +62,7 @@ s3backer_SOURCES=   main.c \
 tester_SOURCES=     tester.c \
 		    block_cache.c \
 		    block_part.c \
+		    dcache.c \
 		    ec_protect.c \
 		    erase.c \
 		    hash.c \
