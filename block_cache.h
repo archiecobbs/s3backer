@@ -39,6 +39,7 @@ struct block_cache_conf {
 
 /* Statistics structure for block_cache */
 struct block_cache_stats {
+    u_int               initial_size;
     u_int               current_size;
     double              dirty_ratio;
     u_int               read_hits;
