@@ -21,7 +21,7 @@
 .\"
 .\" $Id$
 .\"
-.Dd June 21, 2008
+.Dd September 7, 2009
 .Dt S3BACKER 1
 .Os
 .Sh NAME
@@ -52,8 +52,8 @@
 .Sh DESCRIPTION
 .Nm
 is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
-As a filesystem, it is quite small and simple: it provides a single normal file having a fixed size.
-The file is divided up into blocks, and the content of each block is stored in a unique Amazon S3 object.
+As a filesystem, it is very simple: it provides a single normal file having a fixed size.
+Underneath, the file is divided up into blocks, and the content of each block is stored in a unique Amazon S3 object.
 In other words, what
 .Nm
 provides is really more like an S3-backed virtual hard disk device, rather than a filesystem.
@@ -153,7 +153,15 @@ Because the kernel typically writes blocks through FUSE filesystems one at a tim
 .Nm
 to take advantage of the parallelism inherent in the network, vastly improving write performance.
 .Pp
+The block cache can be configured to store the cached data in a local file instead of in memory.
+This permits larger cache sizes and allows
+.Nm
+to reload cached data after a restart.
+Reloaded data is verified before reuse.
+.Pp
 The block cache is configured by the following command line options:
+.Fl \-blockCacheFile ,
+.Fl \-blockCacheNoVerify ,
 .Fl \-blockCacheSize ,
 .Fl \-blockCacheSync ,
 .Fl \-blockCacheThreads ,
@@ -266,6 +274,43 @@ Has the same effect as
 .Fl \-listBlocks .
 .It Fl \-baseURL=URL
 Specify the base URL. Default is `http://s3.amazonaws.com/'.
+.It Fl \-blockCacheFile=FILE
+Specify a file in which to store cached data blocks.
+Without this flag, the block cache lives entirely in process memory and the cached data disappears when
+.Nm
+is stopped.
+The file will be created if it doesn't exist.
+.Pp
+Cache files that have been created by previous invocations of
+.Nm
+are reusable as long as they were created with the same configured block size and cache size (if not, startup will fail).
+This is true even if
+.Nm
+was stopped abruptly, e.g., due to a system crash;
+however, this guarantee rests on the assumption that the filesystem containing the cache file will not
+reorder writes across calls to
+.Xr fsync 2 .
+.Pp
+In any case, only clean cache blocks are recoverable after a restart.
+This means a system crash will cause dirty blocks in the cache to be lost (of course, that is the case
+with an in-memory cache as well).
+Use 
+.Fl \-blockCacheWriteDelay
+to limit this window.
+.Pp
+By default, when having reloaded the cache from a cache file,
+.Nm
+will verify the MD5 checksum of each reloaded block with Amazon S3 before its first use.
+This verify operation does not require actually reading the block's data, and therefore is relatively quick.
+This guards against the cached data having unknowingly gotten out of sync since the cache file was last used,
+a situation that is otherwise impossible for
+.Nm
+to detect.
+.It Fl \-blockCacheNoVerify
+Disable the MD5 verification of blocks loaded from a cache file specified via
+.Fl \-blockCacheFile .
+Using this flag is dangerous;
+use only when you are sure the cached file is uncorrupted and the data it contains is up to date.
 .It Fl \-blockCacheSize=SIZE
 Specify the block cache size (in number of blocks).
 Each entry in the cache will consume approximately block size plus 20 bytes.

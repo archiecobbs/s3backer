@@ -44,14 +44,14 @@ block_part_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
     if (len == 0)
         return 0;
     if (off == 0 && len == block_size)
-        return (*s3b->read_block)(s3b, block_num, dest, NULL, 0);
+        return (*s3b->read_block)(s3b, block_num, dest, NULL, NULL, 0);
 
     /* Allocate buffer */
     if ((buf = malloc(block_size)) == NULL)
         return errno;
 
     /* Read entire block */
-    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, 0)) != 0) {
+    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, NULL, 0)) != 0) {
         free(buf);
         return r;
     }
@@ -90,7 +90,7 @@ block_part_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
         return errno;
 
     /* Read entire block */
-    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, 0)) != 0) {
+    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, NULL, 0)) != 0) {
         free(buf);
         return r;
     }

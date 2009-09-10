@@ -113,7 +113,8 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
-static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
+static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -263,7 +264,8 @@ ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, 
 }
 
 static int
-ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict)
+ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
+  u_char *actual_md5, const u_char *expect_md5, int strict)
 {
     struct ec_protect_private *const priv = s3b->data;
     struct ec_protect_conf *const config = priv->config;
@@ -290,6 +292,8 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
                 memset(dest, 0, config->block_size);
             else
                 memcpy(dest, binfo->u.data, config->block_size);
+            if (actual_md5 != NULL)
+                memset(actual_md5, 0, MD5_DIGEST_LENGTH);           // we don't know it yet!
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
@@ -300,6 +304,8 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
             if (expect_md5 != NULL && strict && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
                 (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected MD5?");
             memset(dest, 0, config->block_size);
+            if (actual_md5 != NULL)
+                memset(actual_md5, 0, MD5_DIGEST_LENGTH);
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
@@ -317,7 +323,7 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     pthread_mutex_unlock(&priv->mutex);
 
     /* Read block normally */
-    return (*priv->inner->read_block)(priv->inner, block_num, dest, expect_md5, strict);
+    return (*priv->inner->read_block)(priv->inner, block_num, dest, actual_md5, expect_md5, strict);
 }
 
 static int

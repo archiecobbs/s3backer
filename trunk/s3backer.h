@@ -99,9 +99,12 @@ struct s3backer_store {
     /*
      * Read one block. Never-written-to blocks will return all zeroes.
      *
+     * If not NULL, 'actual_md5' should be filled in with a value suitable for the 'expect_md5' parameter,
+     * or all zeroes if unknown.
+     *
      * If 'expect_md5' is not NULL:
-     *  - expect_md5 should be the expected MD5 of the block, or all zeroes if block is expected to be all zeroes.
-     *  - If strict != 0, expect_md5 must be the value returned from the most recent call to write_block(),
+     *  - expect_md5 should be the value returned from a previous call to read_block() or write_block().
+     *  - If strict != 0, expect_md5 must be the value returned from the most recent call to write_block()
      *    and the data must match it or else an error is returned. Aside from this check, read normally.
      *  - If strict == 0:
      *    - If block's MD5 does not match expect_md5, expect_md5 is ignored and the block is read normally
@@ -111,7 +114,8 @@ struct s3backer_store {
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest, const u_char *expect_md5, int strict);
+    int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
+                  u_char *actual_md5, const u_char *expect_md5, int strict);
 
     /*
      * Read part of one block.
