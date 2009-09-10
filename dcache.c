@@ -176,12 +176,12 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
     }
     if (header.u_int_size != sizeof(u_int)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with sizeof(u_int) %u != %u",
-          priv->filename, header.u_int_size, sizeof(u_int));
+          priv->filename, header.u_int_size, (u_int)sizeof(u_int));
         goto fail4;
     }
     if (header.s3b_block_t_size != sizeof(s3b_block_t)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with sizeof(s3b_block_t) %u != %u",
-          priv->filename, header.s3b_block_t_size, sizeof(s3b_block_t));
+          priv->filename, header.s3b_block_t_size, (u_int)sizeof(s3b_block_t));
         goto fail4;
     }
     if (header.block_size != priv->block_size) {
