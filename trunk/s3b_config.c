@@ -191,11 +191,6 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.accessType),
     },
     {
-        .templ=     "--assumeEmpty",                    /* deprecated */
-        .offset=    offsetof(struct s3b_config, list_blocks),
-        .value=     1
-    },
-    {
         .templ=     "--listBlocks",
         .offset=    offsetof(struct s3b_config, list_blocks),
         .value=     1
