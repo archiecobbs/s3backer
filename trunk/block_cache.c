@@ -262,6 +262,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         if ((r = s3b_dcache_open(&priv->dcache, config->log, config->cache_file, config->block_size,
           config->cache_size, block_cache_dcache_load, priv)) != 0)
             goto fail9;
+        priv->stats.initial_size = priv->num_cleans;
     }
 
     /* Grab lock */
@@ -1115,7 +1116,6 @@ block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry
     struct cache_entry *new_entry;
 
     assert(entry->verify);
-    assert(!ENTRY_IN_LIST(entry));
     if ((new_entry = realloc(entry, sizeof(*entry))) == NULL)
         return entry;
     s3b_hash_put(priv->hashtable, new_entry);
