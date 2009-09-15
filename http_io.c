@@ -142,7 +142,7 @@ struct http_io {
 };
 
 /* CURL prepper function type */
-typedef void (*http_io_curl_prepper_t)(CURL *curl, struct http_io *io);
+typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
@@ -154,10 +154,10 @@ static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *ca
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
-static void http_io_detect_prepper(CURL *curl, struct http_io *io);
-static void http_io_read_prepper(CURL *curl, struct http_io *io);
-static void http_io_write_prepper(CURL *curl, struct http_io *io);
-static void http_io_list_prepper(CURL *curl, struct http_io *io);
+static http_io_curl_prepper_t http_io_detect_prepper;
+static http_io_curl_prepper_t http_io_read_prepper;
+static http_io_curl_prepper_t http_io_write_prepper;
+static http_io_curl_prepper_t http_io_list_prepper;
 
 /* S3 REST API functions */
 static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
@@ -171,7 +171,7 @@ static void http_io_list_elem_end(void *arg, const XML_Char *name);
 static void http_io_list_text(void *arg, const XML_Char *s, int len);
 
 /* HTTP and curl functions */
-static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t prepper);
+static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper);
 static size_t http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
@@ -1023,7 +1023,7 @@ http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_in
  * Perform HTTP operation.
  */
 static int
-http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t prepper)
+http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper)
 {
     struct http_io_conf *const config = priv->config;
     struct timespec delay;
