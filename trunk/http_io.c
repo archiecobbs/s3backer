@@ -186,6 +186,7 @@ static void http_io_openssl_locker(int mode, int i, const char *file, int line);
 static unsigned long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
 static int http_io_is_zero_block(const void *data, u_int block_size);
+static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -1383,6 +1384,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     const size_t total = size * nmemb;
+    char fmtbuf[64];
     char buf[1024];
 
     /* Null-terminate header */
@@ -1398,27 +1400,10 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     /* ETag header requires parsing */
     if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
-        char fmtbuf[64];
-        u_int byte;
-        int i;
-        int j;
 
         snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", MD5_DIGEST_LENGTH * 2);
-        if (sscanf(buf + sizeof(ETAG_HEADER), fmtbuf, md5buf) == 1) {
-            for (i = 0; i < MD5_DIGEST_LENGTH; i++) {
-                for (byte = j = 0; j < 2; j++) {
-                    const char ch = md5buf[2 * i + j];
-
-                    if (!isxdigit(ch))
-                        break;
-                    byte <<= 4;
-                    byte |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
-                }
-                io->md5[i] = byte;
-            }
-            if (i < MD5_DIGEST_LENGTH)
-                memset(io->md5, 0, sizeof(io->md5));
-        }
+        if (sscanf(buf + sizeof(ETAG_HEADER), fmtbuf, md5buf) == 1)
+            http_io_parse_hex(md5buf, io->md5, MD5_DIGEST_LENGTH);
     }
 
     /* Done */
@@ -1494,5 +1479,36 @@ http_io_is_zero_block(const void *data, u_int block_size)
             return 0;
     }
     return 1;
+}
+
+/*
+ * Parse exactly "nbytes" contiguous 2-digit hex bytes.
+ * On failure, zero out the buffer and return -1.
+ */
+static int
+http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
+{
+    int i;
+
+    /* Parse hex string */
+    for (i = 0; i < nbytes; i++) {
+        int byte;
+        int j;
+
+        for (byte = j = 0; j < 2; j++) {
+            const char ch = str[2 * i + j];
+
+            if (!isxdigit(ch)) {
+                memset(buf, 0, nbytes);
+                return -1;
+            }
+            byte <<= 4;
+            byte |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+        }
+        buf[i] = byte;
+    }
+
+    /* Done */
+    return 0;
 }
 
