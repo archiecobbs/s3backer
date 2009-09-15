@@ -77,6 +77,9 @@
 /* How many blocks to list at a time */
 #define LIST_BLOCKS_CHUNK           0x100
 
+/* Misc */
+#define WHITESPACE                  " \t\v\f\r\n"
+
 /*
  * HTTP-based implementation of s3backer_store.
  *
@@ -139,6 +142,7 @@ struct http_io {
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
     u_int               expect_304;             // a verify request; expect a 304 response
     u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
+    char                content_encoding[32];   // received content encoding
 };
 
 /* CURL prepper function type */
@@ -722,21 +726,62 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
 
-    /* Check for wrong length read and copy data to desination buffer */
+    /* Determine how many bytes we read */
+    did_read = io.buf_size - io.bufs.rdremain;
+
+    /* Check Content-Encoding and decode if necessary */
     if (r == 0) {
-        did_read = io.buf_size - io.bufs.rdremain;
-        if (did_read != config->block_size) {
-            (*config->log)(LOG_WARNING, "read of block #%u returned %lu != %lu bytes",
-              block_num, (u_long)did_read, (u_long)config->block_size);
-            if (did_read < config->block_size) {
-                memcpy(dest, io.dest, did_read);
-                memset((char *)dest + did_read, 0, config->block_size - did_read);
-            } else
-                memcpy(dest, io.dest, config->block_size);
-        } else
-            memcpy(dest, io.dest, config->block_size);
+        if (strcasecmp(io.content_encoding, CONTENT_ENCODING_DEFLATE) == 0) {
+            u_long uclen = config->block_size;
+
+            switch (uncompress(dest, &uclen, io.dest, did_read)) {
+            case Z_OK:
+                did_read = uclen;
+                free(io.dest);
+                io.dest = NULL;
+                r = 0;
+                break;
+            case Z_MEM_ERROR:
+                (*config->log)(LOG_ERR, "zlib uncompress: %s", strerror(ENOMEM));
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.out_of_memory_errors++;
+                pthread_mutex_unlock(&priv->mutex);
+                r = ENOMEM;
+                break;
+            case Z_BUF_ERROR:
+                (*config->log)(LOG_ERR, "zlib uncompress: %s", "decompressed block is oversize");
+                r = EIO;
+                break;
+            case Z_DATA_ERROR:
+                (*config->log)(LOG_ERR, "zlib uncompress: %s", "data is corrupted or truncated");
+                r = EIO;
+                break;
+            default:
+                (*config->log)(LOG_ERR, "unknown zlib compress2() error %d", r);
+                r = EIO;
+                break;
+            }
+        } else if (*io.content_encoding != '\0') {
+            (*config->log)(LOG_ERR, "read of block %0*jx returned unexpected %s \"%s\"",
+              S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, CONTENT_ENCODING_HEADER, io.content_encoding);
+            r = EIO;
+        }
     }
-    free(io.dest);
+
+    /* Check for wrong length read */
+    if (r == 0 && did_read != config->block_size) {
+        (*config->log)(LOG_ERR, "read of block %0*jx returned %lu != %lu bytes",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (u_long)did_read, (u_long)config->block_size);
+        r = EIO;
+    }
+
+    /* Copy the data to the desination buffer (if we haven't already) */
+    if (r == 0 && io.dest != NULL)
+        memcpy(dest, io.dest, config->block_size);
+
+    /* Free the buffer */
+    if (io.dest != NULL)
+        free(io.dest);
 
     /* Update stats */
     pthread_mutex_lock(&priv->mutex);
@@ -817,7 +862,7 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
 }
 
 /*
@@ -1404,6 +1449,20 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
         snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", MD5_DIGEST_LENGTH * 2);
         if (sscanf(buf + sizeof(ETAG_HEADER), fmtbuf, md5buf) == 1)
             http_io_parse_hex(md5buf, io->md5, MD5_DIGEST_LENGTH);
+    }
+
+    /* Content encoding(s) */
+    if (strncasecmp(buf, CONTENT_ENCODING_HEADER ":", sizeof(CONTENT_ENCODING_HEADER)) == 0) {
+        size_t celen;
+        char *state;
+        char *s;
+
+        *io->content_encoding = '\0';
+        for (s = strtok_r(buf + sizeof(CONTENT_ENCODING_HEADER), WHITESPACE ",", &state);
+          s != NULL; s = strtok_r(NULL, WHITESPACE ",", &state)) {
+            celen = strlen(io->content_encoding);
+            snprintf(io->content_encoding + celen, sizeof(io->content_encoding) - celen, "%s%s", celen > 0 ? "," : "", s);
+        }
     }
 
     /* Done */
