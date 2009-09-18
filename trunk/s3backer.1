@@ -77,10 +77,11 @@ Subtle bugs or missing functionality relating to hard links, extended attributes
 The gap between normal filesystem semantics and Amazon S3 ``eventual consistency'' is more easily and simply solved
 when one can interpret S3 objects as simple device blocks rather than filesystem objects (see below).
 .It o
-When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt data
-becomes a critical issue.
+When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt and
+authenticate data becomes a critical issue.
 .Nm
-provides this automatically because encryption support is already included in the Linux loopback mechanism.
+supports secure encryption and authentication.
+Alternately, the encryption capability built into the Linux loopback device can be used.
 .It o
 Since S3 data is accessed over the network, local caching is also very important for performance reasons.
 Since
@@ -188,6 +189,24 @@ Read ahead is configured by the
 and
 .Fl \-readAheadTrigger
 command line options.
+.Ss Encryption and Authentication
+.Nm
+supports encryption via the
+.Fl \-encrypt ,
+.Fl \-password ,
+and
+.Fl \-passwordFile
+flags.
+When encryption is enabled, SHA1 HMAC authentication is also automatically enabled, and
+.Nm
+rejects any blocks that are not properly encrypted and signed.
+.Pp
+Encrypting at the
+.Nm
+layer is preferable to encrypting at an upper layer (e.g., at the loopback device layer), because if
+the data
+.Nm
+sees is already encrypted it can't optimize away zeroed blocks or do meaningful compression.
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
 .Nm .
@@ -233,7 +252,7 @@ Each command line flag has two forms, for example
 and
 .Fl o Ar accessFile=FILE .
 Only the first form is shown below.
-Either form many be used; both forms are equivalent.
+Either form many be used; both are equivalent.
 The second form allows mount options to be specified directly in
 .Pa /etc/fstab
 and passed seamlessly to
@@ -371,7 +390,7 @@ Equivalent to the
 .Fl \-cacert
 flag documented in
 .Xr curl 1 .
-.It Fl \-compress=LEVEL
+.It Fl \-compress[=LEVEL]
 Compress blocks before sending them over the network.
 This should result in less network traffic (in both directions) and lower storage costs.
 .Pp
@@ -382,6 +401,12 @@ This flag only enables compression of newly written blocks; decompression is alw
 Therefore, it is safe to switch this flag on or off between different invocations of
 .Nm
 on the same filesystem.
+.Pp
+This flag is automatically enabled when
+.Fl \-encrypt
+is used, though you may also specify
+.Fl \-compress=LEVEL
+to set a non-default compression level.
 .Pp
 When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
 .It Fl \-debug
@@ -394,6 +419,20 @@ however, the
 FUSE flag implies this flag.
 .It Fl \-debug-http
 Enable printing of HTTP headers to standard output.
+.It Fl \-encrypt[=CIPHER]
+Enable encryption using the specified cipher (see your OpenSSL documentation for a list of supported ciphers).
+The default if no cipher is specified is Blowfish CBC.
+.Pp
+The encryption password may be supplied via one of
+.Fl \-password
+or
+.Fl \-passwordFile .
+If neither flag is given,
+.Nm
+will ask for the password at startup.
+.Pp
+This flag implies
+.Fl \-compress .
 .It Fl \-erase
 Completely erase the file system by deleting all non-zero blocks, and then exit.
 User confirmation is required unless the
@@ -501,9 +540,17 @@ Disable block and file size auto-detection at startup.
 If this flag is given, then the block size defaults to 4096 and the
 .Fl \-size
 flag is required.
+.It Fl \-password=PASSWORD
+Supply the password for encryption and authentication as a command-line parameter.
+.It Fl \-passwordFile=FILE
+Read the password for encryption and authentication from (the first line of) the specified file.
 .It Fl \-prefix=STRING
 Specify a prefix to prepend to the resource names within bucket that identify each block.
-Default is the empty string.
+By using different prefixes, multiple independent
+.Nm
+disks can live in the same S3 bucket.
+.Pp
+The default prefix is the empty string.
 .It Fl \-quiet
 Suppress progress output during initial startup.
 .It Fl \-readAhead=NUM
@@ -677,7 +724,7 @@ A warning is emitted on startup in this case.
 .Pp
 Filesystem size is limited by the maximum allowable size of a single file.
 .Pp
-The default block size of 4k is non-optimal.
-Typically, users will want a larger value to minimize transaction costs, e.g., 1m.
+The default block size of 4k is non-optimal from a compression and cost perspective.
+Typically, users will want a larger value to maximize compression and minimize transaction costs, e.g., 1m.
 .Sh AUTHOR
 .An Archie L. Cobbs Aq archie@dellroad.org

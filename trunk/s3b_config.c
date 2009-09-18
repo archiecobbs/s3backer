@@ -67,6 +67,7 @@
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
+#define S3BACKER_DEFAULT_ENCRYPTION                 "BF-CBC"        // Blowfish CBC
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -343,6 +344,23 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--compress=%d",
         .offset=    offsetof(struct s3b_config, http_io.compress),
+    },
+    {
+        .templ=     "--encrypt",
+        .offset=    offsetof(struct s3b_config, encrypt),
+        .value=     1
+    },
+    {
+        .templ=     "--encrypt=%s",
+        .offset=    offsetof(struct s3b_config, http_io.encryption),
+    },
+    {
+        .templ=     "--password=%s",
+        .offset=    offsetof(struct s3b_config, http_io.password),
+    },
+    {
+        .templ=     "--passwordFile=%s",
+        .offset=    offsetof(struct s3b_config, password_file),
     },
     {
         .templ=     "--test",
@@ -914,6 +932,71 @@ validate_config(void)
         return -1;
     }
 
+    /* Apply default encryption */
+    if (config.http_io.encryption == NULL && config.encrypt)
+        config.http_io.encryption = strdup(S3BACKER_DEFAULT_ENCRYPTION);
+
+    /* Uppercase encryption name for consistency */
+    if (config.http_io.encryption != NULL) {
+        char *t;
+
+        if ((t = strdup(config.http_io.encryption)) == NULL)
+            err(1, "strdup()");
+        for (i = 0; t[i] != '\0'; i++)
+            t[i] = toupper(t[i]);
+        config.http_io.encryption = t;
+    }
+
+    /* Check encryption and get key */
+    if (config.http_io.encryption != NULL) {
+        char pwbuf[1024];
+        FILE *fp;
+
+        if (config.password_file != NULL && config.http_io.password != NULL) {
+            warnx("specify only one of `--password' or `--passwordFile'");
+            return -1;
+        }
+        if (config.password_file == NULL && config.http_io.password == NULL) {
+            if ((s = getpass("Password: ")) == NULL)
+                err(1, "getpass()");
+        }
+        if (config.password_file != NULL) {
+            assert(config.http_io.password == NULL);
+            if ((fp = fopen(config.password_file, "r")) == NULL) {
+                warn("can't open encryption key file `%s'", config.password_file);
+                return -1;
+            }
+            if (fgets(pwbuf, sizeof(pwbuf), fp) == NULL || *pwbuf == '\0') {
+                warnx("can't encryption key from file `%s'", config.password_file);
+                fclose(fp);
+                return -1;
+            }
+            if (pwbuf[strlen(pwbuf) - 1] == '\n')
+                pwbuf[strlen(pwbuf) - 1] = '\0';
+            fclose(fp);
+            s = pwbuf;
+        }
+        if (config.http_io.password == NULL && (config.http_io.password = strdup(s)) == NULL)
+            err(1, "strdup()");
+    } else {
+        if (config.http_io.password != NULL)
+            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--password");
+        else if (config.password_file != NULL)
+            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--passwordFile");
+    }
+    if (config.http_io.encryption != NULL) {
+
+        /* Check block size vs. encryption block size */
+        if (config.block_size % EVP_MAX_IV_LENGTH != 0) {
+            warnx("block size must be at least %u when encryption is enabled", EVP_MAX_IV_LENGTH);
+            return -1;
+        }
+
+        /* We always want to compress if we are encrypting */
+        if (config.http_io.compress == Z_NO_COMPRESSION)
+            config.http_io.compress = Z_DEFAULT_COMPRESSION;
+    }
+
     /* Check compression level */
     switch (config.http_io.compress) {
     case Z_DEFAULT_COMPRESSION:
@@ -1262,6 +1345,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
     (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
@@ -1375,7 +1460,10 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
+    fprintf(stderr, "\t--%-27s %s\n", "encryption[=CIPHER]", "Enable encryption (implies `--compress')");
     fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
+    fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
+    fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
@@ -1391,7 +1479,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
-    fprintf(stderr, "\t--%-27s %s\n", "compress=LEVEL", "Enable block compression, with 1=fast up to 9=small");
+    fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
@@ -1411,7 +1499,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
     fprintf(stderr, "\t--%-27s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
-    fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode", S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
+    fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode",
+      S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
     fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);

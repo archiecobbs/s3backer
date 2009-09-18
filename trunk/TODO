@@ -1,6 +1,5 @@
 TODO
 
-- add support for encryption+HMAC; store hmac into x-amz-meta header
 - interrupt active write when new write happens (instead of waiting)
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
 
