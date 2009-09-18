@@ -187,10 +187,11 @@ static void http_io_release_curl(struct http_io_private *priv, CURL *curl, int m
 
 /* Misc */
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
-static unsigned long http_io_openssl_ider(void);
+static u_long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
 static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
+static void http_io_prhex(char *buf, const u_char *data, size_t len);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -701,6 +702,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Add If-Match or If-None-Match header as required */
     if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0) {
+        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
         const char *header;
 
         if (strict)
@@ -709,12 +711,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             header = IF_NONE_MATCH_HEADER;
             io.expect_304 = 1;
         }
-        io.headers = http_io_add_header(io.headers,
-          "%s: \"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\"", header,
-          expect_md5[0], expect_md5[1], expect_md5[2], expect_md5[3],
-          expect_md5[4], expect_md5[5], expect_md5[6], expect_md5[7],
-          expect_md5[8], expect_md5[9], expect_md5[10], expect_md5[11],
-          expect_md5[12], expect_md5[13], expect_md5[14], expect_md5[15]);
+        http_io_prhex(md5buf, expect_md5, MD5_DIGEST_LENGTH);
+        io.headers = http_io_add_header(io.headers, "%s: \"%s\"", header, md5buf);
     }
 
     /* Add Authorization header */
@@ -991,6 +989,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
         io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
     }
+
+    /**** NOTE: we add the following "x-amz-meta" in lexicographic order as required by http_io_get_auth() ****/
 
     /* Add file size meta-data to zero'th block */
     if (src != NULL && block_num == 0) {
@@ -1276,13 +1276,27 @@ http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const ch
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource)
 {
     const EVP_MD *sha1_md = EVP_sha1();
-    unsigned char digest[EVP_MAX_MD_SIZE];
-    unsigned int digest_len;
-    char tosign[1024];
+    u_char hmac[SHA_DIGEST_LENGTH];
+    u_int hmac_len;
+    HMAC_CTX ctx;
 
-    /* Build string to sign */
-    snprintf(tosign, sizeof(tosign), "%s\n%s\n%s\n%s\n",
-      method, md5 != NULL ? md5 : "", ctype != NULL ? ctype : "", date);
+    /* Initialize HMAC */
+    HMAC_CTX_init(&ctx);
+    HMAC_Init_ex(&ctx, config->accessKey, strlen(config->accessKey), sha1_md, NULL);
+
+    /* Sign initial stuff */
+    HMAC_Update(&ctx, (const u_char *)method, strlen(method));
+    HMAC_Update(&ctx, (const u_char *)"\n", 1);
+    if (md5 != NULL)
+        HMAC_Update(&ctx, (const u_char *)md5, strlen(md5));
+    HMAC_Update(&ctx, (const u_char *)"\n", 1);
+    if (ctype != NULL)
+        HMAC_Update(&ctx, (const u_char *)ctype, strlen(ctype));
+    HMAC_Update(&ctx, (const u_char *)"\n", 1);
+    HMAC_Update(&ctx, (const u_char *)date, strlen(date));
+    HMAC_Update(&ctx, (const u_char *)"\n", 1);
+
+    /* Sign x-amz headers */
     for ( ; headers != NULL; headers = headers->next) {
         const char *colon;
         const char *value;
@@ -1293,15 +1307,23 @@ http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const ch
             continue;
         for (value = colon + 1; isspace(*value); value++)
             ;
-        snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "%.*s:%s\n", (int)(colon - headers->data), headers->data, value);
+        HMAC_Update(&ctx, (const u_char *)headers->data, colon - headers->data + 1);
+        HMAC_Update(&ctx, (const u_char *)value, strlen(value));
+        HMAC_Update(&ctx, (const u_char *)"\n", 1);
     }
-    snprintf(tosign + strlen(tosign), sizeof(tosign) - strlen(tosign), "/%s%s", config->bucket, resource);
 
-    /* Compute hash */
-    HMAC(sha1_md, config->accessKey, strlen(config->accessKey), (unsigned char *)tosign, strlen(tosign), digest, &digest_len);
+    /* Sign final stuff */
+    HMAC_Update(&ctx, (const u_char *)"/", 1);
+    HMAC_Update(&ctx, (const u_char *)config->bucket, strlen(config->bucket));
+    HMAC_Update(&ctx, (const u_char *)resource, strlen(resource));
+
+    /* Finish up */
+    HMAC_Final(&ctx, hmac, &hmac_len);
+    assert(hmac_len == SHA_DIGEST_LENGTH);
+    HMAC_CTX_cleanup(&ctx);
 
     /* Write it out base64 encoded */
-    http_io_base64_encode(buf, bufsiz, digest, digest_len);
+    http_io_base64_encode(buf, bufsiz, hmac, hmac_len);
 }
 
 /*
@@ -1500,10 +1522,10 @@ http_io_openssl_locker(int mode, int i, const char *file, int line)
         pthread_mutex_unlock(&openssl_locks[i]);
 }
 
-static unsigned long
+static u_long
 http_io_openssl_ider(void)
 {
-    return (unsigned long)pthread_self();
+    return (u_long)pthread_self();
 }
 
 static void
@@ -1569,5 +1591,17 @@ http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
 
     /* Done */
     return 0;
+}
+
+static void
+http_io_prhex(char *buf, const u_char *data, size_t len)
+{
+    static const char *hexdig = "0123456789abcdef";
+    int i;
+
+    for (i = 0; i < len; i++) {
+        buf[i * 2 + 0] = hexdig[data[i] >> 4];
+        buf[i * 2 + 1] = hexdig[data[i] & 0x0f];
+    }
 }
 
