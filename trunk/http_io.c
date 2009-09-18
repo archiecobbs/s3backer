@@ -1603,5 +1603,6 @@ http_io_prhex(char *buf, const u_char *data, size_t len)
         buf[i * 2 + 0] = hexdig[data[i] >> 4];
         buf[i * 2 + 1] = hexdig[data[i] & 0x0f];
     }
+    buf[i * 2] = '\0';
 }
 
