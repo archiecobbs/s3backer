@@ -32,6 +32,8 @@ struct http_io_conf {
     const char          *prefix;
     const char          *user_agent;
     const char          *cacert;
+    const char          *password;
+    const char          *encryption;
     int                 debug;
     int                 debug_http;
     int                 quiet;

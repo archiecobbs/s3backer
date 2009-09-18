@@ -42,10 +42,12 @@
 #define CONTENT_ENCODING_HEADER     "Content-Encoding"
 #define ETAG_HEADER                 "ETag"
 #define CONTENT_ENCODING_DEFLATE    "deflate"
+#define CONTENT_ENCODING_ENCRYPT    "encrypt"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
+#define HMAC_HEADER                 "x-amz-meta-s3backer-hmac"
 #define IF_MATCH_HEADER             "If-Match"
 #define IF_NONE_MATCH_HEADER        "If-None-Match"
 
@@ -98,7 +100,9 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
+    const EVP_CIPHER            *cipher;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
+    u_char                      key[MD5_DIGEST_LENGTH];
 };
 
 /* I/O buffers */
@@ -142,6 +146,7 @@ struct http_io {
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
     u_int               expect_304;             // a verify request; expect a 304 response
     u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
+    u_char              hmac[SHA_DIGEST_LENGTH];// parsed "x-amz-meta-s3backer-hmac" header
     char                content_encoding[32];   // received content encoding
 };
 
@@ -189,6 +194,8 @@ static void http_io_release_curl(struct http_io_private *priv, CURL *curl, int m
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
 static u_long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
+static u_int http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst);
+static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
 static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
@@ -197,6 +204,7 @@ static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
 static u_char zero_md5[MD5_DIGEST_LENGTH];
+static u_char zero_hmac[SHA_DIGEST_LENGTH];
 
 /*
  * Constructor
@@ -208,6 +216,7 @@ http_io_create(struct http_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct http_io_private *priv;
+    MD5_CTX ctx;
     int nlocks;
     int r;
 
@@ -254,6 +263,25 @@ http_io_create(struct http_io_conf *config)
     }
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
+
+    /* Initialize encryption */
+    if (config->encryption != NULL) {
+
+        /* Find encryption algorithm */
+        OpenSSL_add_all_ciphers();
+        if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
+            (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
+            r = EINVAL;
+            goto fail4;
+        }
+
+        /* Hash password to get encryption key */
+        assert(config->password != NULL);
+        assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
+        MD5_Init(&ctx);
+        MD5_Update(&ctx, config->password, strlen(config->password));
+        MD5_Final(priv->key, &ctx);
+    }
 
     /* Initialize cURL */
     curl_global_init(CURL_GLOBAL_ALL);
@@ -650,10 +678,12 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
+    int encrypted = 0;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
     u_int did_read;
+    char *layer;
     int r;
 
     /* Sanity check */
@@ -683,8 +713,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     io.url = urlbuf;
     io.method = HTTP_GET;
 
-    /* Allocate a buffer in case compressed data is larger */
-    io.buf_size = compressBound(config->block_size);
+    /* Allocate a buffer in case compressed and/or encrypted data is larger */
+    io.buf_size = compressBound(config->block_size) + EVP_MAX_IV_LENGTH;
     if ((io.dest = malloc(io.buf_size)) == NULL) {
         (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
         pthread_mutex_lock(&priv->mutex);
@@ -728,15 +758,83 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     did_read = io.buf_size - io.bufs.rdremain;
 
     /* Check Content-Encoding and decode if necessary */
-    if (r == 0) {
-        if (strcasecmp(io.content_encoding, CONTENT_ENCODING_DEFLATE) == 0) {
+    for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
+
+        /* Find next encoding layer */
+        if ((layer = strrchr(io.content_encoding, ',')) != NULL)
+            *layer++ = '\0';
+        else
+            layer = io.content_encoding;
+
+        /* Sanity check */
+        if (io.dest == NULL)
+            goto bad_encoding;
+
+        /* Check for encryption (which must have been applied after compression) */
+        if (strncasecmp(layer, CONTENT_ENCODING_ENCRYPT "-", sizeof(CONTENT_ENCODING_ENCRYPT)) == 0) {
+            const char *const block_cipher = layer + sizeof(CONTENT_ENCODING_ENCRYPT);
+            u_char hmac[SHA_DIGEST_LENGTH];
+            u_char *buf;
+
+            /* Encryption must be enabled */
+            if (config->encryption == NULL) {
+                (*config->log)(LOG_ERR, "block %0*jx is encrypted with `%s' but `--encrypt' was not specified",
+                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher);
+                r = EIO;
+                break;
+            }
+
+            /* Verify encryption type */
+            if (strcasecmp(block_cipher, EVP_CIPHER_name(priv->cipher)) != 0) {
+                (*config->log)(LOG_ERR, "block %0*jx was encrypted using `%s' but `%s' encryption is configured",
+                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher, EVP_CIPHER_name(priv->cipher));
+                r = EIO;
+                break;
+            }
+
+            /* Verify block's signature */
+            if (memcmp(io.hmac, zero_hmac, sizeof(io.hmac)) == 0) {
+                (*config->log)(LOG_ERR, "block %0*jx is encrypted, but no signature was found",
+                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+                r = EIO;
+                break;
+            }
+            http_io_authsig(priv, block_num, io.dest, did_read, hmac);
+            if (memcmp(io.hmac, hmac, sizeof(hmac)) != 0) {
+                (*config->log)(LOG_ERR, "block %0*jx has an incorrect signature (did you provide the right password?)",
+                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+                r = EIO;
+                break;
+            }
+
+            /* Allocate buffer for the decrypted data */
+            if ((buf = malloc(did_read + EVP_MAX_IV_LENGTH)) == NULL) {
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.out_of_memory_errors++;
+                pthread_mutex_unlock(&priv->mutex);
+                r = ENOMEM;
+                break;
+            }
+
+            /* Decrypt the block */
+            did_read = http_io_crypt(priv, block_num, 0, io.dest, did_read, buf);
+            memcpy(io.dest, buf, did_read);
+            free(buf);
+
+            /* Proceed */
+            encrypted = 1;
+            continue;
+        }
+
+        /* Check for compression */
+        if (strcasecmp(layer, CONTENT_ENCODING_DEFLATE) == 0) {
             u_long uclen = config->block_size;
 
             switch (uncompress(dest, &uclen, io.dest, did_read)) {
             case Z_OK:
                 did_read = uclen;
                 free(io.dest);
-                io.dest = NULL;
+                io.dest = NULL;         /* compression should have been first */
                 r = 0;
                 break;
             case Z_MEM_ERROR:
@@ -759,11 +857,23 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 r = EIO;
                 break;
             }
-        } else if (*io.content_encoding != '\0') {
-            (*config->log)(LOG_ERR, "read of block %0*jx returned unexpected %s \"%s\"",
-              S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, CONTENT_ENCODING_HEADER, io.content_encoding);
-            r = EIO;
+
+            /* Proceed */
+            continue;
         }
+
+bad_encoding:
+        /* It was something we don't recognize */
+        (*config->log)(LOG_ERR, "read of block %0*jx returned unexpected encoding \"%s\"",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, layer);
+        r = EIO;
+        break;
+    }
+
+    /* Check for required encryption */
+    if (r == 0 && config->encryption != NULL && !encrypted) {
+        (*config->log)(LOG_ERR, "block %0*jx was supposed to be encrypted but wasn't", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        r = EIO;
     }
 
     /* Check for wrong length read */
@@ -873,13 +983,16 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
     char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
+    char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
+    u_char hmac[SHA_DIGEST_LENGTH];
     u_char md5[MD5_DIGEST_LENGTH];
-    void *compress_buf = NULL;
+    void *encoded_buf = NULL;
     const char *resource;
-    u_long compress_len;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
+    int compressed = 0;
+    int encrypted = 0;
     MD5_CTX ctx;
     int r;
 
@@ -920,19 +1033,21 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Compress block if desired */
     if (src != NULL && config->compress != Z_NO_COMPRESSION) {
+        u_long compress_len;
 
         /* Allocate buffer */
         compress_len = compressBound(io.buf_size);
-        if ((compress_buf = malloc(compress_len)) == NULL) {
+        if ((encoded_buf = malloc(compress_len)) == NULL) {
             (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
             pthread_mutex_lock(&priv->mutex);
             priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
-            return ENOMEM;
+            r = ENOMEM;
+            goto fail;
         }
 
         /* Compress data */
-        r = compress2(compress_buf, &compress_len, io.src, io.buf_size, config->compress);
+        r = compress2(encoded_buf, &compress_len, io.src, io.buf_size, config->compress);
         switch (r) {
         case Z_OK:
             break;
@@ -941,20 +1056,62 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             pthread_mutex_lock(&priv->mutex);
             priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
-            free(compress_buf);
-            return ENOMEM;
+            r = ENOMEM;
+            goto fail;
         default:
             (*config->log)(LOG_ERR, "unknown zlib compress2() error %d", r);
-            free(compress_buf);
-            return EIO;
+            r = EIO;
+            goto fail;
         }
 
         /* Update POST data */
-        io.src = compress_buf;
+        io.src = encoded_buf;
         io.buf_size = compress_len;
+        compressed = 1;
+    }
 
-        /* Include Content-Encoding HTTP header */
-        io.headers = http_io_add_header(io.headers, "%s: %s", CONTENT_ENCODING_HEADER, CONTENT_ENCODING_DEFLATE);
+    /* Encrypt data if desired */
+    if (src != NULL && config->encryption != NULL) {
+        void *encrypt_buf;
+        u_int encrypt_len;
+
+        /* Allocate buffer */
+        if ((encrypt_buf = malloc(io.buf_size + EVP_MAX_IV_LENGTH)) == NULL) {
+            (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.out_of_memory_errors++;
+            pthread_mutex_unlock(&priv->mutex);
+            r = ENOMEM;
+            goto fail;
+        }
+
+        /* Encrypt the block */
+        encrypt_len = http_io_crypt(priv, block_num, 1, io.src, io.buf_size, encrypt_buf);
+
+        /* Compute block signature */
+        http_io_authsig(priv, block_num, encrypt_buf, encrypt_len, hmac);
+        http_io_prhex(hmacbuf, hmac, SHA_DIGEST_LENGTH);
+
+        /* Update POST data */
+        io.src = encrypt_buf;
+        io.buf_size = encrypt_len;
+        free(encoded_buf);              /* OK if NULL */
+        encoded_buf = encrypt_buf;
+        encrypted = 1;
+    }
+
+    /* Set Content-Encoding HTTP header */
+    if (compressed || encrypted) {
+        char ebuf[128];
+
+        snprintf(ebuf, sizeof(ebuf), "%s: ", CONTENT_ENCODING_HEADER);
+        if (compressed)
+            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", CONTENT_ENCODING_DEFLATE);
+        if (encrypted) {
+            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
+              compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);
+        }
+        io.headers = http_io_add_header(io.headers, "%s", ebuf);
     }
 
     /* Compute MD5 checksum */
@@ -999,6 +1156,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
           FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
     }
 
+    /* Add signature header (if encrypting) */
+    if (src != NULL && config->encryption != NULL)
+        io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
+
     /* Add Authorization header */
     if (config->accessId != NULL) {
         http_io_get_auth(authbuf, sizeof(authbuf), config, io.method,
@@ -1020,10 +1181,11 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         pthread_mutex_unlock(&priv->mutex);
     }
 
+fail:
     /*  Clean up */
     curl_slist_free_all(io.headers);
-    if (compress_buf != NULL)
-        free(compress_buf);
+    if (encoded_buf != NULL)
+        free(encoded_buf);
     return r;
 }
 
@@ -1275,14 +1437,16 @@ static void
 http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource)
 {
-    const EVP_MD *sha1_md = EVP_sha1();
+#ifndef NDEBUG
+    const char *last_header = NULL;
+#endif
     u_char hmac[SHA_DIGEST_LENGTH];
     u_int hmac_len;
     HMAC_CTX ctx;
 
     /* Initialize HMAC */
     HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, config->accessKey, strlen(config->accessKey), sha1_md, NULL);
+    HMAC_Init_ex(&ctx, config->accessKey, strlen(config->accessKey), EVP_sha1(), NULL);
 
     /* Sign initial stuff */
     HMAC_Update(&ctx, (const u_char *)method, strlen(method));
@@ -1310,6 +1474,10 @@ http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const ch
         HMAC_Update(&ctx, (const u_char *)headers->data, colon - headers->data + 1);
         HMAC_Update(&ctx, (const u_char *)value, strlen(value));
         HMAC_Update(&ctx, (const u_char *)"\n", 1);
+        assert(last_header == NULL || strcmp(headers->data, last_header) > 0);
+#ifndef NDEBUG
+        last_header = headers->data;
+#endif
     }
 
     /* Sign final stuff */
@@ -1473,6 +1641,15 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
             http_io_parse_hex(md5buf, io->md5, MD5_DIGEST_LENGTH);
     }
 
+    /* "x-amz-meta-s3backer-hmac" header requires parsing */
+    if (strncasecmp(buf, HMAC_HEADER ":", sizeof(HMAC_HEADER)) == 0) {
+        char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
+
+        snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", SHA_DIGEST_LENGTH * 2);
+        if (sscanf(buf + sizeof(HMAC_HEADER), fmtbuf, hmacbuf) == 1)
+            http_io_parse_hex(hmacbuf, io->hmac, SHA_DIGEST_LENGTH);
+    }
+
     /* Content encoding(s) */
     if (strncasecmp(buf, CONTENT_ENCODING_HEADER ":", sizeof(CONTENT_ENCODING_HEADER)) == 0) {
         size_t celen;
@@ -1560,6 +1737,76 @@ http_io_is_zero_block(const void *data, u_int block_size)
             return 0;
     }
     return 1;
+}
+
+/*
+ * Encrypt or decrypt one block
+ */
+static u_int
+http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest)
+{
+    u_char ivec[EVP_MAX_IV_LENGTH];
+    EVP_CIPHER_CTX ctx;
+    u_int total_len;
+    MD5_CTX md5ctx;
+    char blockbuf[64];
+    int clen;
+    int i;
+    int r;
+
+#ifdef NDEBUG
+    /* Avoid unused variable warning */
+    (void)r;
+#endif
+
+    /* Sanity check */
+    assert(EVP_MAX_IV_LENGTH >= MD5_DIGEST_LENGTH);
+
+    /* Generate initialization vector using hash of block number and key */
+    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    MD5_Init(&md5ctx);
+    MD5_Update(&md5ctx, blockbuf, strlen(blockbuf));
+    MD5_Update(&md5ctx, priv->key, sizeof(priv->key));
+    MD5_Final(ivec, &md5ctx);
+    for (i = MD5_DIGEST_LENGTH; i < sizeof(ivec); i++)
+        ivec[i] = ivec[i - MD5_DIGEST_LENGTH];
+
+    /* Initialize cipher */
+    EVP_CIPHER_CTX_init(&ctx);
+    r = EVP_CipherInit_ex(&ctx, priv->cipher, NULL, priv->key, ivec, enc);
+    assert(r == 1);
+
+    /* Encrypt/decrypt */
+    r = EVP_CipherUpdate(&ctx, dest, &clen, src, (int)len);
+    assert(r == 1 && clen >= 0);
+    total_len = (u_int)clen;
+    r = EVP_CipherFinal_ex(&ctx, dest + total_len, &clen);
+    assert(r == 1 && clen >= 0);
+    total_len += (u_int)clen;
+
+    /* Done */
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return total_len;
+}
+
+static void
+http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac)
+{
+    const char *const ciphername = EVP_CIPHER_name(priv->cipher);
+    char blockbuf[64];
+    u_int hmac_len;
+    HMAC_CTX ctx;
+
+    /* Sign the block number, the name of the encryption algorithm, and the block data */
+    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    HMAC_CTX_init(&ctx);
+    HMAC_Init_ex(&ctx, (const u_char *)priv->key, sizeof(priv->key), EVP_sha1(), NULL);
+    HMAC_Update(&ctx, (const u_char *)blockbuf, strlen(blockbuf));
+    HMAC_Update(&ctx, (const u_char *)ciphername, strlen(ciphername));
+    HMAC_Update(&ctx, (const u_char *)src, len);
+    HMAC_Final(&ctx, (u_char *)hmac, &hmac_len);
+    assert(hmac_len == SHA_DIGEST_LENGTH);
+    HMAC_CTX_cleanup(&ctx);
 }
 
 /*

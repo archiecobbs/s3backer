@@ -49,9 +49,11 @@ struct s3b_config {
     struct fuse_args            fuse_args;
     log_func_t                  *log;
 
-    /* These are only used during parsing */
+    /* These are only used during command line parsing */
     const char                  *file_size_str;
     const char                  *block_size_str;
+    const char                  *password_file;
+    int                         encrypt;
 };
 
 extern struct s3b_config *s3backer_get_config(int argc, char **argv);
