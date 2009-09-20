@@ -967,7 +967,7 @@ validate_config(void)
                 return -1;
             }
             if (fgets(pwbuf, sizeof(pwbuf), fp) == NULL || *pwbuf == '\0') {
-                warnx("can't encryption key from file `%s'", config.password_file);
+                warnx("can't read encryption key from file `%s'", config.password_file);
                 fclose(fp);
                 return -1;
             }
