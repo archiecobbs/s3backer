@@ -283,7 +283,7 @@ http_io_create(struct http_io_conf *config)
         assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
         snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
-          (const u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, sizeof(priv->key), priv->key)) != 1) {
+          (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, sizeof(priv->key), priv->key)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
             goto fail4;
