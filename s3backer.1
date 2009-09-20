@@ -420,8 +420,9 @@ FUSE flag implies this flag.
 .It Fl \-debug-http
 Enable printing of HTTP headers to standard output.
 .It Fl \-encrypt[=CIPHER]
-Enable encryption using the specified cipher (see your OpenSSL documentation for a list of supported ciphers).
-The default if no cipher is specified is AES-128 CBC.
+Enable encryption and authentication of block data.
+See your OpenSSL documentation for a list of supported ciphers;
+the default if no cipher is specified is AES-128 CBC.
 .Pp
 The encryption password may be supplied via one of
 .Fl \-password
@@ -430,6 +431,9 @@ or
 If neither flag is given,
 .Nm
 will ask for the password at startup.
+.Pp
+Note: the actual key used is derived by hashing the password, the bucket name, the prefix name (if any), and the block number.
+Therefore, encrypted block data is not portable.
 .Pp
 This flag implies
 .Fl \-compress .

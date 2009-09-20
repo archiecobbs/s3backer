@@ -79,6 +79,9 @@
 /* How many blocks to list at a time */
 #define LIST_BLOCKS_CHUNK           0x100
 
+/* PBKDF2 key generation iteratons */
+#define PBKDF2_ITERATIONS           2500
+
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
 
@@ -102,7 +105,7 @@ struct http_io_private {
     pthread_mutex_t             mutex;
     const EVP_CIPHER            *cipher;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
-    u_char                      key[MD5_DIGEST_LENGTH];
+    u_char                      key[EVP_MAX_KEY_LENGTH];
 };
 
 /* I/O buffers */
@@ -216,7 +219,6 @@ http_io_create(struct http_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct http_io_private *priv;
-    MD5_CTX ctx;
     int nlocks;
     int r;
 
@@ -266,6 +268,7 @@ http_io_create(struct http_io_conf *config)
 
     /* Initialize encryption */
     if (config->encryption != NULL) {
+        char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
 
         /* Find encryption algorithm */
         OpenSSL_add_all_ciphers();
@@ -278,9 +281,13 @@ http_io_create(struct http_io_conf *config)
         /* Hash password to get encryption key */
         assert(config->password != NULL);
         assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, config->password, strlen(config->password));
-        MD5_Final(priv->key, &ctx);
+        snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
+        if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
+          (const u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, sizeof(priv->key), priv->key)) != 1) {
+            (*config->log)(LOG_ERR, "failed to create encryption key");
+            r = EINVAL;
+            goto fail4;
+        }
     }
 
     /* Initialize cURL */
