@@ -67,7 +67,7 @@
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
-#define S3BACKER_DEFAULT_ENCRYPTION                 "BF-CBC"        // Blowfish CBC
+#define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
