@@ -182,6 +182,7 @@ static int block_cache_do_read(struct block_cache_private *priv, s3b_block_t blo
 static int block_cache_write(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void *block_cache_worker_main(void *arg);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
+static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *entry);
 static void block_cache_free_one(void *arg, void *value);
 static struct cache_entry *block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry);
 static void block_cache_dirty_callback(void *arg, void *value);
@@ -834,6 +835,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
     void *data = NULL;
     int r;
 
+again:
     /*
      * If cache is not full, allocate a new entry. We allocate the structure
      * and the data separately in hopes that the malloc() implementation will
@@ -842,19 +844,17 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
      * If the cache is full, try to evict a clean entry.
      */
     if (s3b_hash_size(priv->hashtable) < config->cache_size) {
-        if ((entry = malloc(sizeof(*entry))) == NULL) {
+        if ((entry = calloc(1, sizeof(*entry))) == NULL) {
             r = errno;
             (*config->log)(LOG_ERR, "can't allocate block cache entry: %s", strerror(r));
             priv->stats.out_of_memory_errors++;
             return r;
         }
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
-        TAILQ_REMOVE(&priv->cleans, entry, link);
-        s3b_hash_remove(priv->hashtable, entry->block_num);
-        priv->num_cleans--;
+        block_cache_free_entry(priv, entry);
+        goto again;
     } else
         goto done;
-    memset(entry, 0, sizeof(*entry));
 
     /* Get associated data buffer */
     if (datap != NULL || config->cache_file == NULL) {
@@ -870,7 +870,8 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
     /* Get permanent data buffer */
     if (config->cache_file == NULL)
         entry->u.data = data;
-    else if ((r = s3b_dcache_alloc_block(priv->dcache, &entry->u.dslot)) != 0) {
+    else if ((r = s3b_dcache_alloc_block(priv->dcache, &entry->u.dslot)) != 0) {    /* should not happen */
+        (*config->log)(LOG_ERR, "can't alloc cached block! %s", strerror(r));
         free(data);             /* OK if NULL */
         data = NULL;
         free(entry);
@@ -884,6 +885,38 @@ done:
     if (datap != NULL)
         *datap = data;
     return 0;
+}
+
+/*
+ * Evict a CLEAN[2] entry.
+ */
+static void
+block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *entry)
+{
+    struct block_cache_conf *const config = priv->config;
+    int r;
+
+    /* Sanity check */
+    assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
+
+    /* Free the data */
+    if (config->cache_file != NULL) {
+        if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
+            (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
+        if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
+            (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
+        if ((r = s3b_dcache_free_block(priv->dcache, entry->u.dslot)) != 0)
+            (*config->log)(LOG_ERR, "can't free cached block! %s", strerror(r));
+    } else
+        free(entry->u.data);
+
+    /* Remove entry from the clean list */
+    TAILQ_REMOVE(&priv->cleans, entry, link);
+    s3b_hash_remove(priv->hashtable, entry->block_num);
+    priv->num_cleans--;
+
+    /* Free the entry */
+    free(entry);
 }
 
 /*
@@ -930,23 +963,7 @@ block_cache_worker_main(void *arg)
         /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
-
-                /* Free the data */
-                if (config->cache_file != NULL) {
-                    if ((r = s3b_dcache_erase_block(priv->dcache, clean_entry->u.dslot)) != 0)
-                        (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
-                    if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-                        (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
-                    if ((r = s3b_dcache_free_block(priv->dcache, clean_entry->u.dslot)) != 0)
-                        (*config->log)(LOG_ERR, "can't free cached block! %s", strerror(r));
-                } else
-                    free(clean_entry->u.data);
-
-                /* Free the entry */
-                s3b_hash_remove(priv->hashtable, clean_entry->block_num);
-                TAILQ_REMOVE(&priv->cleans, clean_entry, link);
-                free(clean_entry);
-                priv->num_cleans--;
+                block_cache_free_entry(priv, clean_entry);
                 pthread_cond_signal(&priv->space_avail);
             }
         }
