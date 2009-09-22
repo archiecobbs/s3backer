@@ -220,6 +220,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     /* Initialize s3backer_store structure */
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
         r = errno;
+        (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
     s3b->read_block = block_cache_read_block;
@@ -232,6 +233,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     /* Initialize block_cache_private structure */
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
+        (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail1;
     }
     priv->config = config;
@@ -325,6 +327,7 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
+    int r;
 
     /* Sanity check */
     assert(config->cache_file != NULL);
@@ -339,8 +342,10 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     /* Create a new cache entry in state CLEAN[2] */
     assert(config->cache_file != NULL);
     if ((entry = calloc(1, sizeof(*entry) + (!config->no_verify ? MD5_DIGEST_LENGTH : 0))) == NULL) {
+        r = errno;
+        (*config->log)(LOG_ERR, "can't allocate block cache entry: %s", strerror(r));
         priv->stats.out_of_memory_errors++;
-        return errno;
+        return r;
     }
     entry->block_num = block_num;
     entry->verify = !config->no_verify;
@@ -511,8 +516,11 @@ again:
 
             /* Allocate temporary buffer for reading the data if necessary */
             if (config->cache_file != NULL) {
-                if ((data = malloc(config->block_size)) == NULL)
-                    return errno;
+                if ((data = malloc(config->block_size)) == NULL) {
+                    r = errno;
+                    (*config->log)(LOG_ERR, "can't allocate block cache buffer: %s", strerror(r));
+                    return r;
+                }
             } else
                 data = entry->u.data;
 
@@ -835,8 +843,10 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
      */
     if (s3b_hash_size(priv->hashtable) < config->cache_size) {
         if ((entry = malloc(sizeof(*entry))) == NULL) {
+            r = errno;
+            (*config->log)(LOG_ERR, "can't allocate block cache entry: %s", strerror(r));
             priv->stats.out_of_memory_errors++;
-            return errno;
+            return r;
         }
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
         TAILQ_REMOVE(&priv->cleans, entry, link);
@@ -850,6 +860,7 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
     if (datap != NULL || config->cache_file == NULL) {
         if ((data = malloc(config->block_size)) == NULL) {
             r = errno;
+            (*config->log)(LOG_ERR, "can't allocate block cache buffer: %s", strerror(r));
             priv->stats.out_of_memory_errors++;
             free(entry);
             return r;
@@ -861,8 +872,10 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
         entry->u.data = data;
     else if ((r = s3b_dcache_alloc_block(priv->dcache, &entry->u.dslot)) != 0) {
         free(data);             /* OK if NULL */
+        data = NULL;
         free(entry);
-        return r;
+        entry = NULL;
+        goto done;
     }
 
 done:
