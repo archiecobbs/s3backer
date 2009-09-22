@@ -525,6 +525,10 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
         return EINVAL;
     }
 
+    /* Report results */
+    (*priv->log)(LOG_INFO, "loaded cache file `%s' with %u free and %u used blocks (max index %u)",
+      priv->filename, priv->free_list_len, priv->max_blocks - priv->free_list_len, num_dslots_used);
+
     /* Done */
     return 0;
 }
