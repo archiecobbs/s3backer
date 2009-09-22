@@ -1207,10 +1207,16 @@ validate_config(void)
     }
 
     /* No point in the caches being bigger than necessary */
-    if (config.ec_protect.cache_size > config.num_blocks)
+    if (config.ec_protect.cache_size > config.num_blocks) {
+        warnx("MD5 cache size (%ju) is greater that the total number of blocks (%ju); automatically reducing",
+          (uintmax_t)config.ec_protect.cache_size, (uintmax_t)config.num_blocks);
         config.ec_protect.cache_size = config.num_blocks;
-    if (config.block_cache.cache_size > config.num_blocks)
+    }
+    if (config.block_cache.cache_size > config.num_blocks) {
+        warnx("block cache size (%ju) is greater that the total number of blocks (%ju); automatically reducing",
+          (uintmax_t)config.ec_protect.cache_size, (uintmax_t)config.num_blocks);
         config.block_cache.cache_size = config.num_blocks;
+    }
 
 #ifdef __APPLE__
     /* On MacOS, warn if kernel timeouts can happen prior to our own timeout */
