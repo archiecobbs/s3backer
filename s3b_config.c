@@ -984,18 +984,10 @@ validate_config(void)
         else if (config.password_file != NULL)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--passwordFile");
     }
-    if (config.http_io.encryption != NULL) {
 
-        /* Check block size vs. encryption block size */
-        if (config.block_size % EVP_MAX_IV_LENGTH != 0) {
-            warnx("block size must be at least %u when encryption is enabled", EVP_MAX_IV_LENGTH);
-            return -1;
-        }
-
-        /* We always want to compress if we are encrypting */
-        if (config.http_io.compress == Z_NO_COMPRESSION)
-            config.http_io.compress = Z_DEFAULT_COMPRESSION;
-    }
+    /* We always want to compress if we are encrypting */
+    if (config.http_io.encryption != NULL && config.http_io.compress == Z_NO_COMPRESSION)
+        config.http_io.compress = Z_DEFAULT_COMPRESSION;
 
     /* Check compression level */
     switch (config.http_io.compress) {
@@ -1195,6 +1187,12 @@ validate_config(void)
     if (sizeof(s3b_block_t) < sizeof(config.num_blocks)
       && config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
         warnx("more than 2^%d blocks: decrease file size or increase block size", (int)(sizeof(s3b_block_t) * 8));
+        return -1;
+    }
+
+    /* Check block size vs. encryption block size */
+    if (config.http_io.encryption != NULL && config.block_size % EVP_MAX_IV_LENGTH != 0) {
+        warnx("block size must be at least %u when encryption is enabled", EVP_MAX_IV_LENGTH);
         return -1;
     }
 

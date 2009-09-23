@@ -610,7 +610,9 @@ is not given) it will be resolved relative to the root directory.
 .It Fl \-timeout=SECONDS
 Specify a time limit in seconds for one HTTP operation attempt.
 This limits the entire operation including connection time (if not already connected) and data transfer time.
-Default is 30 seconds.
+The default is 30 seconds; this value may need to be adjusted upwards to avoid premature timeouts on slower links
+and/or when using a large number of block cache worker threads.
+.Pp
 See also
 .Fl \-maxRetryPause .
 .It Fl \-version
