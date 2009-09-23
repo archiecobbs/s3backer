@@ -79,8 +79,8 @@
 /* How many blocks to list at a time */
 #define LIST_BLOCKS_CHUNK           0x100
 
-/* PBKDF2 key generation iteratons */
-#define PBKDF2_ITERATIONS           2500
+/* PBKDF2 key generation iterations */
+#define PBKDF2_ITERATIONS           5000
 
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
@@ -103,9 +103,12 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
-    const EVP_CIPHER            *cipher;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
-    u_char                      key[EVP_MAX_KEY_LENGTH];
+
+    /* Encryption info */
+    const EVP_CIPHER            *cipher;
+    u_char                      key[EVP_MAX_KEY_LENGTH];        // key used to encrypt data
+    u_char                      ivkey[EVP_MAX_KEY_LENGTH];      // key used to encrypt block number to get IV for data
 };
 
 /* I/O buffers */
@@ -270,6 +273,10 @@ http_io_create(struct http_io_conf *config)
     if (config->encryption != NULL) {
         char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
 
+        /* Sanity checks */
+        assert(config->password != NULL);
+        assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
+
         /* Find encryption algorithm */
         OpenSSL_add_all_ciphers();
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
@@ -277,13 +284,25 @@ http_io_create(struct http_io_conf *config)
             r = EINVAL;
             goto fail4;
         }
+        if (EVP_CIPHER_block_size(priv->cipher) != EVP_CIPHER_iv_length(priv->cipher)) {
+            (*config->log)(LOG_ERR, "invalid encryption cipher `%s': block size %d != IV length %d",
+              config->encryption, EVP_CIPHER_block_size(priv->cipher), EVP_CIPHER_iv_length(priv->cipher));
+            r = EINVAL;
+            goto fail4;
+        }
 
-        /* Hash password to get encryption key */
-        assert(config->password != NULL);
-        assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
+        /* Hash password to get bulk data encryption key */
         snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
           (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, sizeof(priv->key), priv->key)) != 1) {
+            (*config->log)(LOG_ERR, "failed to create encryption key");
+            r = EINVAL;
+            goto fail4;
+        }
+
+        /* Hash the bulk encryption key to get the IV encryption key */
+        if ((r = PKCS5_PBKDF2_HMAC_SHA1((char *)priv->key, sizeof(priv->key),
+          priv->key, sizeof(priv->key), PBKDF2_ITERATIONS, sizeof(priv->ivkey), priv->ivkey)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
             goto fail4;
@@ -816,6 +835,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
             /* Allocate buffer for the decrypted data */
             if ((buf = malloc(did_read + EVP_MAX_IV_LENGTH)) == NULL) {
+                (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.out_of_memory_errors++;
                 pthread_mutex_unlock(&priv->mutex);
@@ -1000,7 +1020,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     char datebuf[64];
     int compressed = 0;
     int encrypted = 0;
-    MD5_CTX ctx;
     int r;
 
     /* Sanity check */
@@ -1122,11 +1141,9 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Compute MD5 checksum */
-    if (src != NULL) {
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, io.src, io.buf_size);
-        MD5_Final(md5, &ctx);
-    } else
+    if (src != NULL)
+        MD5(io.src, io.buf_size, md5);
+    else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
     /* Report MD5 back to caller */
@@ -1755,10 +1772,8 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     u_char ivec[EVP_MAX_IV_LENGTH];
     EVP_CIPHER_CTX ctx;
     u_int total_len;
-    MD5_CTX md5ctx;
-    char blockbuf[64];
+    char blockbuf[EVP_MAX_IV_LENGTH];
     int clen;
-    int i;
     int r;
 
 #ifdef NDEBUG
@@ -1769,19 +1784,29 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     /* Sanity check */
     assert(EVP_MAX_IV_LENGTH >= MD5_DIGEST_LENGTH);
 
-    /* Generate initialization vector using hash of block number and key */
-    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-    MD5_Init(&md5ctx);
-    MD5_Update(&md5ctx, blockbuf, strlen(blockbuf));
-    MD5_Update(&md5ctx, priv->key, sizeof(priv->key));
-    MD5_Final(ivec, &md5ctx);
-    for (i = MD5_DIGEST_LENGTH; i < sizeof(ivec); i++)
-        ivec[i] = ivec[i - MD5_DIGEST_LENGTH];
-
-    /* Initialize cipher */
+    /* Initialize cipher context */
     EVP_CIPHER_CTX_init(&ctx);
+
+    /* Generate initialization vector by encrypting the block number using previously generated IV */
+    memset(blockbuf, 0, sizeof(blockbuf));
+    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+
+    /* Initialize cipher for IV generation */
+    r = EVP_EncryptInit_ex(&ctx, priv->cipher, NULL, priv->ivkey, priv->ivkey);
+    assert(r == 1);
+    EVP_CIPHER_CTX_set_padding(&ctx, 0);
+
+    /* Encrypt block number to get IV for bulk encryption */
+    r = EVP_EncryptUpdate(&ctx, ivec, &clen, (const u_char *)blockbuf, EVP_CIPHER_CTX_block_size(&ctx));
+    assert(r == 1 && clen == EVP_CIPHER_CTX_block_size(&ctx));
+    r = EVP_EncryptFinal_ex(&ctx, NULL, &clen);
+    assert(r == 1 && clen == 0);
+
+    /* Re-initialize cipher for bulk data encryption */
+    assert(EVP_CIPHER_CTX_block_size(&ctx) == EVP_CIPHER_CTX_iv_length(&ctx));
     r = EVP_CipherInit_ex(&ctx, priv->cipher, NULL, priv->key, ivec, enc);
     assert(r == 1);
+    EVP_CIPHER_CTX_set_padding(&ctx, 1);
 
     /* Encrypt/decrypt */
     r = EVP_CipherUpdate(&ctx, dest, &clen, src, (int)len);
