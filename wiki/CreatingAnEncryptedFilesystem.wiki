@@ -1,7 +1,9 @@
 #summary How to create an encrypted filesystem
 #labels Featured
 
-This page describes how to create a simple encrypted filesystem on Linux. See also how to [CreatingANewFilesystem create a new filesystem].
+This page describes how to create a simple encrypted filesystem using the Linux support for encrypted loopback mounts. See also how to [CreatingANewFilesystem create a new filesystem].
+
+Note: in versions 1.3.0 and later, *s3backer* supports native encryption and authentication. This is much simpler and also more efficient, because it allows *s3backer* to compress the data before encrypting it and also to optimize away zeroed blocks.
 
 You may want to also read the `losetup(8)` man page for details, especially how to create an encrypted filesystem that uses multiple keys instead of a single key.
 
