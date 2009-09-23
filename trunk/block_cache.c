@@ -529,8 +529,6 @@ again:
             if (config->cache_file != NULL) {
                 if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
                     (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
-                if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-                    (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
             }
             TAILQ_REMOVE(&priv->cleans, entry, link);
             ENTRY_RESET_LINK(entry);
@@ -638,8 +636,6 @@ read:
     assert(ENTRY_GET_STATE(entry) == READING);
     assert(!entry->verify);
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-            (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
         if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
             (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
     }
@@ -721,8 +717,6 @@ again:
             if (config->cache_file != NULL) {
                 if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
                     (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
-                if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-                    (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
             }
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
@@ -903,8 +897,6 @@ block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *ent
     if (config->cache_file != NULL) {
         if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
             (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
-        if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-            (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
         if ((r = s3b_dcache_free_block(priv->dcache, entry->u.dslot)) != 0)
             (*config->log)(LOG_ERR, "can't free cached block! %s", strerror(r));
     } else
@@ -1017,8 +1009,6 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!entry->dirty) {
                 if (config->cache_file != NULL) {
-                    if ((r = s3b_dcache_fsync(priv->dcache)) != 0)
-                        (*config->log)(LOG_ERR, "can't sync disk cache! %s", strerror(r));
                     if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }

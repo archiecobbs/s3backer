@@ -269,12 +269,15 @@ s3b_dcache_alloc_block(struct s3b_dcache *priv, u_int *dslotp)
  * Record a block's dslot in the directory. After this function is called, the block will
  * be visible in the directory and picked up after a restart.
  *
+ * This should be called AFTER the data for the block has already been written.
+ *
  * There MUST NOT be a directory entry for the block.
  */
 int
 s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, const u_char *md5)
 {
     struct dir_entry entry;
+    int r;
 
     /* Sanity check */
     assert(dslot < priv->max_blocks);
@@ -282,26 +285,46 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
     /* Directory entry should be empty */
     assert(s3b_dcache_entry_is_empty(priv, dslot));
 
+    /* Make sure any new data is written to disk before updating the directory */
+    if ((r = s3b_dcache_fsync(priv)) != 0)
+        return r;
+
     /* Update directory */
     entry.block_num = block_num;
     memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
-    return s3b_dcache_write_entry(priv, dslot, &entry);
+    if ((r = s3b_dcache_write_entry(priv, dslot, &entry)) != 0)
+        return r;
+
+    /* Done */
+    return 0;
 }
 
 /*
  * Erase the directory entry for a dslot. After this function is called, the block will
  * no longer be visible in the directory after a restart.
  *
+ * This should be called BEFORE any new data for the block is written.
+ *
  * There MUST be a directory entry for the block.
  */
 int
 s3b_dcache_erase_block(struct s3b_dcache *priv, u_int dslot)
 {
+    int r;
+
     /* Sanity check */
     assert(dslot < priv->max_blocks);
 
     /* Update directory */
-    return s3b_dcache_write_entry(priv, dslot, &zero_entry);
+    if ((r = s3b_dcache_write_entry(priv, dslot, &zero_entry)) != 0)
+        return r;
+
+    /* Make sure directory entry is written to disk before any new data is written */
+    if ((r = s3b_dcache_fsync(priv)) != 0)
+        return r;
+
+    /* Done */
+    return 0;
 }
 
 /*
