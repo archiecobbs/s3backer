@@ -22,7 +22,7 @@ echo "running aclocal"
 ${ACLOCAL} ${ACLOCAL_ARGS} -I scripts
 
 echo "running autoheader"
-${AUTOHEADER} -I include -I libjc/arch -I libjc/native
+${AUTOHEADER}
 
 echo "running automake"
 ${AUTOMAKE} --add-missing -c --foreign
