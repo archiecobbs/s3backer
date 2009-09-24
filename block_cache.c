@@ -169,7 +169,8 @@ struct cbinfo {
 /* s3backer_store functions */
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
-static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
+static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
@@ -181,6 +182,7 @@ static int block_cache_read(struct block_cache_private *priv, s3b_block_t block_
 static int block_cache_do_read(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats);
 static int block_cache_write(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void *block_cache_worker_main(void *arg);
+static int block_cache_check_cancel(void *arg, s3b_block_t block_num);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *entry);
 static void block_cache_free_one(void *arg, void *value);
@@ -663,7 +665,8 @@ fail:
 }
 
 static int
-block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *md5)
+block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
@@ -992,14 +995,14 @@ block_cache_worker_main(void *arg)
 
             /* Attempt to write the block */
             pthread_mutex_unlock(&priv->mutex);
-            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, md5);
+            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, md5, block_cache_check_cancel, priv);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv);
 
             /* Sanity checks */
             assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
 
-            /* If write attempt failed, go back to the DIRTY state and try again later */
+            /* If write attempt failed (or we canceled it), go back to the DIRTY state and try again later */
             if (r != 0) {
                 entry->dirty = 1;
                 TAILQ_INSERT_HEAD(&priv->dirties, entry, link);
@@ -1067,6 +1070,36 @@ done:
     pthread_mutex_unlock(&priv->mutex);
     free(buf);
     return NULL;
+}
+
+/*
+ * See if we want to cancel the current write for the given block.
+ */
+static int
+block_cache_check_cancel(void *arg, s3b_block_t block_num)
+{
+    struct block_cache_private *const priv = arg;
+    struct cache_entry *entry;
+    int r;
+
+    /* Lock mutex */
+    pthread_mutex_lock(&priv->mutex);
+    S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Find cache entry */
+    entry = s3b_hash_get(priv->hashtable, block_num);
+
+    /* Sanity check */
+    assert(entry != NULL);
+    assert(entry->block_num == block_num);
+    assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
+
+    /* If block is in the WRITING2 state, cancel the current (obsolete) write operation */
+    r = entry->dirty;
+
+    /* Unlock mutex */
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
 }
 
 /*

@@ -115,7 +115,8 @@ struct cbinfo {
 /* s3backer_store functions */
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
-static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
+static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static void ec_protect_destroy(struct s3backer_store *s3b);
@@ -329,7 +330,8 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 }
 
 static int
-ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
+ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct ec_protect_private *const priv = s3b->data;
     struct ec_protect_conf *const config = priv->config;
@@ -391,7 +393,7 @@ again:
 writeit:
         /* Write the block */
         pthread_mutex_unlock(&priv->mutex);
-        r = (*priv->inner->write_block)(priv->inner, block_num, src, md5);
+        r = (*priv->inner->write_block)(priv->inner, block_num, src, md5, check_cancel, check_cancel_arg);
         pthread_mutex_lock(&priv->mutex);
         EC_PROTECT_CHECK_INVARIANTS(priv);
 

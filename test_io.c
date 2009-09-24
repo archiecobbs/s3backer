@@ -39,7 +39,8 @@ struct test_io_private {
 /* s3backer_store functions */
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
-static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
+static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
@@ -196,7 +197,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 }
 
 static int
-test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
+test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;

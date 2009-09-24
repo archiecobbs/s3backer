@@ -89,7 +89,7 @@ main(int argc, char **argv)
     /* Zero all blocks */
     for (i = 0; i < config->num_blocks; i++) {
         printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)i);
-        if ((r = (*store->write_block)(store, i, zero_block, NULL)) != 0)
+        if ((r = (*store->write_block)(store, i, zero_block, NULL, NULL, NULL)) != 0)
             err(1, "write error");
     }
 
@@ -170,7 +170,7 @@ thread_main(void *arg)
             memcpy(data, &content, sizeof(content));
             memset(data + sizeof(content), 0, config->block_size - sizeof(content));
             logit(id, "wr %0*jx content=0x%08x START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data);
-            if ((r = (*store->write_block)(store, block_num, data, NULL)) != 0)
+            if ((r = (*store->write_block)(store, block_num, data, NULL, NULL, NULL)) != 0)
                 logit(id, "****** WRITE ERROR: %s", strerror(r));
             logit(id, "wr %0*jx content=0x%08x %s%s\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data,
               r != 0 ? "FAILED: " : "COMPLETE", r != 0 ? strerror(r) : "");

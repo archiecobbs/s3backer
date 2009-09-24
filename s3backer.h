@@ -94,6 +94,9 @@ typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((
 /* Block list callback function type */
 typedef void        block_list_func_t(void *arg, s3b_block_t block_num);
 
+/* Block write cancel check function type */
+typedef int         check_cancel_t(void *arg, s3b_block_t block_num);
+
 /* Backing store instance structure */
 struct s3backer_store {
 
@@ -130,12 +133,16 @@ struct s3backer_store {
      *
      * Passing src == NULL is equivalent to passing a block containing all zeroes.
      *
+     * If check_cancel != NULL, then it may be invoked periodically during the write. If so, and it ever
+     * returns a non-zero value, then this function may choose to abort the write and return ECONNABORTED.
+     *
      * Upon successful return, md5 (if not NULL) will get updated with a value suitable for the 'expect_md5'
      * parameter of read_block(); if the block is all zeroes, md5 will be zeroed.
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
+    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+                  check_cancel_t *check_cancel, void *arg);
 
     /*
      * Write part of one block.

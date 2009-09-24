@@ -431,7 +431,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
 
     /* Write intermediate complete blocks */
     while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, buf, NULL)) != 0)
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, buf, NULL, NULL, NULL)) != 0)
             return -r;
         buf += config->block_size;
     }
