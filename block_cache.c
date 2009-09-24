@@ -111,7 +111,7 @@ struct cache_entry {
     TAILQ_ENTRY(cache_entry)        link;           // next in list (cleans or dirties)
     union {
         void                        *data;          // data buffer in memory
-        s3b_block_t                 dslot;          // disk cache data slot
+        u_int                       dslot;          // disk cache data slot
     }                               u;
     u_char                          md5[0];         // MD5 checksum (CLEAN2)
 };
