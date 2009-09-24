@@ -607,8 +607,9 @@ s3b_dcache_pop(struct s3b_dcache *priv, u_int *dslotp)
         s3b_block_t new_free_list_alloc;
 
         new_free_list_alloc = priv->free_list_alloc / 4;
-        if ((new_free_list = realloc(priv->free_list, new_free_list_alloc * sizeof(*new_free_list))) != NULL) {
-            (*priv->log)(LOG_ERR, "realloc: %s (ignored)", strerror(errno));
+        if ((new_free_list = realloc(priv->free_list, new_free_list_alloc * sizeof(*new_free_list))) == NULL)
+            (*priv->log)(LOG_ERR, "can't shrink dcache free list: realloc: %s (ignored)", strerror(errno));
+        else {
             priv->free_list = new_free_list;
             priv->free_list_alloc = new_free_list_alloc;
         }
