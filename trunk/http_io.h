@@ -78,6 +78,7 @@ struct http_io_stats {
     u_int               http_5xx_error;
     u_int               http_4xx_error;
     u_int               http_other_error;
+    u_int               http_canceled_writes;
 
     /* CURL stats */
     u_int               curl_handles_created;

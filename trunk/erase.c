@@ -182,7 +182,7 @@ erase_thread_main(void *arg)
 
             /* Do block deletion */
             pthread_mutex_unlock(&priv->mutex);
-            r = (*priv->s3b->write_block)(priv->s3b, block_num, NULL, NULL);
+            r = (*priv->s3b->write_block)(priv->s3b, block_num, NULL, NULL, NULL, NULL);
             pthread_mutex_lock(&priv->mutex);
 
             /* Check for error */

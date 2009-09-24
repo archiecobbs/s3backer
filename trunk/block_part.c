@@ -83,7 +83,7 @@ block_part_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
     if (len == 0)
         return 0;
     if (off == 0 && len == block_size)
-        return (*s3b->write_block)(s3b, block_num, src, NULL);
+        return (*s3b->write_block)(s3b, block_num, src, NULL, NULL, NULL);
 
     /* Allocate buffer */
     if ((buf = malloc(block_size)) == NULL)
@@ -99,7 +99,7 @@ block_part_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
     memcpy(buf + off, src, len);
 
     /* Write back entire block */
-    if ((r = (*s3b->write_block)(s3b, block_num, buf, NULL)) != 0) {
+    if ((r = (*s3b->write_block)(s3b, block_num, buf, NULL, NULL, NULL)) != 0) {
         free(buf);
         return r;
     }

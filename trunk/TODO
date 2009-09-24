@@ -1,6 +1,5 @@
 TODO
 
-- interrupt active write when new write happens (instead of waiting)
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
 
 $Id$

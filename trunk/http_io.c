@@ -146,6 +146,7 @@ struct http_io {
     struct curl_slist   *headers;               // HTTP headers
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
+    s3b_block_t         block_num;              // The block we're reading/writing
     u_int               buf_size;               // Size of data buffer
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
@@ -154,6 +155,8 @@ struct http_io {
     u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
     u_char              hmac[SHA_DIGEST_LENGTH];// parsed "x-amz-meta-s3backer-hmac" header
     char                content_encoding[32];   // received content encoding
+    check_cancel_t      *check_cancel;          // write check-for-cancel callback
+    void                *check_cancel_arg;      // write check-for-cancel callback argument
 };
 
 /* CURL prepper function type */
@@ -162,7 +165,8 @@ typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 /* s3backer_store functions */
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
-static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5);
+static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
@@ -690,7 +694,7 @@ http_io_detect_prepper(CURL *curl, struct http_io *io)
     memset(&io->bufs, 0, sizeof(io->bufs));
     curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
@@ -738,6 +742,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     memset(&io, 0, sizeof(io));
     io.url = urlbuf;
     io.method = HTTP_GET;
+    io.block_num = block_num;
 
     /* Allocate a buffer in case compressed and/or encrypted data is larger */
     io.buf_size = compressBound(config->block_size) + EVP_MAX_IV_LENGTH;
@@ -991,7 +996,7 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     io->bufs.rdremain = io->buf_size;
     io->bufs.rddata = io->dest;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
@@ -1004,7 +1009,8 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
  * Write block if src != NULL, otherwise delete block.
  */
 static int
-http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5)
+http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+  check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1056,6 +1062,9 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.method = src != NULL ? HTTP_PUT : HTTP_DELETE;
     io.src = src;
     io.buf_size = config->block_size;
+    io.block_num = block_num;
+    io.check_cancel = check_cancel;
+    io.check_cancel_arg = check_cancel_arg;
 
     /* Compress block if desired */
     if (src != NULL && config->compress != Z_NO_COMPRESSION) {
@@ -1222,9 +1231,9 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
         io->bufs.wrdata = io->src;
     }
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
-    curl_easy_setopt(curl, CURLOPT_READDATA, &io->bufs);
+    curl_easy_setopt(curl, CURLOPT_READDATA, io);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &io->bufs);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     if (io->src != NULL) {
         curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size);
@@ -1339,6 +1348,13 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
         /* Handle errors */
         switch (curl_code) {
+        case CURLE_ABORTED_BY_CALLBACK:
+            if (config->debug)
+                (*config->log)(LOG_DEBUG, "write aborted: %s %s", io->method, io->url);
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.http_canceled_writes++;
+            pthread_mutex_unlock(&priv->mutex);
+            return ECONNABORTED;
         case CURLE_OPERATION_TIMEDOUT:
             (*config->log)(LOG_NOTICE, "operation timeout: %s %s", io->method, io->url);
             pthread_mutex_lock(&priv->mutex);
@@ -1613,7 +1629,8 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
 static size_t
 http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 {
-    struct http_io_bufs *const bufs = (struct http_io_bufs *)stream;
+    struct http_io *const io = (struct http_io *)stream;
+    struct http_io_bufs *const bufs = &io->bufs;
     size_t total = size * nmemb;
 
     if (total > bufs->rdremain)     /* should never happen */
@@ -1627,9 +1644,15 @@ http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 static size_t
 http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream)
 {
-    struct http_io_bufs *const bufs = (struct http_io_bufs *)stream;
+    struct http_io *const io = (struct http_io *)stream;
+    struct http_io_bufs *const bufs = &io->bufs;
     size_t total = size * nmemb;
 
+    /* Check for canceled write */
+    if (io->check_cancel != NULL && (*io->check_cancel)(io->check_cancel_arg, io->block_num) != 0)
+        return CURL_READFUNC_ABORT;
+
+    /* Copy out data */
     if (total > bufs->wrremain)     /* should never happen */
         total = bufs->wrremain;
     memcpy(ptr, bufs->wrdata, total);

@@ -602,6 +602,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_other_error", http_io_stats.http_other_error);
+        (*printer)(prarg, "%-28s %u\n", "http_canceled_writes", http_io_stats.http_canceled_writes);
         (*printer)(prarg, "%-28s %u\n", "http_num_retries", http_io_stats.num_retries);
         (*printer)(prarg, "%-28s %ju.%03u sec\n", "http_total_retry_delay",
           (uintmax_t)(http_io_stats.retry_delay / 1000), (u_int)(http_io_stats.retry_delay % 1000));
