@@ -3,10 +3,10 @@ Version 1.3.0
 
     - Added support for local cache files that can persist across restarts.
     - Added built-in support for encryption and authentication.
-    - Changed default for `--blockCacheWriteDelay' from zero to 250ms
+    - Changed default for `--blockCacheWriteDelay' from zero to 250ms.
     - Fix obscure and unlikely deadlock bug in ec_protect.c.
     - Allow configurable compression level via --compress=LEVEL.
-    - Fix bug that caused spurious "impossible expected MD5" log messages
+    - Fix bug that caused spurious "impossible expected MD5" log messages.
 
 Version 1.2.3 (r333) released 15 May 2009
 
