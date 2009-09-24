@@ -64,7 +64,7 @@ struct file_header {
     uint32_t                        block_size;
     uint32_t                        data_align;
     uint32_t                        zero;
-    s3b_block_t                     max_blocks;
+    u_int                           max_blocks;
 } __attribute__ ((packed));
 
 /* One directory entry */
