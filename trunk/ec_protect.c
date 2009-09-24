@@ -156,6 +156,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     /* Initialize structures */
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
         r = errno;
+        (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
     s3b->read_block = ec_protect_read_block;
@@ -166,6 +167,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
+        (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail1;
     }
     priv->config = config;
@@ -376,9 +378,11 @@ again:
 
         /* Create new entry in WRITING state */
         if ((binfo = calloc(1, sizeof(*binfo))) == NULL) {
+            r = errno;
+            (*config->log)(LOG_ERR, "can't alloc new MD5 cache entry: %s", strerror(r));
             priv->stats.out_of_memory_errors++;
             pthread_mutex_unlock(&priv->mutex);
-            return ENOMEM;
+            return r;
         }
         binfo->block_num = block_num;
         binfo->u.data = src;
