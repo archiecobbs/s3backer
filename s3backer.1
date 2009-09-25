@@ -158,7 +158,7 @@ The block cache can be configured to store the cached data in a local file inste
 This permits larger cache sizes and allows
 .Nm
 to reload cached data after a restart.
-Reloaded data is verified before reuse.
+Reloaded data is verified via MD5 checksum with Amazon S3 before reuse.
 .Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheFile ,
