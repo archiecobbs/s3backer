@@ -907,7 +907,7 @@ validate_config(void)
         schemelen = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
         buflen = strlen(config.http_io.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
         if ((buf = malloc(buflen)) == NULL)
-            err(1, "malloc(%u)", buflen);
+            err(1, "malloc(%u)", (u_int)buflen);
         snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL,
           config.http_io.bucket, config.http_io.baseURL + schemelen);
         config.http_io.baseURL = buf;
