@@ -1169,11 +1169,13 @@ block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry
     struct cache_entry *new_entry;
 
     assert(entry->verify);
-    if ((new_entry = realloc(entry, sizeof(*entry))) == NULL)
-        return entry;
-    s3b_hash_put(priv->hashtable, new_entry);
-    new_entry->verify = 0;
-    return new_entry;
+    assert(!ENTRY_IN_LIST(entry));
+    if ((new_entry = realloc(entry, sizeof(*entry))) != NULL) {
+        entry = new_entry;
+        s3b_hash_put(priv->hashtable, entry);
+    }
+    entry->verify = 0;
+    return entry;
 }
 
 /*
