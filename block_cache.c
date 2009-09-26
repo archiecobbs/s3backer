@@ -1166,16 +1166,26 @@ block_cache_free_one(void *arg, void *value)
 static struct cache_entry *
 block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry)
 {
-#if 0
     struct cache_entry *new_entry;
 
+    /* Sanity check */
     assert(entry->verify);
-    assert(!ENTRY_IN_LIST(entry));
-    if ((new_entry = realloc(entry, sizeof(*entry))) != NULL) {
-        entry = new_entry;
-        s3b_hash_put(priv->hashtable, entry);
+    assert(ENTRY_GET_STATE(entry) == CLEAN2 || ENTRY_GET_STATE(entry) == READING2);
+
+    /* Give back some memory; if we can't no big deal */
+    if ((new_entry = realloc(entry, sizeof(*entry))) == NULL)
+        goto done;
+
+    /* Update all references that point to the entry */
+    s3b_hash_put(priv->hashtable, new_entry);
+    if (ENTRY_IN_LIST(entry)) {
+        TAILQ_REMOVE(&priv->cleans, entry, link);
+        TAILQ_INSERT_TAIL(&priv->cleans, new_entry, link);
     }
-#endif
+    entry = new_entry;
+
+done:
+    /* Mark entry as verified */
     entry->verify = 0;
     return entry;
 }
