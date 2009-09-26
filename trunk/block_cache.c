@@ -1166,10 +1166,10 @@ block_cache_free_one(void *arg, void *value)
 static struct cache_entry *
 block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry)
 {
+#if 0
     struct cache_entry *new_entry;
 
     assert(entry->verify);
-#if 0
     assert(!ENTRY_IN_LIST(entry));
     if ((new_entry = realloc(entry, sizeof(*entry))) != NULL) {
         entry = new_entry;
