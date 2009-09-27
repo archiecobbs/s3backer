@@ -110,21 +110,19 @@ const struct fuse_operations s3backer_fuse_ops = {
 
 /* Configuration and underlying s3backer_store */
 static struct fuse_ops_conf *config;
-static struct s3backer_store *store;
 
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
 const struct fuse_operations *
-fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *store0)
+fuse_ops_create(struct fuse_ops_conf *config0)
 {
     if (config != NULL) {
         (*config0->log)(LOG_ERR, "s3backer_get_fuse_ops(): duplicate invocation");
         return NULL;
     }
     config = config0;
-    store = store0;
     return &s3backer_fuse_ops;
 }
 
@@ -137,10 +135,6 @@ fuse_op_init(void)
 {
     struct fuse_ops_private *priv;
 
-    /* Sanity check */
-    assert(config != NULL);
-    assert(store != NULL);
-
     /* Create private structure */
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         (*config->log)(LOG_ERR, "fuse_op_init(): %s", strerror(errno));
@@ -152,7 +146,13 @@ fuse_op_init(void)
     priv->file_mtime = priv->start_time;
     priv->stats_atime = priv->start_time;
     priv->file_size = config->num_blocks * config->block_size;
-    priv->s3b = store;
+
+    /* Create backing store */
+    if ((priv->s3b = s3backer_create_store(config->s3bconf)) == NULL) {
+        (*config->log)(LOG_ERR, "fuse_op_init(): can't create s3backer_store: %s", strerror(errno));
+        free(priv);
+        return NULL;
+    }
 
     /* Done */
     return priv;

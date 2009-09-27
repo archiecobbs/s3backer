@@ -24,7 +24,6 @@
 
 /* Forward decl's */
 struct s3b_config;
-struct s3backer_store;
 
 /* Function types */
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
@@ -46,5 +45,5 @@ struct fuse_ops_conf {
 };
 
 /* fuse_ops.c */
-const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *store);
+const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config);
 
