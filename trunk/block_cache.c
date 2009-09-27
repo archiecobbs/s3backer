@@ -184,7 +184,7 @@ static int block_cache_write(struct block_cache_private *priv, s3b_block_t block
 static void *block_cache_worker_main(void *arg);
 static int block_cache_check_cancel(void *arg, s3b_block_t block_num);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
-static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *entry);
+static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **entryp);
 static void block_cache_free_one(void *arg, void *value);
 static struct cache_entry *block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry);
 static void block_cache_dirty_callback(void *arg, void *value);
@@ -848,7 +848,7 @@ again:
             return r;
         }
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
-        block_cache_free_entry(priv, entry);
+        block_cache_free_entry(priv, &entry);
         goto again;
     } else
         goto done;
@@ -888,13 +888,17 @@ done:
  * Evict a CLEAN[2] entry.
  */
 static void
-block_cache_free_entry(struct block_cache_private *priv, struct cache_entry *entry)
+block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **entryp)
 {
     struct block_cache_conf *const config = priv->config;
+    struct cache_entry *const entry = *entryp;
     int r;
 
     /* Sanity check */
     assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
+
+    /* Invalidate caller's pointer */
+    *entryp = NULL;
 
     /* Free the data */
     if (config->cache_file != NULL) {
@@ -958,7 +962,7 @@ block_cache_worker_main(void *arg)
         /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
-                block_cache_free_entry(priv, clean_entry);
+                block_cache_free_entry(priv, &clean_entry);
                 pthread_cond_signal(&priv->space_avail);
             }
         }
