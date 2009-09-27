@@ -16,7 +16,7 @@ SYNOPSIS
 
 DESCRIPTION
      s3backer is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).  As a filesys-
-     tem, it is quite small and simple: it provides a single normal file having a fixed size.  The file is divided up into blocks,
+     tem, it is very simple: it provides a single normal file having a fixed size.  Underneath, the file is divided up into blocks,
      and the content of each block is stored in a unique Amazon S3 object.  In other words, what s3backer provides is really more
      like an S3-backed virtual hard disk device, rather than a filesystem.
 
@@ -35,9 +35,9 @@ DESCRIPTION
      o   The gap between normal filesystem semantics and Amazon S3 ``eventual consistency'' is more easily and simply solved when
          one can interpret S3 objects as simple device blocks rather than filesystem objects (see below).
 
-     o   When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt data becomes a crit-
-         ical issue.  s3backer provides this automatically because encryption support is already included in the Linux loopback
-         mechanism.
+     o   When storing your data on Amazon S3 servers, which are not under your control, the ability to encrypt and authenticate
+         data becomes a critical issue.  s3backer supports secure encryption and authentication.  Alternately, the encryption capa-
+         bility built into the Linux loopback device can be used.
 
      o   Since S3 data is accessed over the network, local caching is also very important for performance reasons.  Since s3backer
          presents the equivalent of a virtual hard disk to the kernel, most of the filesystem caching can be done where it should
@@ -85,8 +85,12 @@ DESCRIPTION
      through FUSE filesystems one at a time, performing writes asynchronously allows s3backer to take advantage of the parallelism
      inherent in the network, vastly improving write performance.
 
-     The block cache is configured by the following command line options: --blockCacheSize, --blockCacheSync, --blockCacheThreads,
-     --blockCacheTimeout, and --blockCacheWriteDelay.
+     The block cache can be configured to store the cached data in a local file instead of in memory.  This permits larger cache
+     sizes and allows s3backer to reload cached data after a restart.  Reloaded data is verified via MD5 checksum with Amazon S3
+     before reuse.
+
+     The block cache is configured by the following command line options: --blockCacheFile, --blockCacheNoVerify, --blockCacheSize,
+     --blockCacheSync, --blockCacheThreads, --blockCacheTimeout, and --blockCacheWriteDelay.
 
    Read Ahead
      s3backer implements a simple read-ahead algorithm in the block cache.  When a configurable number of blocks are read in order,
@@ -99,6 +103,13 @@ DESCRIPTION
      s3backer passes the -o max_readahead=0 option to FUSE.
 
      Read ahead is configured by the --readAhead and --readAheadTrigger command line options.
+
+   Encryption and Authentication
+     s3backer supports encryption via the --encrypt, --password, and --passwordFile flags.  When encryption is enabled, SHA1 HMAC
+     authentication is also automatically enabled, and s3backer rejects any blocks that are not properly encrypted and signed.
+
+     Encrypting at the s3backer layer is preferable to encrypting at an upper layer (e.g., at the loopback device layer), because
+     if the data s3backer sees is already encrypted it can't optimize away zeroed blocks or do meaningful compression.
 
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  The filesystem must already exist and have S3 objects with
@@ -119,7 +130,7 @@ DESCRIPTION
 
 OPTIONS
      Each command line flag has two forms, for example --accessFile=FILE and -o accessFile=FILE.  Only the first form is shown
-     below.  Either form many be used; both forms are equivalent.  The second form allows mount options to be specified directly in
+     below.  Either form many be used; both are equivalent.  The second form allows mount options to be specified directly in
      /etc/fstab and passed seamlessly to s3backer by FUSE.
 
      --accessFile=FILE
@@ -141,11 +152,30 @@ OPTIONS
              Specify the Amazon S3 access privilege ACL type for newly written blocks.  The value must be one of `private', `pub-
              lic-read', `public-read-write', or `authenticated-read'.  Default is `private'.
 
-     --assumeEmpty
-             Deprecated.  Has the same effect as --listBlocks.
-
      --baseURL=URL
              Specify the base URL. Default is `http://s3.amazonaws.com/'.
+
+     --blockCacheFile=FILE
+             Specify a file in which to store cached data blocks.  Without this flag, the block cache lives entirely in process
+             memory and the cached data disappears when s3backer is stopped.  The file will be created if it doesn't exist.
+
+             Cache files that have been created by previous invocations of s3backer are reusable as long as they were created with
+             the same configured block size and cache size (if not, startup will fail).  This is true even if s3backer was stopped
+             abruptly, e.g., due to a system crash; however, this guarantee rests on the assumption that the filesystem containing
+             the cache file will not reorder writes across calls to fsync(2).
+
+             In any case, only clean cache blocks are recoverable after a restart.  This means a system crash will cause dirty
+             blocks in the cache to be lost (of course, that is the case with an in-memory cache as well).  Use
+             --blockCacheWriteDelay to limit this window.
+
+             By default, when having reloaded the cache from a cache file, s3backer will verify the MD5 checksum of each reloaded
+             block with Amazon S3 before its first use.  This verify operation does not require actually reading the block's data,
+             and therefore is relatively quick.  This guards against the cached data having unknowingly gotten out of sync since
+             the cache file was last used, a situation that is otherwise impossible for s3backer to detect.
+
+     --blockCacheNoVerify
+             Disable the MD5 verification of blocks loaded from a cache file specified via --blockCacheFile.  Using this flag is
+             dangerous; use only when you are sure the cached file is uncorrupted and the data it contains is up to date.
 
      --blockCacheSize=SIZE
              Specify the block cache size (in number of blocks).  Each entry in the cache will consume approximately block size
@@ -165,8 +195,8 @@ OPTIONS
              Specify the maximum time a dirty block can remain in the block cache before it must be written out to the network.
              Blocks may be written sooner when there is cache pressure.  A value of zero configures a ``write-through'' policy;
              greater values configure a ``write-back'' policy.  Larger values increase performance when a small number of blocks
-             are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.  Default value is
-             zero.
+             are accessed repeatedly, at the cost of greater inconsistency with the underlying S3 data store.  Default value is 250
+             milliseconds.
 
      --blockCacheSync
              Forces synchronous writes in the block cache layer.  Instead of returning immediately and scheduling the actual write
@@ -195,13 +225,19 @@ OPTIONS
              Specify SSL certificate file to be used when verifying the remote server's identity when operating over SSL connec-
              tions.  Equivalent to the --cacert flag documented in curl(1).
 
-     --compress
+     --compress[=LEVEL]
              Compress blocks before sending them over the network.  This should result in less network traffic (in both directions)
              and lower storage costs.
+
+             The compression level is optional; if given, it must be between 1 (fast compression) and 9 (most compression), inclu-
+             sive.  If omitted, the default compression level is used.
 
              This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropri-
              ate.  Therefore, it is safe to switch this flag on or off between different invocations of s3backer on the same
              filesystem.
+
+             This flag is automatically enabled when --encrypt is used, though you may also specify --compress=LEVEL to set a non-
+             default compression level.
 
              When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
 
@@ -211,6 +247,18 @@ OPTIONS
 
      --debug-http
              Enable printing of HTTP headers to standard output.
+
+     --encrypt[=CIPHER]
+             Enable encryption and authentication of block data.  See your OpenSSL documentation for a list of supported ciphers;
+             the default if no cipher is specified is AES-128 CBC.
+
+             The encryption password may be supplied via one of --password or --passwordFile.  If neither flag is given, s3backer
+             will ask for the password at startup.
+
+             Note: the actual key used is derived by hashing the password, the bucket name, the prefix name (if any), and the block
+             number.  Therefore, encrypted block data is not portable.
+
+             This flag implies --compress.
 
      --erase
              Completely erase the file system by deleting all non-zero blocks, and then exit.  User confirmation is required unless
@@ -283,9 +331,17 @@ OPTIONS
              Disable block and file size auto-detection at startup.  If this flag is given, then the block size defaults to 4096
              and the --size flag is required.
 
+     --password=PASSWORD
+             Supply the password for encryption and authentication as a command-line parameter.
+
+     --passwordFile=FILE
+             Read the password for encryption and authentication from (the first line of) the specified file.
+
      --prefix=STRING
-             Specify a prefix to prepend to the resource names within bucket that identify each block.  Default is the empty
-             string.
+             Specify a prefix to prepend to the resource names within bucket that identify each block.  By using different pre-
+             fixes, multiple independent s3backer disks can live in the same S3 bucket.
+
+             The default prefix is the empty string.
 
      --quiet
              Suppress progress output during initial startup.
@@ -324,7 +380,10 @@ OPTIONS
 
      --timeout=SECONDS
              Specify a time limit in seconds for one HTTP operation attempt.  This limits the entire operation including connection
-             time (if not already connected) and data transfer time.  Default is 30 seconds.  See also --maxRetryPause.
+             time (if not already connected) and data transfer time.  The default is 30 seconds; this value may need to be adjusted
+             upwards to avoid premature timeouts on slower links and/or when using a large number of block cache worker threads.
+
+             See also --maxRetryPause.
 
      --version
              Output version and exit.
@@ -402,11 +461,11 @@ BUGS
 
      Filesystem size is limited by the maximum allowable size of a single file.
 
-     The default block size of 4k is non-optimal.  Typically, users will want a larger value to minimize transaction costs, e.g.,
-     1m.
+     The default block size of 4k is non-optimal from a compression and cost perspective.  Typically, users will want a larger
+     value to maximize compression and minimize transaction costs, e.g., 1m.
 
 AUTHOR
      Archie L. Cobbs <archie@dellroad.org>
 
-BSD                                                        June 21, 2008                                                        BSD
+BSD                                                      September 7, 2009                                                      BSD
 }}}
