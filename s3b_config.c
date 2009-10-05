@@ -1213,7 +1213,7 @@ validate_config(void)
     }
     if (config.block_cache.cache_size > config.num_blocks) {
         warnx("block cache size (%ju) is greater that the total number of blocks (%ju); automatically reducing",
-          (uintmax_t)config.ec_protect.cache_size, (uintmax_t)config.num_blocks);
+          (uintmax_t)config.block_cache.cache_size, (uintmax_t)config.num_blocks);
         config.block_cache.cache_size = config.num_blocks;
     }
 
