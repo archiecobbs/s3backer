@@ -162,6 +162,7 @@ Reloaded data is verified via MD5 checksum with Amazon S3 before reuse.
 .Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheFile ,
+.Fl \-blockCacheMaxDirty ,
 .Fl \-blockCacheNoVerify ,
 .Fl \-blockCacheSize ,
 .Fl \-blockCacheSync ,
@@ -321,6 +322,13 @@ This guards against the cached data having unknowingly gotten out of sync since 
 a situation that is otherwise impossible for
 .Nm
 to detect.
+.It Fl \-blockCacheMaxDirty=NUM
+Specify a limit on the number of dirty blocks in the block cache.
+When this limit is reached, subsequent write attempts will block until an existing dirty block
+is successfully written (and therefore becomes no longer dirty).
+This flag limits the amount of inconsistency there can be with respect to the underlying S3 data store.
+.Pp
+The default value is zero, which means no limit.
 .It Fl \-blockCacheNoVerify
 Disable the MD5 verification of blocks loaded from a cache file specified via
 .Fl \-blockCacheFile .
