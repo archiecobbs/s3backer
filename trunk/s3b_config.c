@@ -64,6 +64,7 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS    20
 #define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    250             // 250ms
 #define S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT        0
+#define S3BACKER_DEFAULT_BLOCK_CACHE_MAX_DIRTY      0
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
@@ -147,6 +148,7 @@ static struct s3b_config config = {
         .cache_size=            S3BACKER_DEFAULT_BLOCK_CACHE_SIZE,
         .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
         .write_delay=           S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY,
+        .max_dirty=             S3BACKER_DEFAULT_BLOCK_CACHE_MAX_DIRTY,
         .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
         .read_ahead=            S3BACKER_DEFAULT_READ_AHEAD,
         .read_ahead_trigger=    S3BACKER_DEFAULT_READ_AHEAD_TRIGGER,
@@ -220,6 +222,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--blockCacheWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, block_cache.write_delay),
+    },
+    {
+        .templ=     "--blockCacheMaxDirty=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.max_dirty),
     },
     {
         .templ=     "--readAhead=%u",
@@ -1362,10 +1368,12 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
+    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "block_cache_max_dirty", config.block_cache.max_dirty);
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file", config.block_cache.cache_file);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
+      config.block_cache.cache_file != NULL ? config.block_cache.cache_file : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
@@ -1453,6 +1461,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");

@@ -143,9 +143,11 @@ struct block_cache_private {
     struct s3b_hash                 *hashtable;     // hashtable of all cached blocks
     struct s3b_dcache               *dcache;        // on-disk persistent cache
     u_int                           num_cleans;     // length of the 'cleans' list
+    u_int                           num_dirties;    // # blocks that are DIRTY, WRITING, or WRITING2
     u_int64_t                       start_time;     // when we started
     u_int32_t                       clean_timeout;  // timeout for clean entries in time units
     u_int32_t                       dirty_timeout;  // timeout for dirty entries in time units
+    double                          max_dirty_ratio;// dirty ratio at which we write immediately
     s3b_block_t                     seq_last;       // last block read in sequence by upper layer
     u_int                           seq_count;      // # of blocks read in sequence by upper layer
     u_int                           ra_count;       // # of blocks of read-ahead initiated
@@ -261,6 +263,11 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail8;
     s3b->data = priv;
+
+    /* Compute dirty ratio at which we will be writing immediately */
+    priv->max_dirty_ratio = (double)(config->max_dirty != 0 ? config->max_dirty : config->cache_size) / (double)config->cache_size;
+    if (priv->max_dirty_ratio > DIRTY_RATIO_WRITE_ASAP)
+        priv->max_dirty_ratio = DIRTY_RATIO_WRITE_ASAP;
 
     /* Initialize on-disk cache and read in directory */
     if (config->cache_file != NULL) {
@@ -724,6 +731,7 @@ again:
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+            priv->num_dirties++;
             entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
             pthread_cond_signal(&priv->worker_work);
             // FALLTHROUGH
@@ -752,6 +760,13 @@ again:
         goto again;
     }
 
+    /* If there are too many dirty blocks, we have to wait */
+    if (config->max_dirty != 0 && priv->num_dirties >= config->max_dirty) {
+        pthread_cond_signal(&priv->worker_work);
+        pthread_cond_wait(&priv->write_complete, &priv->mutex);
+        goto again;
+    }
+
     /* Get a cache entry, evicting a CLEAN[2] entry if necessary */
     if ((r = block_cache_get_entry(priv, &entry, NULL)) != 0)
         goto fail;
@@ -774,6 +789,7 @@ again:
     assert(off == 0 && len == config->block_size);
     s3b_hash_put_new(priv->hashtable, entry);
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+    priv->num_dirties++;
     assert(ENTRY_GET_STATE(entry) == DIRTY);
 
     /* Wake up a worker thread to go write it */
@@ -967,13 +983,8 @@ block_cache_worker_main(void *arg)
             }
         }
 
-        /*
-         * As the dirty ratio increases, force earlier than planned writes of those dirty entries
-         * to relieve cache pressure. When the dirty ratio reaches DIRTY_RATIO_WRITE_ASAP, write
-         * out all dirty blocks immediately.
-         */
-        adjusted_now = now + (uint32_t)((double)priv->dirty_timeout
-          * block_cache_dirty_ratio(priv) * (1.0 / DIRTY_RATIO_WRITE_ASAP));
+        /* As we approach our maximum dirty block limit, force earlier than planned writes */
+        adjusted_now = now + (uint32_t)(priv->dirty_timeout * (block_cache_dirty_ratio(priv) / priv->max_dirty_ratio));
 
         /* See if there is a block that needs writing */
         if ((entry = TAILQ_FIRST(&priv->dirties)) != NULL && (priv->stopping || adjusted_now >= entry->timeout)) {
@@ -1019,14 +1030,14 @@ block_cache_worker_main(void *arg)
                     if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }
+                priv->num_dirties--;
                 TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
                 entry->verify = 0;
                 entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
                 priv->num_cleans++;
                 assert(ENTRY_GET_STATE(entry) == CLEAN);
                 pthread_cond_signal(&priv->space_avail);
-                if (config->synchronous)
-                    pthread_cond_broadcast(&priv->write_complete);
+                pthread_cond_broadcast(&priv->write_complete);
                 continue;
             }
 
@@ -1244,14 +1255,15 @@ block_cache_write_data(struct block_cache_private *priv, struct cache_entry *ent
 }
 
 /*
- * Compute dirty ratio, i.e., percent of total cache space occupied by non-CLEAN[2] entries.
+ * Compute dirty ratio, i.e., percent of total cache space occupied by entries
+ * that are not CLEAN[2] or READING[2].
  */
 static double
 block_cache_dirty_ratio(struct block_cache_private *priv)
 {
     struct block_cache_conf *const config = priv->config;
 
-    return (double)(s3b_hash_size(priv->hashtable) - priv->num_cleans) / (double)config->cache_size;
+    return (double)priv->num_dirties / (double)config->cache_size;
 }
 
 static void
@@ -1324,6 +1336,7 @@ block_cache_check_invariants(struct block_cache_private *priv)
     assert(info.num_dirty == dirty_len);
     assert(info.num_clean + info.num_dirty + info.num_reading + info.num_writing + info.num_writing2
       == s3b_hash_size(priv->hashtable));
+    assert(priv->num_dirties == info.num_dirty + info.num_writing + info.num_writing2);
 
     /* Check read-ahead */
     assert(priv->ra_count <= config->read_ahead);

@@ -27,6 +27,7 @@ struct block_cache_conf {
     u_int               block_size;
     u_int               cache_size;
     u_int               write_delay;
+    u_int               max_dirty;
     u_int               synchronous;
     u_int               timeout;
     u_int               num_threads;
