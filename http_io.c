@@ -198,7 +198,7 @@ static struct curl_slist *http_io_add_header(struct curl_slist *headers, const c
     __attribute__ ((__format__ (__printf__, 2, 3)));
 static void http_io_get_date(char *buf, size_t bufsiz);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
-static void http_io_release_curl(struct http_io_private *priv, CURL *curl, int may_cache);
+static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
 
 /* Misc */
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
@@ -1342,9 +1342,18 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             pthread_mutex_unlock(&priv->mutex);
 
             /* Done */
-            http_io_release_curl(priv, curl, r == 0);
+            http_io_release_curl(priv, &curl, r == 0);
             return r;
         }
+
+        /* For HTTP errors, find out what the HTTP error code was */
+        if (curl_code == CURLE_HTTP_RETURNED_ERROR) {
+            if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0)
+                http_code = 999;                                /* this should never happen */
+        }
+
+        /* Free the curl handle (and ensure we don't try to re-use it) */
+        http_io_release_curl(priv, &curl, 0);
 
         /* Handle errors */
         switch (curl_code) {
@@ -1360,22 +1369,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             pthread_mutex_lock(&priv->mutex);
             priv->stats.curl_timeouts++;
             pthread_mutex_unlock(&priv->mutex);
-            http_io_release_curl(priv, curl, 0);
             break;
-        case CURLE_HTTP_RETURNED_ERROR:
-
-            /* Get the HTTP return code */
-            if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0) {
-                (*config->log)(LOG_ERR, "unknown HTTP error: %s %s", io->method, io->url);
-                pthread_mutex_lock(&priv->mutex);
-                priv->stats.http_other_error++;
-                pthread_mutex_unlock(&priv->mutex);
-                http_io_release_curl(priv, curl, 0);
-                return EIO;
-            }
-            http_io_release_curl(priv, curl, 0);
-
-            /* Special handling for some specific HTTP codes */
+        case CURLE_HTTP_RETURNED_ERROR:                 /* special handling for some specific HTTP codes */
             switch (http_code) {
             case HTTP_NOT_FOUND:
                 if (config->debug)
@@ -1716,10 +1711,13 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 }
 
 static void
-http_io_release_curl(struct http_io_private *priv, CURL *curl, int may_cache)
+http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
 {
     struct curl_holder *holder;
+    CURL *const curl = *curlp;
 
+    *curlp = NULL;
+    assert(curl != NULL);
     if (!may_cache) {
         curl_easy_cleanup(curl);
         return;
