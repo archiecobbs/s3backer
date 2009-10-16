@@ -163,8 +163,10 @@ fuse_op_destroy(void *data)
 {
     struct fuse_ops_private *const priv = data;
 
-    (*priv->s3b->destroy)(priv->s3b);
-    free(priv);
+    if (priv != NULL) {
+        (*priv->s3b->destroy)(priv->s3b);
+        free(priv);
+    }
 }
 
 static int
