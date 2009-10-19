@@ -4,9 +4,9 @@
 
 *s3backer* requires the following additional packages:
 
-|| Name || Description || Home page ||
+|| *Name* || *Description* || *Home Page* ||
 || libcurl-devel || HTTP library for C || http://curl.haxx.se/ ||
-|| fuse-devel || User-space filesystems | http://fuse.sourceforge.net/ ||
+|| fuse-devel || User-space filesystems || http://fuse.sourceforge.net/ ||
 || libopenssl-devel || Encryption library || http://www.openssl.org/ ||
 || zlib-devel || Compression library || http://www.zlib.net/ ||
 || libexpat-devel || XML parsing library || http://expat.sourceforge.net/ ||
@@ -30,13 +30,13 @@ Versions of *s3backer* prior to 1.3.1 rely on the [http://www.macports.org/ MacP
 $ sudo port install pkg-config fuse
 }}}
 
-*s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install !MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like as long as the {{{./configure}}} script can find it on your {{{$PATH}}}. To build and install from source, follow the in [http://code.google.com/p/macfuse/wiki/HOWTO#1._Install_pkg-config install pkg-config instructions] on the !MacFUSE wiki.
+*s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like as long as the {{{./configure}}} script can find it on your {{{$PATH}}}. To build and install from source, follow the in [http://code.google.com/p/macfuse/wiki/HOWTO#1._Install_pkg-config install pkg-config instructions] on the MacFUSE wiki.
 
 See also the [http://code.google.com/p/macfuse/wiki/HOWTO#Compiling_Other_FUSE_File_Systems_Written_for_Linux Compiling Other FUSE File Systems Written for Linux] wiki section.
 
 === Installing Using Pre-Built RPMs ===
 
-If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built !RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ in this folder].
+If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ here].
 
 === Building From Source ===
 
@@ -48,7 +48,7 @@ $ make
 $ sudo make install
 }}}
 
-=== MacFUSE Configuration ===
+=== FUSE Configuration ===
 
 If you want to allow normal users to mount *s3backer* filesystems, you need to add the {{{user_allow_other}}} option to {{{/etc/fuse.conf}}}. It must be on a line by itself.
 
