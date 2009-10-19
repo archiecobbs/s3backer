@@ -30,9 +30,13 @@ Versions of *s3backer* prior to 1.3.1 rely on the [http://www.macports.org/ MacP
 $ sudo port install pkg-config fuse
 }}}
 
-*s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like (including using !MacPorts) as long as the {{{./configure}}} script can find it on your {{{$PATH}}} (to build and install from source, follow the in [http://code.google.com/p/macfuse/wiki/HOWTO#1._Install_pkg-config install pkg-config instructions] on the MacFUSE wiki).
+*s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like (including using !MacPorts) as long as the {{{./configure}}} script can find it on your {{{$PATH}}}.
 
-See also the [http://code.google.com/p/macfuse/wiki/HOWTO#Compiling_Other_FUSE_File_Systems_Written_for_Linux Compiling Other FUSE File Systems Written for Linux] wiki section.
+Then follow the instructions below for *Building From Source* except you'll need to run the {{{./configure}} script like this:
+
+{{{
+$ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
+}}}
 
 === Installing Using Pre-Built RPMs ===
 
