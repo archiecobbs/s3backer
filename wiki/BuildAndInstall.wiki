@@ -14,7 +14,7 @@
 
 On various different systems, these may be already installed and/or have different package names.
 
-==== Ubuntu ====
+==== Requirements On Ubuntu ====
 
 This should be all that's required for Ubuntu:
 
@@ -22,7 +22,7 @@ This should be all that's required for Ubuntu:
 $ sudo apt-get install libcurl4-openssl-dev libfuse-dev libexpat1-dev
 }}}
 
-==== Mac OS X ====
+==== Requirements On Mac OS X ====
 
 Versions of *s3backer* prior to 1.3.1 rely on the [http://www.macports.org/ MacPorts] package infrastructure. First, install !MacPorts itself, then use !MacPorts to install the other missing requirements:
 
@@ -32,7 +32,7 @@ $ sudo port install pkg-config fuse
 
 *s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like (including using !MacPorts) as long as the {{{./configure}}} script can find it on your {{{$PATH}}}.
 
-Then follow the instructions below for *Building From Source* except you'll need to run the {{{./configure}} script like this:
+Then follow the instructions below for *Building From Source* except you'll need to run the {{{./configure}}} script like this:
 
 {{{
 $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
@@ -42,7 +42,7 @@ $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
 
 If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ here].
 
-=== Building From Source ===
+=== Building And Installing From Source ===
 
 Like lots of other software packages, *s3backer* uses [http://www.gnu.org/software/autoconf/ GNU Autoconf] for its build process so once you have installed the other required packages, building and installing *s3backer* is usually as easy as:
 
