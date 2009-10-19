@@ -22,6 +22,12 @@ $ sudo mount -o ro,loop s3b.mnt/file demo.mnt
 $ cat demo.mnt/README
 }}}
 
+When you're done, you can unmount the filesystem via:
+
+{{{
+$ sudo umount demo.mnt && sudo umount s3b.mnt
+}}}
+
 You will then be able to see the files in the demo filesystem.
 
 ===Mac OS Users===
@@ -39,3 +45,4 @@ You will then see {{{demo.dmg}}} inside the {{{s3b.mnt}}} directory, which is a 
 
 Depending on the speed of your Internet connection, it may take several seconds to mount the disk image.
 
+Unmount the filesystems by dragging the disk image icons to the trash on your Mac OS X desktop (in the reverse order they appeared).
