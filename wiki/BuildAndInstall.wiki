@@ -1,0 +1,60 @@
+#summary How to build and install s3backer
+
+=== Requirements ===
+
+*s3backer* requires the following additional packages:
+
+|| Name || Description || Home page ||
+|| libcurl-devel || HTTP library for C || http://curl.haxx.se/ ||
+|| fuse-devel || User-space filesystems | http://fuse.sourceforge.net/ ||
+|| libopenssl-devel || Encryption library || http://www.openssl.org/ ||
+|| zlib-devel || Compression library || http://www.zlib.net/ ||
+|| libexpat-devel || XML parsing library || http://expat.sourceforge.net/ ||
+|| pkg-config || Software library manager || http://pkgconfig.freedesktop.org/ ||
+
+On various different systems, these may be already installed and/or have different package names.
+
+==== Ubuntu ====
+
+This should be all that's required for Ubuntu:
+
+{{{
+$ sudo apt-get install libcurl4-openssl-dev libfuse-dev libexpat1-dev
+}}}
+
+==== Mac OS X ====
+
+Versions of *s3backer* prior to 1.3.1 rely on the [http://www.macports.org/ MacPorts] package infrastructure. First, install !MacPorts itself, then use !MacPorts to install the other missing requirements:
+
+{{{
+$ sudo port install pkg-config fuse
+}}}
+
+*s3backer* versions 1.3.1 and later do not require !MacPorts. Instead, install !MacFUSE using the {{{.dmg}}} installer. You can install {{{pkg-config}}} any way you like as long as the {{{./configure}}} script can find it on your {{{$PATH}}}. To build and install from source, follow the in [http://code.google.com/p/macfuse/wiki/HOWTO#1._Install_pkg-config install pkg-config instructions] on the !MacFUSE wiki.
+
+See also the [http://code.google.com/p/macfuse/wiki/HOWTO#Compiling_Other_FUSE_File_Systems_Written_for_Linux Compiling Other FUSE File Systems Written for Linux] wiki section.
+
+=== Installing Using Pre-Built RPMs ===
+
+If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built !RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ in this folder].
+
+=== Building From Source ===
+
+Like lots of other software packages, *s3backer* uses [http://www.gnu.org/software/autoconf/ GNU Autoconf] for its build process so once you have installed the other required packages, building and installing *s3backer* is usually as easy as:
+
+{{{
+$ ./configure
+$ make
+$ sudo make install
+}}}
+
+=== MacFUSE Configuration ===
+
+If you want to allow normal users to mount *s3backer* filesystems, you need to add the {{{user_allow_other}}} option to {{{/etc/fuse.conf}}}. It must be on a line by itself.
+
+For example:
+
+{{{
+$ sudo sh -c 'echo user_allow_other >> /etc/fuse.conf'
+}}}
+

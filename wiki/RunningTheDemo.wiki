@@ -7,7 +7,7 @@ A demonstration ext2 filesystem (for Linux) and disk image (for Mac OS X) have b
 
 This mechanism can be used to provide humongous world-readable (read-only) filesystems that can be easily mounted by users the world over. Might be a useful way to publicize all kinds of file-based information.
 
-To see the demo, first build and install *s3backer*.
+To see the demo, first build and install *s3backer*. See the BuildAndInstall wiki page for details.
 
 ===Linux Users====
 
