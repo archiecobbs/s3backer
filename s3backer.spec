@@ -27,11 +27,12 @@ URL:            http://%{name}.googlecode.com/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root
 %if 0%{?suse_version} >= 1100
 BuildRequires:  libcurl-devel >= 7.16.2
+BuildRequires:  libopenssl-devel
 %else
 BuildRequires:  curl-devel >= 7.16.2
+BuildRequires:  openssl-devel
 %endif
 BuildRequires:  fuse-devel >= 2.5
-BuildRequires:  openssl-devel
 BuildRequires:  zlib-devel
 %if 0%{?suse_version} < 1000 || 0%{?fedora_version} != 0 || 0%{?centos_version} != 0
 BuildRequires:  expat
