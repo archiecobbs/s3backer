@@ -392,7 +392,7 @@ s3b_dcache_fsync(struct s3b_dcache *priv)
 {
     int r;
 
-#if HAVE_FDATASYNC
+#if HAVE_DECL_FDATASYNC
     r = fdatasync(priv->fd);
 #else
     r = fsync(priv->fd);
