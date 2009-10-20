@@ -89,8 +89,9 @@ DESCRIPTION
      sizes and allows s3backer to reload cached data after a restart.  Reloaded data is verified via MD5 checksum with Amazon S3
      before reuse.
 
-     The block cache is configured by the following command line options: --blockCacheFile, --blockCacheNoVerify, --blockCacheSize,
-     --blockCacheSync, --blockCacheThreads, --blockCacheTimeout, and --blockCacheWriteDelay.
+     The block cache is configured by the following command line options: --blockCacheFile, --blockCacheMaxDirty,
+     --blockCacheNoVerify, --blockCacheSize, --blockCacheSync, --blockCacheThreads, --blockCacheTimeout, and
+     --blockCacheWriteDelay.
 
    Read Ahead
      s3backer implements a simple read-ahead algorithm in the block cache.  When a configurable number of blocks are read in order,
@@ -172,6 +173,13 @@ OPTIONS
              block with Amazon S3 before its first use.  This verify operation does not require actually reading the block's data,
              and therefore is relatively quick.  This guards against the cached data having unknowingly gotten out of sync since
              the cache file was last used, a situation that is otherwise impossible for s3backer to detect.
+
+     --blockCacheMaxDirty=NUM
+             Specify a limit on the number of dirty blocks in the block cache.  When this limit is reached, subsequent write
+             attempts will block until an existing dirty block is successfully written (and therefore becomes no longer dirty).
+             This flag limits the amount of inconsistency there can be with respect to the underlying S3 data store.
+
+             The default value is zero, which means no limit.
 
      --blockCacheNoVerify
              Disable the MD5 verification of blocks loaded from a cache file specified via --blockCacheFile.  Using this flag is
@@ -392,7 +400,7 @@ OPTIONS
              Use virtual hosted style requests.  For example, this will cause s3backer to use the URL
              http://mybucket.s3.amazonaws.com/path/uri instead of http://s3.amazonaws.com/mybucket/path/uri.
 
-             This flag is required (for example) when S3 buckets have been created with location constraints.
+             This flag is required when S3 buckets have been created with location constraints (for example `EU buckets').
 
      In addition, s3backer accepts all of the generic FUSE options as well.  Here is a partial list:
 
