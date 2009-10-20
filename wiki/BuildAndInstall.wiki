@@ -38,7 +38,15 @@ Then follow the instructions below for *Building And Installing From Source* exc
 $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
 }}}
 
-*NOTE:* MacFUSE 2.1.0 has a bug. You should enable "Show beta versions" in the MacFUSE system preferences widget and update to version 2.1.5 or later.
+*NOTE:* MacFUSE 2.0.3 has a bug. You should enable "Show beta versions" in the MacFUSE system preferences widget and update to version 2.1.5 or later.
+
+*NOTE:* If you still get errors, edit {{{/usr/local/lib/pkgconfig/fuse.pc}}} and change the {{{-lfuse}}} to {{{-lfuse_ino64}}}, then reconfigure and rebuild:
+
+{{{
+$ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
+$ make clean && make
+$ sudo make install
+}}}
 
 === Installing Using Pre-Built RPMs ===
 
