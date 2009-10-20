@@ -45,4 +45,8 @@ You will then see {{{demo.dmg}}} inside the {{{s3b.mnt}}} directory, which is a 
 
 Depending on the speed of your Internet connection, it may take several seconds to mount the disk image.
 
-Unmount the filesystems by dragging the disk image icons to the trash on your Mac OS X desktop (in the reverse order they appeared).
+When finished, unmount the disk image by dragging the disk image icon to the trash on your Mac OS X desktop. Then unmount the *s3backer* filesystem via
+
+{{{
+$ umount s3b.mnt
+}}}
