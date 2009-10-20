@@ -38,6 +38,8 @@ Then follow the instructions below for *Building And Installing From Source* exc
 $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
 }}}
 
+*NOTE:* MacFUSE 2.1.0 has a bug. You should enable "Show beta versions" in the MacFUSE system preferences widget and update to version 2.1.5 or later.
+
 === Installing Using Pre-Built RPMs ===
 
 If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ here].
