@@ -1,0 +1,77 @@
+# $Id$
+
+#
+# Copyright 2008 Archie L. Cobbs.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+# 
+
+Name:           s3backer
+Version:        1.3.1
+Release:        1
+License:        GNU General Public License, Version 2
+Summary:        FUSE-based single file backing store via Amazon S3
+Group:          System/Filesystems
+Source:         http://%{name}.googlecode.com/files/%{name}-%{version}.tar.gz
+URL:            http://%{name}.googlecode.com/
+BuildRoot:      %{_tmppath}/%{name}-%{version}-root
+%if 0%{?suse_version} >= 1100
+BuildRequires:  libcurl-devel >= 7.16.2
+BuildRequires:  libopenssl-devel
+%else
+BuildRequires:  curl-devel >= 7.16.2
+BuildRequires:  openssl-devel
+%endif
+BuildRequires:  fuse-devel >= 2.5
+BuildRequires:  zlib-devel
+%if 0%{?suse_version} < 1000 || 0%{?fedora_version} != 0 || 0%{?centos_version} != 0
+BuildRequires:  expat
+%else
+BuildRequires:  libexpat-devel
+%endif
+BuildRequires:  pkgconfig
+
+%description
+s3backer is a filesystem that contains a single file backed by the Amazon
+Simple Storage Service (Amazon S3).  As a filesystem, it is very simple:
+it provides a single normal file having a fixed size.  Underneath, the
+file is divided up into blocks, and the content of each block is stored
+in a unique Amazon S3 object.  In other words, what s3backer provides is
+really more like an S3-backed virtual hard disk device, rather than a
+filesystem.
+
+In typical usage, a `normal' filesystem is mounted on top of the file
+exported by the s3backer filesystem using a loopback mount (or disk image
+mount on Mac OS X).
+
+%prep
+%setup -q
+
+%build
+%{configure}
+make
+
+%install
+rm -rf ${RPM_BUILD_ROOT}
+%{makeinstall}
+
+%files
+%attr(0755,root,root) %{_bindir}/%{name}
+%if 0%{?mandriva_version}
+%attr(0644,root,root) %{_mandir}/man1/%{name}.1
+%else
+%attr(0644,root,root) %{_mandir}/man1/%{name}.1.gz
+%endif
+%defattr(0644,root,root,0755)
+%doc %{_datadir}/doc/packages/%{name}
+

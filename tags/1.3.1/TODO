@@ -1,0 +1,5 @@
+TODO
+
+- support alternate backends, generalize `--test' to `--backend=localfs', etc.
+
+$Id$
