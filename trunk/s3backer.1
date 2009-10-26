@@ -505,6 +505,8 @@ This flag will slow down startup in direct proportion to the number of blocks th
 .It Fl \-maxDownloadSpeed=BITSPERSEC
 These flags set a limit on the bandwidth utilized for individual block uploads and downloads (i.e.,
 the setting applies on a per-thread basis).
+The limits only apply to HTTP payload data and do not include any additional overhead from HTTP or TCP headers, etc.
+.Pp
 The value is measured in bits per second, and abbreviations like `256k', `1m', etc. may be used.
 By default, there is no fixed limit.
 .Pp
