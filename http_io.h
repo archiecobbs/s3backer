@@ -22,6 +22,10 @@
  * $Id$
  */
 
+/* Upload/download indexes */
+#define HTTP_DOWNLOAD   0
+#define HTTP_UPLOAD     1
+
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     const char          *accessId;
@@ -46,6 +50,7 @@ struct http_io_conf {
     u_int               timeout;
     u_int               initial_retry_pause;
     u_int               max_retry_pause;
+    uintmax_t           max_speed[2];
     log_func_t          *log;
 };
 

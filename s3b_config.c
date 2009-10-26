@@ -109,6 +109,9 @@ static void usage(void);
  *                          VARIABLE DEFINITIONS                            *
  ****************************************************************************/
 
+/* Upload/download strings */
+static const char *const upload_download_names[] = { "download", "upload" };
+
 /* Valid S3 access values */
 static const char *const s3_acls[] = {
     S3_ACCESS_PRIVATE,
@@ -247,6 +250,14 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
+    },
+    {
+        .templ=     "--maxUploadSpeed=%s",
+        .offset=    offsetof(struct s3b_config, max_speed_str[HTTP_UPLOAD]),
+    },
+    {
+        .templ=     "--maxDownloadSpeed=%s",
+        .offset=    offsetof(struct s3b_config, max_speed_str[HTTP_DOWNLOAD]),
     },
     {
         .templ=     "--md5CacheSize=%u",
@@ -1055,6 +1066,26 @@ validate_config(void)
         config.file_size = value;
     }
 
+    /* Parse upload/download speeds */
+    for (i = 0; i < 2; i++) {
+        if (config.max_speed_str[i] != NULL) {
+            if (parse_size_string(config.max_speed_str[i], &value) == -1 || value == 0) {
+                warnx("invalid max %s speed `%s'", upload_download_names[i], config.max_speed_str[i]);
+                return -1;
+            }
+            if ((curl_off_t)(value / 8) != (value / 8)) {
+                warnx("max %s speed `%s' is too big", upload_download_names[i], config.max_speed_str[i]);
+                return -1;
+            }
+            config.http_io.max_speed[i] = value;
+        }
+        if (config.http_io.max_speed[i] != 0 && config.block_size / (config.http_io.max_speed[i] / 8) >= config.http_io.timeout) {
+            warnx("configured timeout of %us is too short for block size of %u bytes and max %s speed %s bps",
+              config.http_io.timeout, config.block_size, upload_download_names[i], config.max_speed_str[i]);
+            return -1;
+        }
+    }
+
     /* Check block cache config */
     if (config.block_cache.cache_size > 0 && config.block_cache.num_threads <= 0) {
         warnx("invalid block cache thread pool size %u", config.block_cache.num_threads);
@@ -1358,6 +1389,12 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
     (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");
+    (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_upload",
+      config.max_speed_str[HTTP_UPLOAD] != NULL ? config.max_speed_str[HTTP_UPLOAD] : "-",
+      config.http_io.max_speed[HTTP_UPLOAD]);
+    (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_download",
+      config.max_speed_str[HTTP_DOWNLOAD] != NULL ? config.max_speed_str[HTTP_DOWNLOAD] : "-",
+      config.http_io.max_speed[HTTP_DOWNLOAD]);
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
@@ -1469,6 +1506,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
+    fprintf(stderr, "\t--%-27s %s\n", "maxUploadSpeed=BITSPERSEC", "Max upload bandwith for a single write");
+    fprintf(stderr, "\t--%-27s %s\n", "maxDownloadSpeed=BITSPERSEC", "Max download bandwith for a single read");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
