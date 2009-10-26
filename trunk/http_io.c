@@ -1610,6 +1610,10 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
+    if (config->max_speed[HTTP_UPLOAD] != 0)
+        curl_easy_setopt(curl, CURLOPT_MAX_SEND_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_UPLOAD] / 8));
+    if (config->max_speed[HTTP_DOWNLOAD] != 0)
+        curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_DOWNLOAD] / 8));
     if (strncmp(io->url, "https", 5) == 0) {
         if (config->insecure)
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long)0);

@@ -53,6 +53,7 @@ struct s3b_config {
     const char                  *file_size_str;
     const char                  *block_size_str;
     const char                  *password_file;
+    const char                  *max_speed_str[2];
     int                         encrypt;
 };
 
