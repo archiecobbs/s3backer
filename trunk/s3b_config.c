@@ -242,7 +242,7 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--blockCacheNoVerify",
         .offset=    offsetof(struct s3b_config, block_cache.no_verify),
-        1
+        .value=     1
     },
     {
         .templ=     "--blockSize=%s",
