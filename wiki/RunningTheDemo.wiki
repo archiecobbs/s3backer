@@ -14,6 +14,7 @@ To see the demo, first build and install *s3backer*. See the BuildAndInstall wik
 Run these commands:
 
 {{{
+$ sudo echo user_allow_other >> /etc/fuse.conf
 $ mkdir s3b.mnt demo.mnt
 $ s3backer --readOnly s3backer-demo s3b.mnt
 s3backer: auto-detecting block size and total file size...
