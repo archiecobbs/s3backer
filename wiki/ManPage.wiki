@@ -112,6 +112,11 @@ DESCRIPTION
      Encrypting at the s3backer layer is preferable to encrypting at an upper layer (e.g., at the loopback device layer), because
      if the data s3backer sees is already encrypted it can't optimize away zeroed blocks or do meaningful compression.
 
+   Compression
+     s3backer supports block-level compression, which minimizes transfer time and storage costs.
+
+     Compression is configured via the --compress flag.  Compression is automatically enabled when encryption is enabled.
+
    Read-Only Access
      An Amazon S3 account is not required in order to use s3backer.  The filesystem must already exist and have S3 objects with
      ACL's configured for public read access (see --accessType below); users should perform the looback mount with the read-only
