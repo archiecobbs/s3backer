@@ -25,13 +25,13 @@ $ sudo mount -o ro,loop s3b.mnt/file demo.mnt
 $ cat demo.mnt/README
 }}}
 
+You will then be able to see the files in the demo filesystem.
+
 When you're done, you can unmount the filesystem via:
 
 {{{
 $ sudo umount demo.mnt && sudo umount s3b.mnt
 }}}
-
-You will then be able to see the files in the demo filesystem.
 
 ===Mac OS Users===
 
