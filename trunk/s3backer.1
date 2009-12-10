@@ -208,6 +208,14 @@ layer is preferable to encrypting at an upper layer (e.g., at the loopback devic
 the data
 .Nm
 sees is already encrypted it can't optimize away zeroed blocks or do meaningful compression.
+.Ss Compression
+.Nm
+supports block-level compression, which minimizes transfer time and storage costs.
+.Pp
+Compression is configured via the
+.Fl \-compress
+flag.
+Compression is automatically enabled when encryption is enabled.
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
 .Nm .
