@@ -10,7 +10,7 @@
 
 set -e
 
-. cleanup.sh
+. ./cleanup.sh
 mkdir -p scripts
 
 ACLOCAL="aclocal"
