@@ -151,7 +151,8 @@ thread_main(void *arg)
                     exit(1);
                 }
             }
-            logit(id, "rd %0*jx content=0x%08x COMPLETE\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data);
+            logit(id, "rd %0*jx content=0x%02x%02x%02x%02x COMPLETE\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+              data[0], data[1], data[2], data[3]);
         } else {
             struct block_state *const state = &blocks[block_num];
             u_int content;
@@ -169,11 +170,12 @@ thread_main(void *arg)
             content = (random() % ZERO_FACTOR) != 0 ? 0 : (u_int)random();
             memcpy(data, &content, sizeof(content));
             memset(data + sizeof(content), 0, config->block_size - sizeof(content));
-            logit(id, "wr %0*jx content=0x%08x START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data);
+            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+              data[0], data[1], data[2], data[3]);
             if ((r = (*store->write_block)(store, block_num, data, NULL, NULL, NULL)) != 0)
                 logit(id, "****** WRITE ERROR: %s", strerror(r));
-            logit(id, "wr %0*jx content=0x%08x %s%s\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, *(u_int *)data,
-              r != 0 ? "FAILED: " : "COMPLETE", r != 0 ? strerror(r) : "");
+            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x %s%s\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+              data[0], data[1], data[2], data[3], r != 0 ? "FAILED: " : "COMPLETE", r != 0 ? strerror(r) : "");
 
             // Update block state
             pthread_mutex_lock(&mutex);
