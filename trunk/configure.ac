@@ -30,7 +30,7 @@ AC_REVISION($Id$)
 AC_PREFIX_DEFAULT(/usr)
 AC_PROG_MAKE_SET
 
-[CFLAGS='-g -O3 -pipe -Wall -Waggregate-return -Wcast-align -Wchar-subscripts -Wcomment -Wformat -Wimplicit -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wno-long-long -Wparentheses -Wpointer-arith -Wredundant-decls -Wreturn-type -Wswitch -Wtrigraphs -Wuninitialized -Wunused -Wwrite-strings -Wshadow -Wstrict-prototypes -Wcast-qual']
+[CFLAGS="-g -O3 -pipe -Wall -Waggregate-return -Wcast-align -Wchar-subscripts -Wcomment -Wformat -Wimplicit -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wno-long-long -Wparentheses -Wpointer-arith -Wredundant-decls -Wreturn-type -Wswitch -Wtrigraphs -Wuninitialized -Wunused -Wwrite-strings -Wshadow -Wstrict-prototypes -Wcast-qual $CFLAGS"]
 AC_SUBST(CFLAGS)
 
 # Compile flags for Linux
@@ -57,6 +57,8 @@ AC_CHECK_LIB(crypto, BIO_new,,
 	[AC_MSG_ERROR([required library libcrypto missing])])
 AC_CHECK_LIB(expat, XML_ParserCreate,,
 	[AC_MSG_ERROR([required library expat missing])])
+AC_CHECK_LIB(fuse, fuse_version,,
+	[AC_MSG_ERROR([required library libfuse missing])])
 AC_CHECK_LIB(z, compressBound,,
 	[AC_MSG_ERROR([required library zlib missing])])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
