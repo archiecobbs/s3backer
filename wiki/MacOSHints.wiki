@@ -26,4 +26,15 @@ $ umount s3b.mnt/
 
 As you can see from the above commands, I had to create the disk image in a separate file, then copy it to the s3backer file. Creating the disk image directly in the s3backer file didn't work due to the way *hditutil(1)* wants to unlink and the recreate the image file (the s3backer filesystem does not allow unlinking the backed file).
 
+*Update*: it is possible to create disk images directly (without the copy operation). For example:
+
+{{{
+$ s3backer --prefix=dmgtest --compress --blockSize=1m --size=100g --filename=dmgtest.dmg --listBlocks s3backer-demo s3b.mnt
+$ hdiutil attach -nomount s3b.mnt/dmgtest.dmg
+}}}
+
+Next, open the Mac OS Disk Utility to create your partition(s) on the disk. They will be mounted automatically, and you can then put files in there.
+
+Regarding Time Machine: it appears that Time Machine will not allow you to select a DMG image for the backup. If someone knows a way around this, please add a comment.
+
 See RunningTheDemo for how to mount the disk image.
