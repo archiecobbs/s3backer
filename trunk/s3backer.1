@@ -567,6 +567,14 @@ This value must be set to zero when
 .Fl \-md5CacheSize
 is set to zero (MD5 cache disabled).
 Default value is 10 seconds.
+.Pp
+The MD5 checksum cache is not persisted across restarts.
+Therefore, to ensure the same eventual consistency protection while
+.Nm
+is not running, you must delay at least
+.Fl \-md5CacheTime
+milliseconds between stopping and restarting
+.Nm .
 .It Fl \-noAutoDetect
 Disable block and file size auto-detection at startup.
 If this flag is given, then the block size defaults to 4096 and the
