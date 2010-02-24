@@ -449,7 +449,7 @@ If neither flag is given,
 will ask for the password at startup.
 .Pp
 Note: the actual key used is derived by hashing the password, the bucket name, the prefix name (if any), and the block number.
-Therefore, encrypted block data is not portable.
+Therefore, encrypted data cannot be ported to different buckets or prefixes.
 .Pp
 This flag implies
 .Fl \-compress .
