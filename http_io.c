@@ -1198,7 +1198,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
 
     /* Add storage class header (if needed) */
-    if (config->rss)
+    if (config->rrs)
         io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
     /* Add Authorization header */

@@ -340,8 +340,8 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
     },
     {
-        .templ=     "--rss",
-        .offset=    offsetof(struct s3b_config, http_io.rss),
+        .templ=     "--rrs",
+        .offset=    offsetof(struct s3b_config, http_io.rrs),
         .value=     1
     },
     {
@@ -1535,7 +1535,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
-    fprintf(stderr, "\t--%-27s %s\n", "rss", "Target written blocks for Reduced Redundancy Storage");
+    fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
     fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");

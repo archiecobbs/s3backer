@@ -41,7 +41,7 @@ struct http_io_conf {
     int                 debug;
     int                 debug_http;
     int                 quiet;
-    int                 rss;                        // reduced redundancy storage
+    int                 rrs;                        // reduced redundancy storage
     int                 compress;                   // zlib compression level
     int                 vhost;                      // use virtual host style URL
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()
