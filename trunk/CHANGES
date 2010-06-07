@@ -2,6 +2,7 @@
 Version 1.3.2
 
     - Added `--maxUploadSpeed' and `--maxDownloadSpeed' flags.
+    - Added `-rss' flag to support Reduced Redundancy Storage.
 
 Version 1.3.1 (r413) released 19 Oct 2009
 

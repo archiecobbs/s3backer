@@ -45,6 +45,9 @@
 #define CONTENT_ENCODING_ENCRYPT    "encrypt"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
+#define STORAGE_CLASS_HEADER        "x-amz-storage-class"
+#define SCLASS_STANDARD             "STANDARD"
+#define SCLASS_REDUCED_REDUNDANCY   "REDUCED_REDUNDANCY"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
 #define HMAC_HEADER                 "x-amz-meta-s3backer-hmac"
@@ -1172,15 +1175,16 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         /* Add Content-Type header */
         io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
 
-        /* Add ACL header */
-        io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
-
         /* Add Content-MD5 header */
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
         io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
     }
 
-    /**** NOTE: we add the following "x-amz-meta" in lexicographic order as required by http_io_get_auth() ****/
+    /**** NOTE: we add the following "x-amz" headers in lexicographic order as required by http_io_get_auth() ****/
+
+    /* Add ACL header (PUT only) */
+    if (src != NULL)
+        io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
 
     /* Add file size meta-data to zero'th block */
     if (src != NULL && block_num == 0) {
@@ -1192,6 +1196,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Add signature header (if encrypting) */
     if (src != NULL && config->encryption != NULL)
         io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
+
+    /* Add storage class header (if needed) */
+    if (config->rss)
+        io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
     /* Add Authorization header */
     if (config->accessId != NULL) {
