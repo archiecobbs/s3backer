@@ -901,8 +901,10 @@ validate_config(void)
         s = config.http_io.baseURL + 8;
     if (s != NULL && (*s == '/' || *s == '\0'))
         s = NULL;
-    if (s != NULL && (s = strchr(s, '/')) == NULL)
+    if (s != NULL && (s = strchr(s, '/')) == NULL) {
+        warnx("base URL must end with a '/'");
         s = NULL;
+    }
     if (s != NULL && s[1] != '\0') {
         warnx("base URL must end with a '/'");
         s = NULL;

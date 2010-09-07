@@ -297,7 +297,7 @@ Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
 Default is `private'.
 .It Fl \-baseURL=URL
-Specify the base URL. Default is `http://s3.amazonaws.com/'.
+Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockCacheFile=FILE
 Specify a file in which to store cached data blocks.
 Without this flag, the block cache lives entirely in process memory and the cached data disappears when
