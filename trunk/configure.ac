@@ -66,6 +66,19 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 long x = CURLOPT_HTTP_CONTENT_DECODING;
 ]])],, [AC_MSG_ERROR([version of curl is not 7.16.2 or later])])
 
+# Set some O/S specific stuff
+case `uname -s` in
+    Darwin|FreeBSD)
+        AC_CHECK_LIB(pthread, pthread_create,,
+            [AC_MSG_ERROR([required library libpthread missing])])
+        ;;
+    Linux)
+        LDFLAGS="${LDFLAGS} -pthread"
+        ;;
+    *)
+        ;;
+esac
+
 # Check for some O/S specific functions
 AC_CHECK_DECLS(fdatasync)
 
