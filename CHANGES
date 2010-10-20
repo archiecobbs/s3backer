@@ -1,6 +1,7 @@
 
 Version 1.3.2
 
+    - Automatic block cache disk file resizing (issue #23).
     - Added `--maxUploadSpeed' and `--maxDownloadSpeed' flags.
     - Added `-rrs' flag to support Reduced Redundancy Storage.
     - Fixed missing warning for --baseURL when missing trailing slash.
