@@ -307,13 +307,19 @@ The file will be created if it doesn't exist.
 .Pp
 Cache files that have been created by previous invocations of
 .Nm
-are reusable as long as they were created with the same configured block size and cache size (if not, startup will fail).
+are reusable as long as they were created with the same configured block size (if not, startup will fail).
 This is true even if
 .Nm
 was stopped abruptly, e.g., due to a system crash;
 however, this guarantee rests on the assumption that the filesystem containing the cache file will not
 reorder writes across calls to
 .Xr fsync 2 .
+.Pp
+If an existing cache is used but was created with a different size,
+.Nm
+will automatically expand or shrink the file at startup.
+When shrinking, blocks that don't fit in the new, smaller cache are discarded.
+This process also compacts the cache file to the extent possible.
 .Pp
 In any case, only clean cache blocks are recoverable after a restart.
 This means a system crash will cause dirty blocks in the cache to be lost (of course, that is the case
