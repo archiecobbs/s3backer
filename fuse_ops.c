@@ -181,11 +181,15 @@ fuse_op_getattr(const char *path, struct stat *st)
         st->st_ino = ROOT_INODE;
         st->st_uid = config->uid;
         st->st_gid = config->gid;
-        st->st_atime = priv->start_time;
-        st->st_mtime = priv->start_time;
-        st->st_ctime = priv->start_time;
+        if (priv != NULL) {
+            st->st_atime = priv->start_time;
+            st->st_mtime = priv->start_time;
+            st->st_ctime = priv->start_time;
+        }
         return 0;
     }
+    if (priv == NULL)
+        return -ENOENT;
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         fuse_op_getattr_file(priv, st);
         return 0;
@@ -252,6 +256,8 @@ static int
 fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     off_t offset, struct fuse_file_info *fi)
 {
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
+
     (void)offset;
     (void)fi;
     if (strcmp(path, "/") != 0)
@@ -260,11 +266,13 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         return -ENOMEM;
     if (filler(buf, "..", NULL, 0) != 0)
         return -ENOMEM;
-    if (filler(buf, config->filename, NULL, 0) != 0)
-        return -ENOMEM;
-    if (config->print_stats != NULL && config->stats_filename != NULL) {
-        if (filler(buf, config->stats_filename, NULL, 0) != 0)
+    if (priv != NULL) {
+        if (filler(buf, config->filename, NULL, 0) != 0)
             return -ENOMEM;
+        if (config->print_stats != NULL && config->stats_filename != NULL) {
+            if (filler(buf, config->stats_filename, NULL, 0) != 0)
+                return -ENOMEM;
+        }
     }
     return 0;
 }
@@ -273,6 +281,10 @@ static int
 fuse_op_open(const char *path, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
+
+    /* Sanity check */
+    if (priv == NULL)
+        return -ENOENT;
 
     /* Backed file */
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
