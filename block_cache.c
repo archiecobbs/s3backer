@@ -724,10 +724,21 @@ again:
             entry = block_cache_verified(priv, entry);
             // FALLTHROUGH
         case CLEAN:                /* update data, move to state DIRTY */
+
+            /* If there are too many dirty blocks, we have to wait */
+            if (config->max_dirty != 0 && priv->num_dirties >= config->max_dirty) {
+                pthread_cond_signal(&priv->worker_work);
+                pthread_cond_wait(&priv->write_complete, &priv->mutex);
+                goto again;
+            }
+
+            /* Invalidate disk cache entry */
             if (config->cache_file != NULL) {
                 if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
                     (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
             }
+
+            /* Change from CLEAN to DIRTY */
             TAILQ_REMOVE(&priv->cleans, entry, link);
             priv->num_cleans--;
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
