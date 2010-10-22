@@ -301,6 +301,7 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
             return -ENOMEM;
         fi->fh = (uint64_t)(uintptr_t)sfile;
         priv->stats_atime = time(NULL);
+        fi->direct_io = 1;
         return 0;
     }
 

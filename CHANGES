@@ -1,8 +1,9 @@
 
 Version 1.3.2
 
-    - Fix bug with `--blockCacheMaxDirty' not working (issue #25).
-    - Automatic block cache disk file resizing (issue #23).
+    - Fixed bug where stats file was not up to date (issue #26).
+    - Fixed bug with `--blockCacheMaxDirty' not working (issue #25).
+    - Added automatic block cache disk file resizing (issue #23).
     - Added `--maxUploadSpeed' and `--maxDownloadSpeed' flags.
     - Added `-rrs' flag to support Reduced Redundancy Storage.
     - Fixed missing warning for --baseURL when missing trailing slash.
