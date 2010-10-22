@@ -393,6 +393,11 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--timeout=%u",
         .offset=    offsetof(struct s3b_config, http_io.timeout),
     },
+    {
+        .templ=     "--directIO",
+        .offset=    offsetof(struct s3b_config, fuse_ops.direct_io),
+        .value=     1
+    },
 };
 
 /* Default flags we send to FUSE */
@@ -1374,7 +1379,8 @@ dump_config(void)
     int i;
 
     (*config.log)(LOG_DEBUG, "s3backer config:");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "test mode", config.test ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "test mode", config.test ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "directIO", config.fuse_ops.direct_io ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
@@ -1418,7 +1424,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
       config.block_cache.cache_file != NULL ? config.block_cache.cache_file : "");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
@@ -1503,50 +1509,51 @@ usage(void)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
-    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
-    fprintf(stderr, "\t--%-27s %s\n", "maxUploadSpeed=BITSPERSEC", "Max upload bandwith for a single write");
-    fprintf(stderr, "\t--%-27s %s\n", "maxDownloadSpeed=BITSPERSEC", "Max download bandwith for a single read");
-    fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
-    fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
-    fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
+    fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
+    fprintf(stderr, "\t--%-27s %s\n", "directIO", "Disable kernel caching of the backed file");
     fprintf(stderr, "\t--%-27s %s\n", "encryption[=CIPHER]", "Enable encryption (implies `--compress')");
-    fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
-    fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
-    fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
-    fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
+    fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
+    fprintf(stderr, "\t--%-27s %s\n", "maxDownloadSpeed=BITSPERSEC", "Max download bandwith for a single read");
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
+    fprintf(stderr, "\t--%-27s %s\n", "maxUploadSpeed=BITSPERSEC", "Max upload bandwith for a single write");
+    fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
+    fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
+    fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
+    fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
+    fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
-    fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
+    fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
-    fprintf(stderr, "\t--%-27s %s\n", "vhost", "Use virtual host bucket style URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "version", "Show version information and exit");
-    fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
+    fprintf(stderr, "\t--%-27s %s\n", "vhost", "Use virtual host bucket style URL for all requests");
     fprintf(stderr, "Default values:\n");
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
     fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in `accessFile'");
@@ -1557,19 +1564,19 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheTimeout", S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
     fprintf(stderr, "\t--%-27s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
+    fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
-    fprintf(stderr, "\t--%-27s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode",
       S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
-    fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
-    fprintf(stderr, "\t--%-27s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
-    fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
     fprintf(stderr, "\t--%-27s %u\n", "readAhead", S3BACKER_DEFAULT_READ_AHEAD);
     fprintf(stderr, "\t--%-27s %u\n", "readAheadTrigger", S3BACKER_DEFAULT_READ_AHEAD_TRIGGER);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
+    fprintf(stderr, "\t--%-27s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "FUSE options (partial list):\n");
     fprintf(stderr, "\t%-29s %s\n", "-o nonempty", "Allows mount over a non-empty directory");
     fprintf(stderr, "\t%-29s %s\n", "-o uid=UID", "Set user ID");

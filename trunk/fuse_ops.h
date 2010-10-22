@@ -34,6 +34,7 @@ struct fuse_ops_conf {
     struct s3b_config       *s3bconf;
     print_stats_t           *print_stats;
     int                     read_only;
+    int                     direct_io;
     const char              *filename;
     const char              *stats_filename;
     uid_t                   uid;
