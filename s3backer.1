@@ -431,6 +431,11 @@ is used, though you may also specify
 to set a non-default compression level.
 .Pp
 When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
+.It Fl \-directIO
+Disable kernel caching of the backed file.
+This will force the kernel to always pass reads and writes directly to
+.Nm .
+This reduces performance but also eliminates one source of inconsistency.
 .It Fl \-debug
 Enable logging of debug messages.
 Note that this flag is different from

@@ -290,6 +290,8 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         fi->fh = 0;
         priv->file_atime = time(NULL);
+        if (config->direct_io)
+            fi->direct_io = 1;
         return 0;
     }
 
