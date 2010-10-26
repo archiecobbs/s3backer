@@ -1,13 +1,13 @@
 
 Version 1.3.2
 
-    - Added `-directIO' flag to disable kernel caching of the backed file.
-    - Fixed bug where stats file was not up to date (issue #26).
+    - Added `--directIO' flag to disable kernel caching of the backed file.
+    - Fixed bug where the stats file was not up to date (issue #26).
     - Fixed bug with `--blockCacheMaxDirty' not working (issue #25).
     - Added automatic block cache disk file resizing (issue #23).
     - Added `--maxUploadSpeed' and `--maxDownloadSpeed' flags.
     - Added `-rrs' flag to support Reduced Redundancy Storage.
-    - Fixed missing warning for --baseURL when missing trailing slash.
+    - Fixed missing warning for `--baseURL' when missing trailing slash.
 
 Version 1.3.1 (r413) released 19 Oct 2009
 
