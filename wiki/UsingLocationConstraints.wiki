@@ -1,0 +1,5 @@
+#summary Important info about s3backer and Amazon S3 location constraints
+
+If you are using buckets with [http://docs.amazonwebservices.com/AmazonS3/latest/dev/index.html?LocationSelection.html location constraints] (e.g., EU or US-West) then you must use the `--vhost` flag with *s3backer*.
+
+You can read more details about this requirement [http://docs.amazonwebservices.com/AmazonS3/latest/dev/index.html?LocationSelection.html here].
