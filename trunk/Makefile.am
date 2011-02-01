@@ -73,8 +73,6 @@ tester_SOURCES=     tester.c \
 
 AM_CFLAGS=          $(FUSE_CFLAGS)
 
-AM_LDFLAGS=         $(FUSE_LIBS)
-
 SUBDIRS=            debian
 
 svnrev.c:
