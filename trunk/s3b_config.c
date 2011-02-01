@@ -2,7 +2,7 @@
 /*
  * s3backer - FUSE-based single file backing store via Amazon S3
  * 
- * Copyright 2008-2009 Archie L. Cobbs <archie@dellroad.org>
+ * Copyright 2008-2011 Archie L. Cobbs <archie@dellroad.org>
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -747,7 +747,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
             fprintf(stderr, "%s version %s (r%d)\n", PACKAGE, VERSION, s3backer_svnrev);
-            fprintf(stderr, "Copyright (C) 2008-2009 Archie L. Cobbs.\n");
+            fprintf(stderr, "Copyright (C) 2008-2011 Archie L. Cobbs.\n");
             fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
             fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
             exit(0);
