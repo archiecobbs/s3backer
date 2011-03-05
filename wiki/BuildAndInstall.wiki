@@ -48,6 +48,8 @@ $ make clean && make
 $ sudo make install
 }}}
 
+See also [http://code.google.com/p/s3backer/issues/detail?id=19 Issue #19].
+
 === Installing Using Pre-Built RPMs ===
 
 If you are running [http://www.opensuse.org/ openSUSE] or a few other Linux variants, you can find pre-built RPMs on the openSUSE build server [http://download.opensuse.org/repositories/home:/archie172/ here].
