@@ -1,5 +1,5 @@
 
-Version 1.3.2
+Version 1.3.2 (r451) released 14 May 2011
 
     - Added `--directIO' flag to disable kernel caching of the backed file.
     - Fixed bug where the stats file was not up to date (issue #26).
