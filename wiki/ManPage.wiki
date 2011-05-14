@@ -159,16 +159,20 @@ OPTIONS
              lic-read', `public-read-write', or `authenticated-read'.  Default is `private'.
 
      --baseURL=URL
-             Specify the base URL. Default is `http://s3.amazonaws.com/'.
+             Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
 
      --blockCacheFile=FILE
              Specify a file in which to store cached data blocks.  Without this flag, the block cache lives entirely in process
              memory and the cached data disappears when s3backer is stopped.  The file will be created if it doesn't exist.
 
              Cache files that have been created by previous invocations of s3backer are reusable as long as they were created with
-             the same configured block size and cache size (if not, startup will fail).  This is true even if s3backer was stopped
-             abruptly, e.g., due to a system crash; however, this guarantee rests on the assumption that the filesystem containing
-             the cache file will not reorder writes across calls to fsync(2).
+             the same configured block size (if not, startup will fail).  This is true even if s3backer was stopped abruptly, e.g.,
+             due to a system crash; however, this guarantee rests on the assumption that the filesystem containing the cache file
+             will not reorder writes across calls to fsync(2).
+
+             If an existing cache is used but was created with a different size, s3backer will automatically expand or shrink the
+             file at startup.  When shrinking, blocks that don't fit in the new, smaller cache are discarded.  This process also
+             compacts the cache file to the extent possible.
 
              In any case, only clean cache blocks are recoverable after a restart.  This means a system crash will cause dirty
              blocks in the cache to be lost (of course, that is the case with an in-memory cache as well).  Use
@@ -254,6 +258,10 @@ OPTIONS
 
              When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
 
+     --directIO
+             Disable kernel caching of the backed file.  This will force the kernel to always pass reads and writes directly to
+             s3backer.  This reduces performance but also eliminates one source of inconsistency.
+
      --debug
              Enable logging of debug messages.  Note that this flag is different from -d, which is a flag to FUSE; however, the -d
              FUSE flag implies this flag.
@@ -269,7 +277,7 @@ OPTIONS
              will ask for the password at startup.
 
              Note: the actual key used is derived by hashing the password, the bucket name, the prefix name (if any), and the block
-             number.  Therefore, encrypted block data is not portable.
+             number.  Therefore, encrypted data cannot be ported to different buckets or prefixes.
 
              This flag implies --compress.
 
@@ -313,6 +321,18 @@ OPTIONS
 
              This flag will slow down startup in direct proportion to the number of blocks that already exist.
 
+     --maxUploadSpeed=BITSPERSEC
+
+     --maxDownloadSpeed=BITSPERSEC
+             These flags set a limit on the bandwidth utilized for individual block uploads and downloads (i.e., the setting
+             applies on a per-thread basis).  The limits only apply to HTTP payload data and do not include any additional overhead
+             from HTTP or TCP headers, etc.
+
+             The value is measured in bits per second, and abbreviations like `256k', `1m', etc. may be used.  By default, there is
+             no fixed limit.
+
+             Use of these flags may also require setting the --timeout flag to a higher value.
+
      --maxRetryPause=MILLIS
              Specify the total amount of time in milliseconds s3backer should pause when retrying failed HTTP operations before
              giving up.  Failures include network failures and timeouts, HTTP errors, and reads of stale data (i.e., MD5 mismatch);
@@ -339,6 +359,10 @@ OPTIONS
              is configured to be equal to the number of blocks; otherwise deadlock will (eventually) occur.  This value must be at
              least as big as --minWriteDelay. This value must be set to zero when --md5CacheSize is set to zero (MD5 cache dis-
              abled).  Default value is 10 seconds.
+
+             The MD5 checksum cache is not persisted across restarts.  Therefore, to ensure the same eventual consistency protec-
+             tion while s3backer is not running, you must delay at least --md5CacheTime milliseconds between stopping and restart-
+             ing s3backer.
 
      --noAutoDetect
              Disable block and file size auto-detection at startup.  If this flag is given, then the block size defaults to 4096
@@ -372,6 +396,8 @@ OPTIONS
      --readOnly
              Assume the filesystem is going to be mounted read-only, and return EROFS in response to any attempt to write.  This
              flag also changes the default mode of the backed file from 0600 to 0400 and disables the MD5 checksum cache.
+
+     --rrs   When writing blocks, specify Reduced Redundancy Storage.
 
      --size=SIZE
              Specify the size (in bytes) of the backed file to be exported by the filesystem.  The size may have an optional suffix
