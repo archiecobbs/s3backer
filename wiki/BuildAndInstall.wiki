@@ -44,6 +44,7 @@ $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
 
 {{{
 $ PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure
+$ perl -p -i -e 's/-lfuse/-lfuse_ino64/g' Makefile
 $ make clean && make
 $ sudo make install
 }}}
