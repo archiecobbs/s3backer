@@ -6,35 +6,46 @@ Note that with Linux, the thing that s3backer is backing when you do a loopback 
 
 However, you can do the "whole disk" thing on Linux as well if you want to. You would use *losetup(8)* to associate the s3backer file with a loopback device. For more information see the *losetup(8)*, *sfdisk(8)*, and *mkfs(8)* man pages.
 
-On MacOS, you can use the *hditutil(1)* command to create disk images. For example, here is how the demo filesystem for Mac OS was created:
+===Creating Mac OS Virtual Disks===
+
+On MacOS, you can use the *hditutil(1)* command to attach disk images. So first you start s3backer to create your virtual disk, then run *hdiutil* to attach it:
 
 {{{
-$ hdiutil create -size 640k -fs HFS+ -volname  's3backer Demo' -fsargs '-c c=64,a=16,e=16' -attach mydiskimage.dmg
-$ cp demofiles/* /Volumes/s3backer\ Demo/
-$ hdiutil detach /Volumes/s3backer\ Demo/
 $ mkdir s3b.mnt
-$ s3backer --accessType=public-read --prefix=macos --size=640k --filename=demo.dmg s3backer-demo s3b.mnt
+$ s3backer --prefix=dmgtest --compress --blockSize=1m --size=100g --filename=dmgtest.dmg --listBlocks mybucket s3b.mnt
 s3backer: auto-detecting block size and total file size...
-s3backer: assuming default block size of 4096
-$ dd if=mydiskimage.dmg of=s3b.mnt/demo.dmg bs=4096
-160+0 records in
-160+0 records out
-655360 bytes transferred in 30.733475 secs (21324 bytes/sec)
-$ rm mydiskimage.dmg
-$ umount s3b.mnt/
-}}}
-
-As you can see from the above commands, I had to create the disk image in a separate file, then copy it to the s3backer file. Creating the disk image directly in the s3backer file didn't work due to the way *hditutil(1)* wants to unlink and the recreate the image file (the s3backer filesystem does not allow unlinking the backed file).
-
-*Update*: it is possible to create disk images directly (without the copy operation). For example:
-
-{{{
-$ s3backer --prefix=dmgtest --compress --blockSize=1m --size=100g --filename=dmgtest.dmg --listBlocks s3backer-demo s3b.mnt
+s3backer: auto-detection failed; using configured block size 1m and file size 100g
 $ hdiutil attach -nomount s3b.mnt/dmgtest.dmg
 }}}
 
-Next, open the Mac OS Disk Utility to create your partition(s) on the disk. They will be mounted automatically, and you can then put files in there.
+At this point the disk is attached but no partition(s) are mounted. Initially no partitions will exist.
+Next, open the Mac OS Disk Utility to create one or more partition(s) on the disk:
 
-Regarding Time Machine: it appears that Time Machine will not allow you to select a DMG image for the backup. If someone knows a way around this, please add a comment.
+{{{
+$ open '/Applications/Utilities/Disk Utility.app'
+}}}
 
-See RunningTheDemo for how to mount the disk image.
+To create a single partition:
+
+  * Select *dmgest.dmg* disk on the left
+  * Select the *Partition* tab
+  * Select *1 Partition* for *Volume Scheme*
+  * Give a name to your new partition (e.g., *My s3backer Disk*)
+  * Select format *Mac OS Extended (Journaled)* (the default)
+  * Click *Apply*
+
+Your new partition will be mounted automatically, and you can then start putting files in there.
+
+===Using s3backer with Time Machine===
+
+Time Machine will not normally allow you to select an s3backer disk image for the backup. Running the following command will cause Time Machine to show volumes normally hidden:
+
+{{{
+$ defaults write com.apple.systempreferences TMShowUnsupportedNetworkVolumes 1
+}}}
+
+However, even though the s3backer volume was listed, when I select it for backup Time Machine just shows the list again.
+
+If someone knows a way around this, please add a comment.
+
+See RunningTheDemo for how to mount the demonstration disk image.
