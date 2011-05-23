@@ -31,7 +31,7 @@ OBS
     update OBS project
 
 Bump version
-    edit configure.ac and s3backer.spec and bump versions therein
+    edit configure.ac and version therein
     svn commit
 
 $Id$

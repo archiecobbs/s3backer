@@ -105,6 +105,7 @@ AC_ARG_ENABLE(Werror,
 # Generated files
 AC_CONFIG_FILES(Makefile)
 AC_CONFIG_FILES(debian/Makefile)
+AC_CONFIG_FILES(s3backer.spec)
 AM_CONFIG_HEADER(config.h)
 
 # Go
