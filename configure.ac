@@ -47,7 +47,9 @@ AC_PROG_CC
 
 # Check for required pkg-config'd stuff
 PKG_PROG_PKG_CONFIG(0.19)
-PKG_CHECK_MODULES(FUSE, fuse,,
+PKG_CHECK_MODULES(FUSE, fuse,
+    [CFLAGS="${CFLAGS} ${FUSE_CFLAGS}"
+    LDFLAGS="${LDFLAGS} ${FUSE_LIBS}"],
     [AC_MSG_ERROR(["fuse" not found in pkg-config])])
 
 # Check for required libraries
