@@ -1301,11 +1301,27 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, io->method, io->url);
         curl_code = curl_easy_perform(curl);
 
+        /* Find out what the HTTP result code was (if any) */
+        switch (curl_code) {
+        case CURLE_HTTP_RETURNED_ERROR:
+        case 0:
+            if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0)
+                http_code = 999;                                /* this should never happen */
+            break;
+        default:
+            http_code = -1;
+            break;
+        }
+
         /* Work around the fact that libcurl converts a 304 HTTP code as success */
-        if (curl_code == 0
-          && curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) == 0
-          && http_code == HTTP_NOT_MODIFIED)
+        if (curl_code == 0 && http_code == HTTP_NOT_MODIFIED)
             curl_code = CURLE_HTTP_RETURNED_ERROR;
+
+        /* In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful */
+        if (curl_code == CURLE_HTTP_RETURNED_ERROR
+          && http_code == HTTP_NOT_FOUND
+          && strcmp(io->method, HTTP_DELETE) == 0)
+            curl_code = 0;
 
         /* Handle success */
         if (curl_code == 0) {
@@ -1352,12 +1368,6 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             /* Done */
             http_io_release_curl(priv, &curl, r == 0);
             return r;
-        }
-
-        /* For HTTP errors, find out what the HTTP error code was */
-        if (curl_code == CURLE_HTTP_RETURNED_ERROR) {
-            if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0)
-                http_code = 999;                                /* this should never happen */
         }
 
         /* Free the curl handle (and ensure we don't try to re-use it) */
