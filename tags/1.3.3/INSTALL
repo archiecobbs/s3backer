@@ -1,0 +1,21 @@
+
+Simplified instructions:
+
+    1. Ensure you have the following software packages installed:
+
+        fuse-devel
+        libcurl-devel
+        libexpat-devel
+        libopenssl-devel
+        pkg-config
+        zlib-devel
+
+    2. ./configure && make && sudo make install
+
+Please see
+
+    http://code.google.com/p/s3backer/wiki/BuildAndInstall
+
+for more build and install information.
+
+$Id$
