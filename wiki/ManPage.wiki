@@ -431,7 +431,8 @@ OPTIONS
              Use virtual hosted style requests.  For example, this will cause s3backer to use the URL
              http://mybucket.s3.amazonaws.com/path/uri instead of http://s3.amazonaws.com/mybucket/path/uri.
 
-             This flag is required when S3 buckets have been created with location constraints (for example `EU buckets').
+             This flag is required when S3 buckets have been created with location constraints (for example `EU buckets').  Put
+             another way, this flag is required for buckets defined outside of the US region.
 
      In addition, s3backer accepts all of the generic FUSE options as well.  Here is a partial list:
 
