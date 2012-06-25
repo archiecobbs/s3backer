@@ -691,6 +691,7 @@ parse_size_string(const char *s, uintmax_t *valp)
     if (nconv < 1)
         return -1;
     if (nconv >= 2) {
+        int found = 0;
         int i;
 
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
@@ -698,9 +699,14 @@ parse_size_string(const char *s, uintmax_t *valp)
 
             if (ss->bits >= sizeof(off_t) * 8)
                 break;
-            if (strcasecmp(suffix, ss->suffix) == 0)
+            if (strcasecmp(suffix, ss->suffix) == 0) {
                 *valp <<= ss->bits;
+                found = 1;
+                break;
+            }
         }
+        if (!found)
+            return -1;
     }
     return 0;
 }
