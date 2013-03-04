@@ -1565,6 +1565,7 @@ http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block
           config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         resource = buf + strlen(config->baseURL) + strlen(config->bucket);
     }
+    (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
     return resource;
 }
