@@ -1,4 +1,8 @@
 
+Version Next
+
+    - Support FUSE fallocate() call to zero unused blocks
+
 Version 1.3.3 (r463) released 7 Apr 2012
 
     - Fix bug in validation of --baseURL parameter (issue #34)

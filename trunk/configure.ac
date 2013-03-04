@@ -41,6 +41,10 @@ AC_DEFINE(_XOPEN_SOURCE, 500, XOpen functions)
 # Compile flags for Mac OS
 AC_DEFINE(_DARWIN_C_SOURCE, 1, MacOS functions)
 
+# Compile flags for FUSE
+AC_DEFINE(FUSE_USE_VERSION, 26, FUSE API version)
+AC_DEFINE(FUSE_FALLOCATE, 0, FUSE fallocate() support)
+
 # Check for required programs
 AC_PROG_INSTALL
 AC_PROG_CC
@@ -67,6 +71,13 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <curl/curl.h>
 long x = CURLOPT_HTTP_CONTENT_DECODING;
 ]])],, [AC_MSG_ERROR([version of curl is not 7.16.2 or later])])
+
+# See if FUSE version is 2.9.2 or later
+AC_MSG_CHECKING([for fallocate() support in fuse])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <fuse/fuse.h>
+struct fuse_operations x = { fallocate: (void*)1 };
+]])],[AC_MSG_RESULT([yes]); AC_DEFINE(FUSE_FALLOCATE)],AC_MSG_RESULT([no]))
 
 # Set some O/S specific stuff
 case `uname -s` in

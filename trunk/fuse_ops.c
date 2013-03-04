@@ -61,7 +61,7 @@ struct fuse_ops_private {
  ****************************************************************************/
 
 /* FUSE functions */
-static void *fuse_op_init(void);
+static void *fuse_op_init(struct fuse_conn_info *conn);
 static void fuse_op_destroy(void *data);
 static int fuse_op_getattr(const char *path, struct stat *st);
 static int fuse_op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *);
@@ -77,6 +77,9 @@ static int fuse_op_statfs(const char *path, struct statvfs *st);
 static int fuse_op_truncate(const char *path, off_t size);
 static int fuse_op_flush(const char *path, struct fuse_file_info *fi);
 static int fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi);
+#if FUSE_FALLOCATE
+static int fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi);
+#endif
 
 /* Attribute functions */
 static void fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st);
@@ -106,6 +109,9 @@ const struct fuse_operations s3backer_fuse_ops = {
     .flush      = fuse_op_flush,
     .fsync      = fuse_op_fsync,
     .release    = fuse_op_release,
+#if FUSE_FALLOCATE
+    .fallocate  = fuse_op_fallocate,
+#endif
 };
 
 /* Configuration and underlying s3backer_store */
@@ -127,11 +133,11 @@ fuse_ops_create(struct fuse_ops_conf *config0)
 }
 
 /****************************************************************************
- *                    INTERNAL FUNCTION DEFINITIONS                         *
+ *                    FUSE OPERATION FUNCTIONS                              *
  ****************************************************************************/
 
 static void *
-fuse_op_init(void)
+fuse_op_init(struct fuse_conn_info *conn)
 {
     struct fuse_ops_private *priv;
 
@@ -497,6 +503,89 @@ fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
 {
     return 0;
 }
+
+#if FUSE_FALLOCATE
+static int
+fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi)
+{
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
+    const u_int mask = config->block_size - 1;
+    size_t size = (size_t)len;
+    s3b_block_t block_num;
+    void *zero_block;
+    size_t num_blocks;
+    int r;
+
+    /* Handle stats file */
+    if (fi->fh != 0)
+        return -EOPNOTSUPP;
+
+    /* Sanity check */
+    if (offset < 0 || len <= 0)
+        return -EINVAL;
+    if (offset + len > priv->file_size)
+        return -ENOSPC;
+
+    /* Handle request */
+    if ((mode & FALLOC_FL_PUNCH_HOLE) == 0)
+        return 0;
+/*
+    if ((mode & FALLOC_FL_KEEP_SIZE) == 0)
+        return -EINVAL;
+*/
+
+    /* Create an empty block */
+    if ((zero_block = calloc(1, config->block_size)) == NULL)
+        return -ENOMEM;
+
+    /* Write first block fragment (if any) */
+    if ((offset & mask) != 0) {
+        size_t fragoff = (size_t)(offset & mask);
+        size_t fraglen = (size_t)config->block_size - fragoff;
+
+        if (fraglen > size)
+            fraglen = size;
+        block_num = offset >> priv->block_bits;
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, zero_block)) != 0) {
+            free(zero_block);
+            return -r;
+        }
+        offset += fraglen;
+        size -= fraglen;
+    }
+
+    /* Get block number and count */
+    block_num = offset >> priv->block_bits;
+    num_blocks = size >> priv->block_bits;
+
+    /* Write intermediate complete blocks */
+    while (num_blocks-- > 0) {
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, NULL, NULL, NULL, NULL)) != 0) {
+            free(zero_block);
+            return -r;
+        }
+    }
+
+    /* Write last block fragment (if any) */
+    if ((size & mask) != 0) {
+        const size_t fraglen = size & mask;
+
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, zero_block)) != 0) {
+            free(zero_block);
+            return -r;
+        }
+    }
+
+    /* Done */
+    priv->file_mtime = time(NULL);
+    free(zero_block);
+    return 0;
+}
+#endif
+
+/****************************************************************************
+ *                    OTHER INTERNAL FUNCTIONS                              *
+ ****************************************************************************/
 
 static struct stat_file *
 fuse_op_stats_create(struct fuse_ops_private *priv)
