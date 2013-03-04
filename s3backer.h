@@ -70,12 +70,18 @@
 #include <openssl/sha.h>
 
 #include <zlib.h>
-
-#define FUSE_USE_VERSION 25
 #include <fuse.h>
 
 #ifndef FUSE_OPT_KEY_DISCARD
 #define FUSE_OPT_KEY_DISCARD -4
+#endif
+
+/* In case we don't have glibc >= 2.18 */
+#ifndef FALLOC_FL_KEEP_SIZE
+#define FALLOC_FL_KEEP_SIZE     0x01
+#endif
+#ifndef FALLOC_FL_PUNCH_HOLE
+#define FALLOC_FL_PUNCH_HOLE    0x02
 #endif
 
 /*
