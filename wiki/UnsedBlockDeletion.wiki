@@ -21,7 +21,20 @@ Fortunately, *this is now possible in Linux* as all the links in the chain exist
 == Requirements ==
 
 Here is what is required to get this working. The requirements below correspond to the links in the chain listed above:
-  # The "upper" filesystem must support the `TRIM` block device operation. Examples include Ext4, Btrfs (Linux >= 3.7), and XFS. For Ext4, you must mount with the `discard` mount option.
+  # The "upper" filesystem must support the `TRIM` block device operation. Examples include Ext4, Btrfs (Linux >= 3.7), and XFS. For Ext4, you must also mount with the `discard` mount option.
   # Loopback device support for `TRIM` requires Linux >= 3.2.
-  # FUSE filesystem support for `FALLOC_FL_PUNCH_HOLE` requires Linux >= 3.?? (not sure; it doesn't work in 3.4.11 and it does work in 3.8.1)
+  # FUSE filesystem support for `FALLOC_FL_PUNCH_HOLE` requires Linux >= 3.5
   # FUSE API support for `fallocate()` requires FUSE >= 2.9.2 and *s3backer* >= 1.3.4.
+
+So the bottom line is:
+  * *s3backer* >= 1.3.4
+  * FUSE >= 2.9.2
+  * Linux kernel >= 3.5
+  * A supporting "upper layer" filesystem (mounted with `-o discard` if ext4).
+
+== What if it still doesn't work? ==
+
+Check the following things:
+  * Running `uname -r` should show kernel version 3.5.0 or higher
+  * When you `./configure` *s3backer* you should see this message: `checking for fallocate() support in fuse... yes`
+  * Running `fallocate -np -l 1024 testfile` inside a directory in your "upper layer" filesystem should not generate an error
