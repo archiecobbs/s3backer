@@ -1,5 +1,5 @@
 
-Version Next
+Version 1.3.4 (r476) released 2 Apr 2013
 
     - Support FUSE fallocate() call to zero unused blocks
 
