@@ -100,9 +100,11 @@ Only non-zero blocks that have been written to Amazon S3 will actually exist (an
 
 Well, that's true to a first approximation. In reality, a couple of factors can cause you to pay for storage when you don't need to. First, when you delete files in a filesystem, the filesystem does not zero out the no-longer used blocks. Instead, it just unreferences them and leaves them as they are.
 
-There are tools for various filesystems that allow you to zero out these unused blocks. For example, the [http://intgat.tigress.co.uk/rmy/uml/index.html zerofree] utility works with ext2/ext3 filesystems. For more information about ext2 block allocation, see [http://www.linux-security.cn/ebooks/ulk3-html/0596005652/understandlk-CHP-18-SECT-6.html this link].
+But wait! Thanks to the inevitable march of progress in the Linux kernel, this problem can now be solved neatly with the help of `fallocate()` and *s3backer* >= 1.3.4. For more information including important filesystem and version requirements, see the UnsedBlockDeletion wiki page.
 
-Another problem is that if you have an encrypted filesystem, data that is zeroes when unencrypted will not be zeroes when encrypted. In fact you will have no zero blocks at all. This will only matter for files that contain zero blocks but are not stored sparsely on the disk (which is really a separate problem). You can correct these files easily by copying them via `cp --sparse=always` and then replacing the original with the copy.
+If you can't take advantage of `fallocate`, there are tools for various filesystems that allow you to zero out these unused blocks. For example, the [http://intgat.tigress.co.uk/rmy/uml/index.html zerofree] utility works with ext2/ext3 filesystems. For more information about ext2 block allocation, see [http://www.linux-security.cn/ebooks/ulk3-html/0596005652/understandlk-CHP-18-SECT-6.html this link].
+
+Another problem when not using `fallocate` is that if you have an encrypted filesystem, data that is zeroes when unencrypted will not be zeroes when encrypted. In fact you will have no zero blocks at all. This will only matter for files that contain zero blocks but are not stored sparsely on the disk (which is really a separate problem). You can correct these files easily by copying them via `cp --sparse=always` and then replacing the original with the copy.
 
 Note: in version 1.3.0, *s3backer* adds support for native encryption and authentication. This avoids the aforementioned problem.
 
