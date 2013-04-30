@@ -1529,7 +1529,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
     fprintf(stderr, "\t--%-27s %s\n", "directIO", "Disable kernel caching of the backed file");
-    fprintf(stderr, "\t--%-27s %s\n", "encryption[=CIPHER]", "Enable encryption (implies `--compress')");
+    fprintf(stderr, "\t--%-27s %s\n", "encrypt[=CIPHER]", "Enable encryption (implies `--compress')");
     fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
