@@ -755,6 +755,16 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .%O http://www.google.com/search?q=linux+page+cache
 .Re
 .Sh BUGS
+Due to a design flaw in FUSE, an unmount of the
+.Nm
+filesystem will complete successfully before
+.Nm
+has finished writing back all dirty blocks.
+Therefore, when using the block cache, ensure any previous
+.Nm
+process has exited before starting a new one attached to the same bucket and prefix.
+See issue #40 for details.
+.Pp
 For cache space efficiency,
 .Nm
 uses 32 bit values to index individual blocks.

@@ -19,7 +19,7 @@ AUTOMAKE="automake"
 AUTOCONF="autoconf"
 
 echo "running aclocal"
-${ACLOCAL} ${ACLOCAL_ARGS} -I scripts
+${ACLOCAL} ${ACLOCAL_ARGS} -I scripts -I .
 
 echo "running autoheader"
 ${AUTOHEADER}
@@ -28,5 +28,5 @@ echo "running automake"
 ${AUTOMAKE} --add-missing -c --foreign
 
 echo "running autoconf"
-${AUTOCONF} -f -i
+${AUTOCONF} -I . -f -i
 
