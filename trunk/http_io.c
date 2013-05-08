@@ -633,7 +633,6 @@ http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *
  *
  *  0       Success
  *  ENOENT  Block not found
- *  ENXIO   Response was missing one of the two required headers
  *  Other   Other error
  */
 int
@@ -643,7 +642,6 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
     const char *resource;
-    u_int content_len;
     char authbuf[200];
     struct http_io io;
     char datebuf[64];
@@ -653,7 +651,6 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     memset(&io, 0, sizeof(io));
     io.url = urlbuf;
     io.method = HTTP_HEAD;
-    io.content_lengthp = &content_len;
 
     /* Construct URL for the first block */
     resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, 0);
@@ -673,17 +670,12 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
         goto done;
 
     /* Extract filesystem sizing information */
-    if (io.file_size == 0) {
-        r = ENXIO;
+    if (io.file_size == 0 || io.block_size == 0) {
+        r = ENOENT;
         goto done;
     }
     *file_sizep = (off_t)io.file_size;
-    if (io.block_size != 0)
-        *block_sizep = io.block_size;
-    else if (content_len != 0)
-        *block_sizep = content_len;         /* backward compatible */
-    else
-        r = ENXIO;
+    *block_sizep = io.block_size;
 
 done:
     /*  Clean up */
