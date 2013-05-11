@@ -139,6 +139,7 @@ fuse_ops_create(struct fuse_ops_conf *config0)
 static void *
 fuse_op_init(struct fuse_conn_info *conn)
 {
+    struct s3b_config *const s3bconf = config->s3bconf;
     struct fuse_ops_private *priv;
 
     /* Create private structure */
@@ -154,13 +155,14 @@ fuse_op_init(struct fuse_conn_info *conn)
     priv->file_size = config->num_blocks * config->block_size;
 
     /* Create backing store */
-    if ((priv->s3b = s3backer_create_store(config->s3bconf)) == NULL) {
+    if ((priv->s3b = s3backer_create_store(s3bconf)) == NULL) {
         (*config->log)(LOG_ERR, "fuse_op_init(): can't create s3backer_store: %s", strerror(errno));
         free(priv);
         return NULL;
     }
 
     /* Done */
+    (*config->log)(LOG_INFO, "mounting %s", s3bconf->mount);
     return priv;
 }
 
@@ -168,11 +170,33 @@ static void
 fuse_op_destroy(void *data)
 {
     struct fuse_ops_private *const priv = data;
+    struct s3backer_store *const s3b = priv->s3b;
+    struct s3b_config *const s3bconf = config->s3bconf;
+    int r;
 
-    if (priv != NULL) {
-        (*priv->s3b->destroy)(priv->s3b);
-        free(priv);
+    /* Sanity check */
+    if (priv == NULL)
+        return;
+    (*config->log)(LOG_INFO, "unmount %s: initiated", s3bconf->mount);
+
+    /* Flush dirty data */
+    if (!config->read_only) {
+        (*config->log)(LOG_INFO, "unmount %s: flushing dirty data", s3bconf->mount);
+        if ((r = (*s3b->flush)(s3b)) != 0)
+            (*config->log)(LOG_ERR, "unmount %s: flushing filesystem failed: %s", s3bconf->mount, strerror(r));
     }
+
+    /* Clear mounted flag */
+    if (!config->read_only) {
+        (*config->log)(LOG_INFO, "unmount %s: clearing mounted flag", s3bconf->mount);
+        if ((r = (*s3b->set_mounted)(s3b, NULL, 0)) != 0)
+            (*config->log)(LOG_ERR, "unmount %s: clearing mounted flag failed: %s", s3bconf->mount, strerror(r));
+    }
+
+    /* Shutdown */
+    (*s3b->destroy)(s3b);
+    (*config->log)(LOG_INFO, "unmount %s: completed", s3bconf->mount);
+    free(priv);
 }
 
 static int

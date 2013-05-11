@@ -169,6 +169,8 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
+static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+static int block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -176,6 +178,7 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+static int block_cache_flush(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -228,11 +231,14 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
+    s3b->meta_data = block_cache_meta_data;
+    s3b->set_mounted = block_cache_set_mounted;
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
     s3b->list_blocks = block_cache_list_blocks;
+    s3b->flush = block_cache_flush;
     s3b->destroy = block_cache_destroy;
 
     /* Initialize block_cache_private structure */
@@ -370,9 +376,43 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     return 0;
 }
 
-/*
- * Destructor
- */
+static int
+block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
+{
+    struct block_cache_private *const priv = s3b->data;
+
+    return (*priv->inner->meta_data)(priv->inner, file_sizep, block_sizep);
+}
+
+static int
+block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+{
+    struct block_cache_private *const priv = s3b->data;
+
+    return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
+}
+
+static int
+block_cache_flush(struct s3backer_store *const s3b)
+{
+    struct block_cache_private *const priv = s3b->data;
+
+    /* Grab lock and sanity check */
+    pthread_mutex_lock(&priv->mutex);
+    S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Wait for all dirty blocks to be written and all worker threads to exit */
+    priv->stopping = 1;
+    while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
+        pthread_cond_broadcast(&priv->worker_work);
+        pthread_cond_wait(&priv->worker_exit, &priv->mutex);
+    }
+
+    /* Release lock */
+    pthread_mutex_unlock(&priv->mutex);
+    return 0;
+}
+
 static void
 block_cache_destroy(struct s3backer_store *const s3b)
 {

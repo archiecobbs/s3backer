@@ -113,12 +113,15 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
+static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+static int ec_protect_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int ec_protect_flush(struct s3backer_store *s3b);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
 /* Misc */
@@ -160,11 +163,14 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
+    s3b->meta_data = ec_protect_meta_data;
+    s3b->set_mounted = ec_protect_set_mounted;
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
     s3b->list_blocks = ec_protect_list_blocks;
+    s3b->flush = ec_protect_flush;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -208,9 +214,40 @@ fail0:
     return NULL;
 }
 
-/*
- * Destructor
- */
+static int
+ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    return (*priv->inner->meta_data)(priv->inner, file_sizep, block_sizep);
+}
+
+static int
+ec_protect_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
+}
+
+static int
+ec_protect_flush(struct s3backer_store *const s3b)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    /* Grab lock and sanity check */
+    pthread_mutex_lock(&priv->mutex);
+    EC_PROTECT_CHECK_INVARIANTS(priv);
+
+    /* Wait for all sleeping writers to finish */
+    while (priv->num_sleepers > 0)
+        pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
+
+    /* Release lock */
+    pthread_mutex_unlock(&priv->mutex);
+    return 0;
+}
+
 static void
 ec_protect_destroy(struct s3backer_store *const s3b)
 {

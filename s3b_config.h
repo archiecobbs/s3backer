@@ -40,6 +40,7 @@ struct s3b_config {
     off_t                       num_blocks;
     int                         debug;
     int                         erase;
+    int                         reset;
     int                         quiet;
     int                         force;
     int                         test;

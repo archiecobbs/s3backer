@@ -57,6 +57,12 @@
 /* MIME type for blocks */
 #define CONTENT_TYPE                "application/x-s3backer-block"
 
+/* MIME type for mounted flag */
+#define MOUNTED_FLAG_CONTENT_TYPE   "text/plain"
+
+/* Mounted file object name */
+#define MOUNTED_FLAG                "s3backer-mounted"
+
 /* HTTP `Date' header format */
 #define DATE_BUF_SIZE               64
 #define DATE_BUF_FMT                "%a, %d %b %Y %H:%M:%S GMT"
@@ -166,6 +172,8 @@ struct http_io {
 typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
+static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+static int http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -173,16 +181,18 @@ static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+static int http_io_flush(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
-static http_io_curl_prepper_t http_io_detect_prepper;
+static http_io_curl_prepper_t http_io_head_prepper;
 static http_io_curl_prepper_t http_io_read_prepper;
 static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_list_prepper;
 
 /* S3 REST API functions */
 static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
+static char *http_io_get_mounted_flag(char *buf, size_t bufsiz, struct http_io_conf *config);
 static void http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
     const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource);
 
@@ -244,11 +254,14 @@ http_io_create(struct http_io_conf *config)
         r = errno;
         goto fail0;
     }
+    s3b->meta_data = http_io_meta_data;
+    s3b->set_mounted = http_io_set_mounted;
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
     s3b->read_block_part = http_io_read_block_part;
     s3b->write_block_part = http_io_write_block_part;
     s3b->list_blocks = http_io_list_blocks;
+    s3b->flush = http_io_flush;
     s3b->destroy = http_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -372,6 +385,12 @@ http_io_destroy(struct s3backer_store *const s3b)
     free(priv->non_zero);
     free(priv);
     free(s3b);
+}
+
+static int
+http_io_flush(struct s3backer_store *const s3b)
+{
+    return 0;
 }
 
 void
@@ -626,17 +645,8 @@ http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *
     return 0;
 }
 
-/*
- * Auto-detect block size and total size based on the first block.
- *
- * Returns:
- *
- *  0       Success
- *  ENOENT  Block not found
- *  Other   Other error
- */
-int
-http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
+static int
+http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -666,7 +676,7 @@ http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
     }
 
     /* Perform operation */
-    if ((r = http_io_perform_io(priv, &io, http_io_detect_prepper)) != 0)
+    if ((r = http_io_perform_io(priv, &io, http_io_head_prepper)) != 0)
         goto done;
 
     /* Extract filesystem sizing information */
@@ -684,7 +694,7 @@ done:
 }
 
 static void
-http_io_detect_prepper(CURL *curl, struct http_io *io)
+http_io_head_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
@@ -693,6 +703,116 @@ http_io_detect_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+}
+
+static int
+http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+{
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    char urlbuf[URL_BUF_SIZE(config) + sizeof(MOUNTED_FLAG)];
+    const char *resource;
+    char authbuf[200];
+    struct http_io io;
+    char datebuf[64];
+    int r = 0;
+
+    /* Initialize I/O info */
+    memset(&io, 0, sizeof(io));
+    io.url = urlbuf;
+    io.method = HTTP_HEAD;
+
+    /* Construct URL for the mounted flag */
+    resource = http_io_get_mounted_flag(urlbuf, sizeof(urlbuf), config);
+
+    /* Get old value */
+    if (old_valuep != NULL) {
+
+        /* Add Date header */
+        http_io_get_date(datebuf, sizeof(datebuf));
+        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+
+        /* Add Authorization header */
+        if (config->accessId != NULL) {
+            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
+            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+        }
+
+        /* See if object exists */
+        switch ((r = http_io_perform_io(priv, &io, http_io_head_prepper))) {
+        case ENOENT:
+            *old_valuep = 0;
+            r = 0;
+            break;
+        case 0:
+            *old_valuep = 1;
+            break;
+        default:
+            goto done;
+        }
+    }
+
+    /* Set new value */
+    if (new_value != -1) {
+        u_char md5[MD5_DIGEST_LENGTH];
+        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+        char content[HOST_NAME_MAX + 64];
+        MD5_CTX ctx;
+
+        /* Reset I/O info */
+        curl_slist_free_all(io.headers);
+        memset(&io, 0, sizeof(io));
+        io.url = urlbuf;
+        io.method = new_value ? HTTP_PUT : HTTP_DELETE;
+
+        /* Add Date header */
+        http_io_get_date(datebuf, sizeof(datebuf));
+        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+
+        /* To set the flag PUT some content containing current date */
+        if (new_value) {
+
+            /* Create content for the mounted flag object */
+            snprintf(content, sizeof(content), "%s\n", datebuf);
+            io.src = content;
+            io.buf_size = strlen(content);
+            MD5_Init(&ctx);
+            MD5_Update(&ctx, content, strlen(content));
+            MD5_Final(md5, &ctx);
+
+            /* Add Content-Type header */
+            io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, MOUNTED_FLAG_CONTENT_TYPE);
+
+            /* Add Content-MD5 header */
+            http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
+            io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
+        }
+
+    /**** NOTE: we add the following "x-amz" headers in lexicographic order as required by http_io_get_auth() ****/
+
+        /* Add ACL header (PUT only) */
+        if (new_value)
+            io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
+
+        /* Add storage class header (if needed) */
+        if (config->rrs)
+            io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
+
+        /* Add Authorization header */
+        if (config->accessId != NULL) {
+            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method,
+              new_value ? MOUNTED_FLAG_CONTENT_TYPE : NULL, new_value ? md5buf : NULL, datebuf, io.headers, resource);
+            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
+        }
+
+        /* Perform operation to set or clear mounted flag */
+        r = http_io_perform_io(priv, &io, http_io_write_prepper);
+    }
+
+done:
+    /*  Clean up */
+    curl_slist_free_all(io.headers);
+    return r;
 }
 
 static int
@@ -1555,6 +1675,27 @@ http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block
     } else {
         len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket,
           config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        resource = buf + strlen(config->baseURL) + strlen(config->bucket);
+    }
+    (void)len;                  /* avoid compiler warning when NDEBUG defined */
+    assert(len < bufsiz);
+    return resource;
+}
+
+/*
+ * Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
+ */
+static char *
+http_io_get_mounted_flag(char *buf, size_t bufsiz, struct http_io_conf *config)
+{
+    char *resource;
+    int len;
+
+    if (config->vhost) {
+        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
+        resource = buf + strlen(config->baseURL) - 1;
+    } else {
+        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
         resource = buf + strlen(config->baseURL) + strlen(config->bucket);
     }
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
