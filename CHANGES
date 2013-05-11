@@ -1,11 +1,11 @@
 Version Next
 
     - Check for duplicate mount at startup (issue #10)
+    - Remove obsolete backward-compatibility block size check
 
 Version 1.3.4 (r476) released 2 Apr 2013
 
     - Support FUSE fallocate() call to zero unused blocks
-    - Remove obsolete backward-compatibility block size check
 
 Version 1.3.3 (r463) released 7 Apr 2012
 
