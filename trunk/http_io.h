@@ -106,6 +106,5 @@ struct http_io_stats {
 /* http_io.c */
 extern struct s3backer_store *http_io_create(struct http_io_conf *config);
 extern void http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats);
-extern int http_io_detect_sizes(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 extern int http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_num);
 

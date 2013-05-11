@@ -170,6 +170,7 @@ static struct s3b_config config = {
     .quiet=                 0,
     .erase=                 0,
     .no_auto_detect=        0,
+    .reset=                 0,
     .log=                   syslog_logger
 };
 
@@ -285,6 +286,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--erase",
         .offset=    offsetof(struct s3b_config, erase),
+        .value=     1
+    },
+    {
+        .templ=     "--reset-mounted-flag",
+        .offset=    offsetof(struct s3b_config, reset),
         .value=     1
     },
     {
@@ -529,10 +535,15 @@ s3backer_get_config(int argc, char **argv)
     return &config;
 }
 
+/*
+ * Create the s3backer_store used at runtime. This method is invoked by fuse_op_init().
+ */
 struct s3backer_store *
 s3backer_create_store(struct s3b_config *conf)
 {
     struct s3backer_store *store;
+    int mounted;
+    int r;
 
     /* Sanity check */
     if (http_io_store != NULL || test_io_store != NULL)
@@ -551,29 +562,43 @@ s3backer_create_store(struct s3b_config *conf)
 
     /* Create eventual consistency protection layer (if desired) */
     if (conf->ec_protect.cache_size > 0) {
-        if ((ec_protect_store = ec_protect_create(&conf->ec_protect, store)) == NULL) {
-            (*store->destroy)(store);
-            http_io_store = NULL;
-            test_io_store = NULL;
-            return NULL;
-        }
+        if ((ec_protect_store = ec_protect_create(&conf->ec_protect, store)) == NULL) 
+            goto fail;
         store = ec_protect_store;
     }
 
     /* Create block cache layer (if desired) */
     if (conf->block_cache.cache_size > 0) {
-        if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL) {
-            (*store->destroy)(store);
-            ec_protect_store = NULL;
-            http_io_store = NULL;
-            test_io_store = NULL;
-            return NULL;
-        }
+        if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL)
+            goto fail;
         store = block_cache_store;
+    }
+
+    /* Set mounted flag and check previous value one last time */
+    r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : 1);
+    if (r != 0) {
+        (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s",
+          conf->description, strerror(r));
+        goto fail;
+    }
+    if (mounted) {
+        if (!conf->force) {
+            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process", config.description);
+            goto fail;
+        }
     }
 
     /* Done */
     return store;
+
+fail:
+    if (store != NULL)
+        (*store->destroy)(store);
+    block_cache_store = NULL;
+    ec_protect_store = NULL;
+    http_io_store = NULL;
+    test_io_store = NULL;
+    return NULL;
 }
 
 /****************************************************************************
@@ -1125,9 +1150,9 @@ validate_config(void)
     }
 
     /* Check mount point */
-    if (config.erase) {
+    if (config.erase || config.reset) {
         if (config.mount != NULL) {
-            warnx("no mount point required with `--erase'");
+            warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
             return -1;
         }
     } else {
@@ -1164,7 +1189,7 @@ validate_config(void)
             err(1, "http_io_create");
         if (!config.quiet)
             warnx("auto-detecting block size and total file size...");
-        r = http_io_detect_sizes(s3b, &auto_file_size, &auto_block_size);
+        r = (*s3b->meta_data)(s3b, &auto_file_size, &auto_block_size);
         (*s3b->destroy)(s3b);
     }
 
@@ -1207,7 +1232,6 @@ validate_config(void)
         }
         break;
     case ENOENT:
-    case ENXIO:
     {
         const char *why = config.no_auto_detect ? "disabled" : "failed";
         int config_block_size = config.block_size;
@@ -1226,8 +1250,33 @@ validate_config(void)
     }
     default:
         errno = r;
-        err(1, "can't read block zero meta-data");
+        err(1, "can't read data store meta-data");
         break;
+    }
+
+    /* Check whether already mounted */
+    if (!config.test && !config.erase && !config.reset) {
+        int mounted;
+
+        config.http_io.debug = config.debug;
+        config.http_io.quiet = config.quiet;
+        config.http_io.log = config.log;
+        if ((s3b = http_io_create(&config.http_io)) == NULL)
+            err(1, "http_io_create");
+        r = (*s3b->set_mounted)(s3b, &mounted, -1);
+        (*s3b->destroy)(s3b);
+        if (r != 0) {
+            errno = r;
+            err(1, "error reading mounted flag");
+        }
+        if (mounted) {
+            if (!config.force)
+                errx(1, "error: %s appears to be already mounted", config.description);
+            if (!config.quiet) {
+                warnx("warning: filesystem appears already mounted but you said `--force'\n"
+                  " so I'll proceed anyway even though your data may get corrupted.\n");
+            }
+        }
     }
 
     /* Check computed block and file sizes */
@@ -1319,7 +1368,7 @@ validate_config(void)
     config.fuse_ops.log = config.log;
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
-    if (config.erase)
+    if (config.erase || config.reset)
         config.list_blocks = 0;
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
@@ -1505,6 +1554,7 @@ usage(void)
     fprintf(stderr, "\ts3backer [options] bucket /mount/point\n");
     fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
     fprintf(stderr, "\ts3backer --erase [options] bucket\n");
+    fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
@@ -1551,6 +1601,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
+    fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);

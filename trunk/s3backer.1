@@ -49,6 +49,13 @@
 .Op options
 .Ar bucket
 .Ek
+.Pp
+.Nm s3backer
+.Bk -words
+.Fl \-reset-mounted-flag
+.Op options
+.Ar bucket
+.Ek
 .Sh DESCRIPTION
 .Nm
 is a filesystem that contains a single file backed by the Amazon Simple Storage Service (Amazon S3).
@@ -235,8 +242,17 @@ Although it functions over the network, the
 .Nm
 filesystem is not a distributed filesystem and does not support simultaneous read/write mounts.
 (This is not something you would normally do with a hard-disk partition either.)
+As a safety measure,
 .Nm
-does not detect this situation; it is up to the user to ensure that it doesn't happen.
+attempts to detect this situation using an 'already mounted' flag
+in the data store, and will fail to start if it does.
+.Pp
+This detection may produce a false positive if a former
+.Nm
+process was not shutdown cleanly; if so, the
+.Fl \-reset-mounted-flag
+flag can be used to reset the 'already mounted' flag.
+But see also BUGS below.
 .Ss Statistics File
 .Nm
 populates the filesystem with a human-readable statistics file.
@@ -465,10 +481,11 @@ Therefore, encrypted data cannot be ported to different buckets or prefixes.
 This flag implies
 .Fl \-compress .
 .It Fl \-erase
-Completely erase the file system by deleting all non-zero blocks, and then exit.
+Completely erase the file system by deleting all non-zero blocks, clear the 'already mounted' flag, and then exit.
 User confirmation is required unless the
 .Fl \-force
 flag is also given.
+Note, no simultaneous mount detection is performed in this case.
 .Pp
 This option implies
 .Fl \-listBlocks .
@@ -489,12 +506,33 @@ Proceed even if the value specified by
 .Fl \-blockSize
 or
 .Fl \-size
-disagrees with the auto-detected value.
-This is will certainly lead to garbled data and should be avoided for normal use.
+disagrees with the auto-detected value, or
+.Nm
+detects that another
+.Nm
+instance is still mounted on top of the same S3 bucket (and prefix).
+In any of these cases, proceeding will lead to corrupted data, so the
+.Fl \-force
+flag should be avoided for normal use.
+.Pp
+The simultaneous mount detection can produce a false positive when a previous
+.Nm
+instance was not shut down cleanly.
+In this case, don't use
+.Fl \-force
+but rather run
+.Nm
+once with the
+.Fl \-reset-mounted-flag
+flag.
 .Pp
 If
 .Fl \-erase
-is given, proceed without user confirmation.
+is given,
+.Fl \-force
+causes
+.Nm
+to proceed without user confirmation.
 .It Fl h Fl \-help
 Print a help message and exit.
 .It Fl \-initialRetryPause=MILLIS
@@ -620,6 +658,20 @@ Assume the filesystem is going to be mounted read-only, and return
 in response to any attempt to write.
 This flag also changes the default mode of the backed file from 0600 to 0400
 and disables the MD5 checksum cache.
+.It Fl \-reset-mounted-flag
+Reset the 'already mounted' flag on the underlying S3 data store.
+.Pp
+.Nm
+detects simultaneous mounts by checking a special flag.
+If a previous invocation of
+.Nm
+was not shut down cleanly, the flag may not have been cleared.
+Running
+.Nm
+.Fl \-erase
+will clear it manually.
+But see also BUGS below.
+.Pp
 .It Fl \-rrs
 When writing blocks, specify Reduced Redundancy Storage.
 .It Fl \-size=SIZE
@@ -760,9 +812,15 @@ Due to a design flaw in FUSE, an unmount of the
 filesystem will complete successfully before
 .Nm
 has finished writing back all dirty blocks.
-Therefore, when using the block cache, ensure any previous
+Therefore, when using the block cache, attempts to remount the same bucket and prefix
+may fail with an 'already mounted' error while the former
 .Nm
-process has exited before starting a new one attached to the same bucket and prefix.
+process finishes flusing its cache.
+Before assuming a false positive and using
+.Fl \-reset-mounted-flag,
+ensure that any previous
+.Nm
+process attached to the same bucket and prefix has exited.
 See issue #40 for details.
 .Pp
 For cache space efficiency,

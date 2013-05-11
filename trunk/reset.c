@@ -27,39 +27,42 @@
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"
+#include "test_io.h"
 #include "s3b_config.h"
-#include "erase.h"
 #include "reset.h"
 
 int
-main(int argc, char **argv)
+s3backer_reset(struct s3b_config *config)
 {
-    const struct fuse_operations *fuse_ops;
-    struct s3b_config *config;
+    struct s3backer_store *s3b = NULL;
+    int ok = 0;
+    int r;
 
-    /* Get configuration */
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
-        return 1;
+    /* Logging */
+    if (!config->quiet)
+        warnx("resetting mounted flag for %s", config->description);
 
-    /* Handle `--erase' flag */
-    if (config->erase) {
-        if (s3backer_erase(config) != 0)
-            return 1;
-        return 0;
+    /* Create temporary lower layer */
+    if ((s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
+        warnx(config->test ? "test_io_create" : "http_io_create");
+        goto fail;
     }
 
-    /* Handle `--reset' flag */
-    if (config->reset) {
-        if (s3backer_reset(config) != 0)
-            return 1;
-        return 0;
+    /* Clear mounted flag */
+    if ((r = (*s3b->set_mounted)(s3b, NULL, 0)) != 0) {
+        warnx("error clearing mounted flag: %s", strerror(r));
+        goto fail;
     }
 
-    /* Get FUSE operation hooks */
-    fuse_ops = fuse_ops_create(&config->fuse_ops);
+    /* Success */
+    if (!config->quiet)
+        warnx("done");
+    ok = 1;
 
-    /* Start */
-    (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL);
+fail:
+    /* Clean up */
+    if (s3b != NULL)
+        (*s3b->destroy)(s3b);
+    return ok ? 0 : -1;
 }
 

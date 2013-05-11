@@ -107,6 +107,35 @@ typedef int         check_cancel_t(void *arg, s3b_block_t block_num);
 struct s3backer_store {
 
     /*
+     * Get meta-data associated with the underlying store.
+     *
+     * The information we acquire is:
+     *  o Block size
+     *  o Total size
+     *
+     * Returns:
+     *
+     *  0       Success
+     *  ENOENT  Information not found
+     *  Other   Other error
+     */
+    int         (*meta_data)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
+
+    /*
+     * Read and (optionally) set the mounted flag.
+     *
+     * Previous value is returned in *old_valuep (if not NULL).
+     *
+     * new_value can be:
+     *  -1      Don't change it
+     *   0      Clear it
+     *   1      Set it
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     */
+    int         (*set_mounted)(struct s3backer_store *s3b, int *old_valuep, int new_value);
+
+    /*
      * Read one block. Never-written-to blocks will return all zeroes.
      *
      * If not NULL, 'actual_md5' should be filled in with a value suitable for the 'expect_md5' parameter,
@@ -163,6 +192,11 @@ struct s3backer_store {
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*list_blocks)(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+
+    /*
+     * Sync any dirty data to the underlying data store.
+     */
+    int         (*flush)(struct s3backer_store *s3b);
 
     /*
      * Destroy this instance.
