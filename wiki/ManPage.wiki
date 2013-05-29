@@ -5,7 +5,7 @@
 S3BACKER(1)                          BSD General Commands Manual                         S3BACKER(1)
 
 NAME
-     s3backer - FUSE-based single file backing store via Amazon S3
+     s3backer -- FUSE-based single file backing store via Amazon S3
 
 SYNOPSIS
      s3backer [options] bucket /mount/point
@@ -13,6 +13,8 @@ SYNOPSIS
      s3backer --test [options] dir /mount/point
 
      s3backer --erase [options] bucket
+
+     s3backer --reset-mounted-flag [options] bucket
 
 DESCRIPTION
      s3backer is a filesystem that contains a single file backed by the Amazon Simple Storage Ser-
@@ -48,8 +50,8 @@ DESCRIPTION
          formance reasons.  Since s3backer presents the equivalent of a virtual hard disk to the
          kernel, most of the filesystem caching can be done where it should be: in the kernel, via
          the kernel's page cache.  However s3backer also includes its own internal block cache for
-         increased performance, using asynchronous worker threads to take advantage of the paral-
-         lelism inherent in the network.
+         increased performance, using asynchronous worker threads to take advantage of the parallel-
+         ism inherent in the network.
 
    Consistency Guarantees
      Amazon S3 makes relatively weak guarantees relating to the timing and consistency of reads vs.
@@ -144,8 +146,12 @@ DESCRIPTION
    Simultaneous Mounts
      Although it functions over the network, the s3backer filesystem is not a distributed filesystem
      and does not support simultaneous read/write mounts.  (This is not something you would normally
-     do with a hard-disk partition either.)  s3backer does not detect this situation; it is up to
-     the user to ensure that it doesn't happen.
+     do with a hard-disk partition either.)  As a safety measure, s3backer attempts to detect this
+     situation using an 'already mounted' flag in the data store, and will fail to start if it does.
+
+     This detection may produce a false positive if a former s3backer process was not shutdown
+     cleanly; if so, the --reset-mounted-flag flag can be used to reset the 'already mounted' flag.
+     But see also BUGS below.
 
    Statistics File
      s3backer populates the filesystem with a human-readable statistics file.  See --statsFilename
@@ -330,8 +336,9 @@ OPTIONS
              This flag implies --compress.
 
      --erase
-             Completely erase the file system by deleting all non-zero blocks, and then exit.  User
-             confirmation is required unless the --force flag is also given.
+             Completely erase the file system by deleting all non-zero blocks, clear the 'already
+             mounted' flag, and then exit.  User confirmation is required unless the --force flag is
+             also given.  Note, no simultaneous mount detection is performed in this case.
 
              This option implies --listBlocks.
 
@@ -346,10 +353,15 @@ OPTIONS
 
      --force
              Proceed even if the value specified by --blockSize or --size disagrees with the auto-
-             detected value.  This is will certainly lead to garbled data and should be avoided for
-             normal use.
+             detected value, or s3backer detects that another s3backer instance is still mounted on
+             top of the same S3 bucket (and prefix).  In any of these cases, proceeding will lead to
+             corrupted data, so the --force flag should be avoided for normal use.
 
-             If --erase is given, proceed without user confirmation.
+             The simultaneous mount detection can produce a false positive when a previous s3backer
+             instance was not shut down cleanly.  In this case, don't use --force but rather run
+             s3backer once with the --reset-mounted-flag flag.
+
+             If --erase is given, --force causes s3backer to proceed without user confirmation.
 
      -h --help
              Print a help message and exit.
@@ -463,6 +475,13 @@ OPTIONS
              any attempt to write.  This flag also changes the default mode of the backed file from
              0600 to 0400 and disables the MD5 checksum cache.
 
+     --reset-mounted-flag
+             Reset the 'already mounted' flag on the underlying S3 data store.
+
+             s3backer detects simultaneous mounts by checking a special flag.  If a previous invoca-
+             tion of s3backer was not shut down cleanly, the flag may not have been cleared.  Run-
+             ning s3backer --erase will clear it manually.  But see also BUGS below.
+
      --rrs   When writing blocks, specify Reduced Redundancy Storage.
 
      --size=SIZE
@@ -563,6 +582,13 @@ SEE ALSO
      Google Search for `linux page cache', http://www.google.com/search?q=linux+page+cache.
 
 BUGS
+     Due to a design flaw in FUSE, an unmount of the s3backer filesystem will complete successfully
+     before s3backer has finished writing back all dirty blocks.  Therefore, when using the block
+     cache, attempts to remount the same bucket and prefix may fail with an 'already mounted' error
+     while the former s3backer process finishes flusing its cache.  Before assuming a false positive
+     and using --reset-mounted-flag, ensure that any previous s3backer process attached to the same
+     bucket and prefix has exited.  See issue #40 for details.
+
      For cache space efficiency, s3backer uses 32 bit values to index individual blocks.  Therefore,
      the block size must be increased beyond the default 4K when very large filesystems (greater
      than 16 terabytes) are created.
