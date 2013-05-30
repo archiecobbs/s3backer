@@ -34,7 +34,7 @@ When initializing Reiserfs, you can look for the "Number of blocks consumed by m
 Examples of filesystem initialization commands:
 
   * *Reiser*: `mkreiserfs -f -b 4096 -s 513 ~/mnt-s3b/file`
-  * *ext2*: `mke2fs -b 4096 -F ~/mnt-s3b/file`
+  * *ext4*: `mke2fs -t ext4 -E nodiscard -F ~/mnt-s3b/file`
   * *XFS*: `mkfs.xfs ~/mnt-s3b/file`
 
 To unmount your filesystem:
