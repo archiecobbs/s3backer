@@ -756,7 +756,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     if (new_value != -1) {
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
-        char content[HOST_NAME_MAX + 64];
+        char content[_POSIX_HOST_NAME_MAX + 64];
         MD5_CTX ctx;
 
         /* Reset I/O info */
