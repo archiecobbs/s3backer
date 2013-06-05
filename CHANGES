@@ -1,3 +1,8 @@
+
+Version Next
+
+    - Fix use of MAX_HOST_NAME in http_io.c (issue #42)
+
 Version 1.3.5 (r485) released 29 May 2013
 
     - Check for duplicate mount at startup (issue #10)
