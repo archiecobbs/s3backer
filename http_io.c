@@ -314,9 +314,9 @@ http_io_create(struct http_io_conf *config)
             r = EINVAL;
             goto fail4;
         }
-        priv->keylen = EVP_CIPHER_block_size(priv->cipher);
-        if (priv->keylen > sizeof(priv->key)) {
-            (*config->log)(LOG_ERR, "encryption block size too big");
+        priv->keylen = EVP_CIPHER_key_length(priv->cipher);
+        if (priv->keylen <= 0 || priv->keylen > sizeof(priv->key)) {
+            (*config->log)(LOG_ERR, "cipher `%s' key length %d is out of range", config->encryption, priv->keylen);
             r = EINVAL;
             goto fail4;
         }
