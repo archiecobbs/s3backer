@@ -91,6 +91,9 @@
 /* PBKDF2 key generation iterations */
 #define PBKDF2_ITERATIONS           5000
 
+/* Enable to debug encryption key stuff */
+#define DEBUG_ENCRYPTION            0
+
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
 
@@ -116,6 +119,7 @@ struct http_io_private {
 
     /* Encryption info */
     const EVP_CIPHER            *cipher;
+    u_int                       keylen;                         // length of key and ivkey
     u_char                      key[EVP_MAX_KEY_LENGTH];        // key used to encrypt data
     u_char                      ivkey[EVP_MAX_KEY_LENGTH];      // key used to encrypt block number to get IV for data
 };
@@ -310,23 +314,40 @@ http_io_create(struct http_io_conf *config)
             r = EINVAL;
             goto fail4;
         }
+        priv->keylen = EVP_CIPHER_block_size(priv->cipher);
+        if (priv->keylen > sizeof(priv->key)) {
+            (*config->log)(LOG_ERR, "encryption block size too big");
+            r = EINVAL;
+            goto fail4;
+        }
 
         /* Hash password to get bulk data encryption key */
         snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
-          (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, sizeof(priv->key), priv->key)) != 1) {
+          (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
             goto fail4;
         }
 
         /* Hash the bulk encryption key to get the IV encryption key */
-        if ((r = PKCS5_PBKDF2_HMAC_SHA1((char *)priv->key, sizeof(priv->key),
-          priv->key, sizeof(priv->key), PBKDF2_ITERATIONS, sizeof(priv->ivkey), priv->ivkey)) != 1) {
+        if ((r = PKCS5_PBKDF2_HMAC_SHA1((char *)priv->key, priv->keylen,
+          priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
             goto fail4;
         }
+
+        /* Encryption debug */
+#if DEBUG_ENCRYPTION
+    {
+        char keybuf[priv->keylen * 2 + 1];
+        char ivkeybuf[priv->keylen * 2 + 1];
+        http_io_prhex(keybuf, priv->key, priv->keylen);
+        http_io_prhex(ivkeybuf, priv->ivkey, priv->keylen);
+        (*config->log)(LOG_DEBUG, "ENCRYPTION INIT: cipher=\"%s\" pass=\"%s\" salt=\"%s\" key=0x%s ivkey=0x%s", config->encryption, config->password, saltbuf, keybuf, ivkeybuf);
+    }
+#endif
     }
 
     /* Initialize cURL */
@@ -1993,6 +2014,16 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     assert(r == 1 && clen >= 0);
     total_len += (u_int)clen;
 
+    /* Encryption debug */
+#if DEBUG_ENCRYPTION
+{
+    struct http_io_conf *const config = priv->config;
+    char ivecbuf[sizeof(ivec) * 2 + 1];
+    http_io_prhex(ivecbuf, ivec, sizeof(ivec));
+    (*config->log)(LOG_DEBUG, "%sCRYPT: block=%s ivec=0x%s len: %d -> %d", (enc ? "EN" : "DE"), blockbuf, ivecbuf, len, total_len);
+}
+#endif
+
     /* Done */
     EVP_CIPHER_CTX_cleanup(&ctx);
     return total_len;
@@ -2009,7 +2040,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     /* Sign the block number, the name of the encryption algorithm, and the block data */
     snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, (const u_char *)priv->key, sizeof(priv->key), EVP_sha1(), NULL);
+    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
     HMAC_Update(&ctx, (const u_char *)blockbuf, strlen(blockbuf));
     HMAC_Update(&ctx, (const u_char *)ciphername, strlen(ciphername));
     HMAC_Update(&ctx, (const u_char *)src, len);
