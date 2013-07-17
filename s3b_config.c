@@ -383,6 +383,10 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.encryption),
     },
     {
+        .templ=     "--keyLength=%u",
+        .offset=    offsetof(struct s3b_config, http_io.key_length),
+    },
+    {
         .templ=     "--password=%s",
         .offset=    offsetof(struct s3b_config, http_io.password),
     },
@@ -1039,11 +1043,17 @@ validate_config(void)
         }
         if (config.http_io.password == NULL && (config.http_io.password = strdup(s)) == NULL)
             err(1, "strdup()");
+        if (config.http_io.key_length < 0 || config.http_io.key_length > EVP_MAX_KEY_LENGTH) {
+            warnx("`--keyLength' value must be positive and at most %u", EVP_MAX_KEY_LENGTH);
+            return -1;
+        }
     } else {
         if (config.http_io.password != NULL)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--password");
         else if (config.password_file != NULL)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--passwordFile");
+        if (config.http_io.key_length != 0)
+            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--keyLength");
     }
 
     /* We always want to compress if we are encrypting */
@@ -1456,6 +1466,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
     (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
+    (*config.log)(LOG_DEBUG, "%24s: %u", "key_length", config.http_io.key_length);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_upload",
       config.max_speed_str[HTTP_UPLOAD] != NULL ? config.max_speed_str[HTTP_UPLOAD] : "-",
@@ -1587,6 +1598,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
+    fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
     fprintf(stderr, "\t--%-27s %s\n", "maxDownloadSpeed=BITSPERSEC", "Max download bandwith for a single read");
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");

@@ -296,6 +296,7 @@ http_io_create(struct http_io_conf *config)
     /* Initialize encryption */
     if (config->encryption != NULL) {
         char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
+        u_int cipher_key_len;
 
         /* Sanity checks */
         assert(config->password != NULL);
@@ -314,9 +315,10 @@ http_io_create(struct http_io_conf *config)
             r = EINVAL;
             goto fail4;
         }
-        priv->keylen = EVP_CIPHER_key_length(priv->cipher);
-        if (priv->keylen <= 0 || priv->keylen > sizeof(priv->key)) {
-            (*config->log)(LOG_ERR, "cipher `%s' key length %d is out of range", config->encryption, priv->keylen);
+        cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
+        priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
+        if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
+            (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
             r = EINVAL;
             goto fail4;
         }

@@ -38,6 +38,7 @@ struct http_io_conf {
     const char          *cacert;
     const char          *password;
     const char          *encryption;
+    u_int               key_length;
     int                 debug;
     int                 debug_http;
     int                 quiet;
