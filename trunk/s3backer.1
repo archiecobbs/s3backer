@@ -550,6 +550,20 @@ Equivalent to the
 .Fl \-insecure
 flag documented in
 .Xr curl 1 .
+.It Fl \-keyLength
+Override the length of the generated block encryption key.
+Versions of
+.Nm
+prior to 1.3.6 contained a bug where the length of the generated encryption key was fixed and system-dependent
+(the generated key was longer than necessary for some ciphers).
+In version 1.3.6, this bug was corrected so that the generated encryption key size is appropriate for the cipher being used;
+however, for some ciphers this made encryption no longer compatible with data written previously.
+This flag can be used to force the older, fixed key length (the value you want to use is whatever is defined for
+.Pa EVP_MAX_KEY_LENGTH
+on your system, typically 64).
+.Pp
+It is an error if a value smaller than the cipher's natural key length is specified;
+however, a value of zero is allowed and is equivalent to not specifying anything.
 .It Fl \-listBlocks
 Perform a query at startup to determine which blocks already exist.
 This enables optimizations whereby, for each block that does not yet exist, reads return zeroes and zeroed writes are omitted,
