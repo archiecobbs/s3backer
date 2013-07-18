@@ -1,5 +1,5 @@
 
-Version Next
+Version 1.3.7 (r496) released 18 July 2013
 
     - Add `--keyLength' for overriding generated encryption key length
 
