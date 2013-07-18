@@ -377,6 +377,20 @@ OPTIONS
              Do not verify the remote server's identity when operating over SSL connections.  Equiv-
              alent to the --insecure flag documented in curl(1).
 
+     --keyLength
+             Override the length of the generated block encryption key.
+
+             Versions of s3backer prior to 1.3.6 contained a bug where the length of the generated
+             encryption key was fixed but system-dependent, causing it to be possibly incompatible
+             on different systems for some ciphers.  In version 1.3.6, this bug was corrected; how-
+             ever, in some cases this changed the generated key length, making the encryption no
+             longer compatible with previously written data.  This flag can be used to force the
+             older, fixed key length.  The value you want to use is whatever is defined for
+             EVP_MAX_KEY_LENGTH on your system, typically 64.
+
+             It is an error to specify a value smaller than the cipher's natural key length; how-
+             ever, a value of zero is allowed and is equivalent to not specifying anything.
+
      --listBlocks
              Perform a query at startup to determine which blocks already exist.  This enables opti-
              mizations whereby, for each block that does not yet exist, reads return zeroes and
