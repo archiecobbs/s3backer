@@ -1043,7 +1043,7 @@ validate_config(void)
         }
         if (config.http_io.password == NULL && (config.http_io.password = strdup(s)) == NULL)
             err(1, "strdup()");
-        if (config.http_io.key_length < 0 || config.http_io.key_length > EVP_MAX_KEY_LENGTH) {
+        if (config.http_io.key_length > EVP_MAX_KEY_LENGTH) {
             warnx("`--keyLength' value must be positive and at most %u", EVP_MAX_KEY_LENGTH);
             return -1;
         }
