@@ -36,7 +36,6 @@ AC_SUBST(CFLAGS)
 # Compile flags for Linux
 AC_DEFINE(_GNU_SOURCE, 1, GNU functions)
 AC_DEFINE(_BSD_SOURCE, 1, BSD functions)
-AC_DEFINE(_XOPEN_SOURCE, 500, XOpen functions)
 
 # Compile flags for Mac OS
 AC_DEFINE(_DARWIN_C_SOURCE, 1, MacOS functions)
