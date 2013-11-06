@@ -421,7 +421,9 @@ static const char *const s3backer_fuse_defaults[] = {
     "-onegative_timeout=31536000",
     "-oattr_timeout=0",             // because statistics file length changes
     "-odefault_permissions",
+#ifndef __FreeBSD__
     "-onodev",
+#endif
     "-onosuid",
 #ifdef __APPLE__
     "-odaemon_timeout=" FUSE_MAX_DAEMON_TIMEOUT_STRING,
