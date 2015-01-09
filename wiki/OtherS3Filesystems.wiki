@@ -8,5 +8,6 @@ Here is a list of other projects that use Amazon S3 to create a Linux filesystem
  * [http://www.persistentfs.com/ PersistentFS]: an S3-backed filesystem, seems to be non open-source.
  * [https://fedorahosted.org/s3fs/ s3fs]: another "s3fs", but this one is written in python
  * [http://code.google.com/p/s3fs-fuse/ s3fs-fuse]: another S3 filesystem written in python
+ * [https://github.com/skoobe/riofs riofs]: another S3 filesystem
 
 Note also that Amazon's [http://www.amazon.com/b?ie=UTF8&node=689343011&me=A36L942TSJ2AJA Elastic Block Store] allows you to mount Amazon-backed filesystems on EC2 instances over the network. This is a great way to get roughly the same effect that *s3backer* gives you, if you don't mind only having access to your data from an EC2 instance.
