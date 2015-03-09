@@ -32,6 +32,7 @@ struct http_io_conf {
     const char          *accessKey;
     const char          *accessType;
     const char          *baseURL;
+    const char          *region;
     const char          *bucket;
     const char          *prefix;
     const char          *user_agent;

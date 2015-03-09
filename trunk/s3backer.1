@@ -674,6 +674,11 @@ Assume the filesystem is going to be mounted read-only, and return
 in response to any attempt to write.
 This flag also changes the default mode of the backed file from 0600 to 0400
 and disables the MD5 checksum cache.
+.It Fl \-region=REGION
+Specify an AWS region.
+This flag changes the default base URL to include the region name and automatically sets the
+.Fl \-vhost
+flag.
 .It Fl \-reset-mounted-flag
 Reset the 'already mounted' flag on the underlying S3 data store.
 .Pp
@@ -735,7 +740,7 @@ See also
 .It Fl \-version
 Output version and exit.
 .It Fl \-vhost
-Use virtual hosted style requests.
+Force virtual hosted style requests.
 For example, this will cause
 .Nm
 to use the URL
@@ -745,6 +750,9 @@ instead of
 .Pp
 This flag is required when S3 buckets have been created with location constraints (for example `EU buckets').
 Put another way, this flag is required for buckets defined outside of the US region.
+This flag is automatically set when the
+.Fl \-region
+flag is used.
 .El
 .Pp
 In addition,

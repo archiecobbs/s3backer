@@ -36,7 +36,6 @@
 #define HTTP_FORBIDDEN              403
 #define HTTP_NOT_FOUND              404
 #define HTTP_PRECONDITION_FAILED    412
-#define DATE_HEADER                 "Date"
 #define AUTH_HEADER                 "Authorization"
 #define CTYPE_HEADER                "Content-Type"
 #define CONTENT_ENCODING_HEADER     "Content-Encoding"
@@ -45,6 +44,7 @@
 #define CONTENT_ENCODING_ENCRYPT    "encrypt"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
+#define CONTENT_SHA256_HEADER       "x-amz-content-sha256"
 #define STORAGE_CLASS_HEADER        "x-amz-storage-class"
 #define SCLASS_STANDARD             "STANDARD"
 #define SCLASS_REDUCED_REDUNDANCY   "REDUCED_REDUNDANCY"
@@ -63,9 +63,10 @@
 /* Mounted file object name */
 #define MOUNTED_FLAG                "s3backer-mounted"
 
-/* HTTP `Date' header format */
+/* `x-amz-date' header format */
+#define DATE_HEADER                 "x-amz-date"
 #define DATE_BUF_SIZE               64
-#define DATE_BUF_FMT                "%a, %d %b %Y %H:%M:%S GMT"
+#define DATE_BUF_FMT                "%Y%m%dT%H%M%SZ"
 
 /* Size required for URL buffer */
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
@@ -94,6 +95,15 @@
 /* Enable to debug encryption key stuff */
 #define DEBUG_ENCRYPTION            0
 
+/* Enable to debug authentication stuff */
+#define DEBUG_AUTHENTICATION        0
+
+/* Version 4 authentication stuff */
+#define SIGNATURE_ALGORITHM         "AWS4-HMAC-SHA256"
+#define ACCESS_KEY_PREFIX           "AWS4"
+#define S3_SERVICE_NAME             "s3"
+#define SIGNATURE_TERMINATOR        "aws4_request"
+
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
 
@@ -116,6 +126,7 @@ struct http_io_private {
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
+    char                        *prefixed_key;
 
     /* Encryption info */
     const EVP_CIPHER            *cipher;
@@ -155,7 +166,7 @@ struct http_io {
 
     // Other info that needs to be passed around
     const char          *method;                // HTTP method
-    const char          *url;                   // HTTP URL
+    char                *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
@@ -195,10 +206,9 @@ static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_list_prepper;
 
 /* S3 REST API functions */
-static char *http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
-static char *http_io_get_mounted_flag(char *buf, size_t bufsiz, struct http_io_conf *config);
-static void http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
-    const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource);
+static void http_io_get_block_url(struct http_io *io, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
+static void http_io_get_mounted_flag_url(struct http_io *io, size_t bufsiz, struct http_io_conf *config);
+static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 
 /* Bucket listing functions */
 static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
@@ -213,7 +223,7 @@ static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *st
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
 static struct curl_slist *http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 2, 3)));
-static void http_io_get_date(char *buf, size_t bufsiz);
+static void http_io_add_date(struct http_io *const io, time_t now);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
 static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
 
@@ -226,6 +236,7 @@ static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num,
 static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
+static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -276,6 +287,15 @@ http_io_create(struct http_io_conf *config)
         goto fail2;
     LIST_INIT(&priv->curls);
     s3b->data = priv;
+
+    /* Create prefixed access key */
+    if (config->accessKey != NULL) {
+        if ((priv->prefixed_key = malloc(sizeof(ACCESS_KEY_PREFIX) + strlen(config->accessKey) + 1)) == NULL) {
+            r = errno;
+            goto fail3;
+        }
+        sprintf(priv->prefixed_key, "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
+    }
 
     /* Initialize openssl */
     num_openssl_locks = CRYPTO_num_locks();
@@ -369,6 +389,7 @@ fail4:
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
+    free(priv->prefixed_key);
     free(priv);
 fail1:
     free(s3b);
@@ -405,6 +426,7 @@ http_io_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
+    free(priv->prefixed_key);
     free(priv->non_zero);
     free(priv);
     free(s3b);
@@ -433,9 +455,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     struct http_io_conf *const config = priv->config;
     char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
     char urlbuf[URL_BUF_SIZE(config) + sizeof(marker) + 32];
-    char authbuf[200];
     struct http_io io;
-    char datebuf[64];
     int r;
 
     /* Initialize I/O info */
@@ -466,6 +486,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
     /* List blocks */
     do {
+        const time_t now = time(NULL);
 
         /* Reset XML parser state */
         XML_ParserReset(io.xml, NULL);
@@ -474,26 +495,22 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
         /* Format URL */
-        snprintf(urlbuf, sizeof(urlbuf), "%s%s", config->baseURL, config->vhost ? "" : config->bucket);
+        snprintf(urlbuf, sizeof(urlbuf), "%s%s?", config->baseURL, config->vhost ? "" : config->bucket);
 
-        /* Add Date header */
-        http_io_get_date(datebuf, sizeof(datebuf));
-        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
-
-        /* Add Authorization header */
-        if (config->accessId != NULL) {
-            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers,
-              config->vhost ? "/" : "");
-            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-        }
-
-        /* Add URL parameters */
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "?%s=%s&%s=%u", 
-          LIST_PARAM_PREFIX, config->prefix, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+        /* Add URL parameters (note: must be in "canonical query string" format for proper authentication) */
         if (io.list_truncated) {
-            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s%0*jx",
+            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%0*jx&",
               LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, config->prefix);
+
+        /* Add Date header */
+        http_io_add_date(&io, now);
+
+        /* Add Authorization header */
+        if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
+            goto fail;
 
         /* Perform operation */
         r = http_io_perform_io(priv, &io, http_io_list_prepper);
@@ -674,10 +691,8 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    const char *resource;
-    char authbuf[200];
+    const time_t now = time(NULL);
     struct http_io io;
-    char datebuf[64];
     int r;
 
     /* Initialize I/O info */
@@ -686,17 +701,14 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     io.method = HTTP_HEAD;
 
     /* Construct URL for the first block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, 0);
+    http_io_get_block_url(&io, sizeof(urlbuf), config, 0);
 
     /* Add Date header */
-    http_io_get_date(datebuf, sizeof(datebuf));
-    io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+    http_io_add_date(&io, now);
 
     /* Add Authorization header */
-    if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
-        io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-    }
+    if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
+        goto done;
 
     /* Perform operation */
     if ((r = http_io_perform_io(priv, &io, http_io_head_prepper)) != 0)
@@ -734,10 +746,8 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config) + sizeof(MOUNTED_FLAG)];
-    const char *resource;
-    char authbuf[200];
+    const time_t now = time(NULL);
     struct http_io io;
-    char datebuf[64];
     int r = 0;
 
     /* Initialize I/O info */
@@ -746,20 +756,17 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     io.method = HTTP_HEAD;
 
     /* Construct URL for the mounted flag */
-    resource = http_io_get_mounted_flag(urlbuf, sizeof(urlbuf), config);
+    http_io_get_mounted_flag_url(&io, sizeof(urlbuf), config);
 
     /* Get old value */
     if (old_valuep != NULL) {
 
         /* Add Date header */
-        http_io_get_date(datebuf, sizeof(datebuf));
-        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+        http_io_add_date(&io, now);
 
         /* Add Authorization header */
-        if (config->accessId != NULL) {
-            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
-            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-        }
+        if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
+            goto done;
 
         /* See if object exists */
         switch ((r = http_io_perform_io(priv, &io, http_io_head_prepper))) {
@@ -777,9 +784,9 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
 
     /* Set new value */
     if (new_value != -1) {
+        char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
-        char content[_POSIX_HOST_NAME_MAX + 64];
         MD5_CTX ctx;
 
         /* Reset I/O info */
@@ -789,14 +796,16 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         io.method = new_value ? HTTP_PUT : HTTP_DELETE;
 
         /* Add Date header */
-        http_io_get_date(datebuf, sizeof(datebuf));
-        io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+        http_io_add_date(&io, now);
 
         /* To set the flag PUT some content containing current date */
         if (new_value) {
+            struct tm tm;
 
-            /* Create content for the mounted flag object */
-            snprintf(content, sizeof(content), "%s\n", datebuf);
+            /* Create content for the mounted flag object (timestamp) */
+            gethostname(content, sizeof(content - 1));
+            content[sizeof(content) - 1] = '\0';
+            strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
             io.src = content;
             io.buf_size = strlen(content);
             MD5_Init(&ctx);
@@ -811,8 +820,6 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
         }
 
-    /**** NOTE: we add the following "x-amz" headers in lexicographic order as required by http_io_get_auth() ****/
-
         /* Add ACL header (PUT only) */
         if (new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
@@ -822,11 +829,8 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
         /* Add Authorization header */
-        if (config->accessId != NULL) {
-            http_io_get_auth(authbuf, sizeof(authbuf), config, io.method,
-              new_value ? MOUNTED_FLAG_CONTENT_TYPE : NULL, new_value ? md5buf : NULL, datebuf, io.headers, resource);
-            io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-        }
+        if ((r = http_io_add_auth(priv, &io, now, new_value ? content : NULL, new_value ? strlen(content) : 0)) != 0)
+            goto done;
 
         /* Perform operation to set or clear mounted flag */
         r = http_io_perform_io(priv, &io, http_io_write_prepper);
@@ -845,11 +849,9 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    const char *resource;
+    const time_t now = time(NULL);
     int encrypted = 0;
-    char authbuf[200];
     struct http_io io;
-    char datebuf[64];
     u_int did_read;
     char *layer;
     int r;
@@ -893,11 +895,10 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Construct URL for this block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
+    http_io_get_block_url(&io, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
-    http_io_get_date(datebuf, sizeof(datebuf));
-    io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+    http_io_add_date(&io, now);
 
     /* Add If-Match or If-None-Match header as required */
     if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0) {
@@ -915,10 +916,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Add Authorization header */
-    if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method, NULL, NULL, datebuf, io.headers, resource);
-        io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-    }
+    if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
+        goto fail;
 
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
@@ -1057,10 +1056,6 @@ bad_encoding:
     if (r == 0 && io.dest != NULL)
         memcpy(dest, io.dest, config->block_size);
 
-    /* Free the buffer */
-    if (io.dest != NULL)
-        free(io.dest);
-
     /* Update stats */
     pthread_mutex_lock(&priv->mutex);
     switch (r) {
@@ -1122,7 +1117,10 @@ bad_encoding:
     if (actual_md5 != NULL)
         memcpy(actual_md5, io.md5, MD5_DIGEST_LENGTH);
 
+fail:
     /*  Clean up */
+    if (io.dest != NULL)
+        free(io.dest);
     curl_slist_free_all(io.headers);
     return r;
 }
@@ -1157,11 +1155,9 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
     u_char hmac[SHA_DIGEST_LENGTH];
     u_char md5[MD5_DIGEST_LENGTH];
+    const time_t now = time(NULL);
     void *encoded_buf = NULL;
-    const char *resource;
-    char authbuf[200];
     struct http_io io;
-    char datebuf[64];
     int compressed = 0;
     int encrypted = 0;
     int r;
@@ -1298,11 +1294,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
 
     /* Construct URL for this block */
-    resource = http_io_get_url(urlbuf, sizeof(urlbuf), config, block_num);
+    http_io_get_block_url(&io, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
-    http_io_get_date(datebuf, sizeof(datebuf));
-    io.headers = http_io_add_header(io.headers, "%s: %s", DATE_HEADER, datebuf);
+    http_io_add_date(&io, now);
 
     /* Add PUT-only headers */
     if (src != NULL) {
@@ -1314,8 +1309,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
         io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
     }
-
-    /**** NOTE: we add the following "x-amz" headers in lexicographic order as required by http_io_get_auth() ****/
 
     /* Add ACL header (PUT only) */
     if (src != NULL)
@@ -1337,12 +1330,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
     /* Add Authorization header */
-    if (config->accessId != NULL) {
-        http_io_get_auth(authbuf, sizeof(authbuf), config, io.method,
-          src != NULL ? CONTENT_TYPE : NULL, src != NULL ? md5buf : NULL,
-          datebuf, io.headers, resource);
-        io.headers = http_io_add_header(io.headers, "%s: AWS %s:%s", AUTH_HEADER, config->accessId, authbuf);
-    }
+    if ((r = http_io_add_auth(priv, &io, now, src != NULL ? src : NULL, src != NULL ? config->block_size : 0)) != 0)
+        goto fail;
 
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_write_prepper);
@@ -1617,125 +1606,340 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 }
 
 /*
- * Compute S3 authorization hash using secret access key.
+ * Compute S3 authorization hash using secret access key and add Authorization and SHA256 hash headers.
  *
- * Note: "x-amz" headers must be unique, not wrapped, and sorted lexicographically.
+ * Note: headers must be unique and not wrapped.
  */
-static void
-http_io_get_auth(char *buf, size_t bufsiz, struct http_io_conf *config, const char *method,
-    const char *ctype, const char *md5, const char *date, const struct curl_slist *headers, const char *resource)
+static int
+http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
-#ifndef NDEBUG
-    const char *last_header = NULL;
-#endif
-    u_char hmac[SHA_DIGEST_LENGTH];
+    const struct http_io_conf *const config = priv->config;
+    u_char payload_hash[EVP_MAX_MD_SIZE];
+    u_char creq_hash[EVP_MAX_MD_SIZE];
+    u_char hmac[EVP_MAX_MD_SIZE];
+    u_int payload_hash_len;
+    u_int creq_hash_len;
     u_int hmac_len;
-    HMAC_CTX ctx;
-
-    /* Initialize HMAC */
-    HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, config->accessKey, strlen(config->accessKey), EVP_sha1(), NULL);
-
-    /* Sign initial stuff */
-    HMAC_Update(&ctx, (const u_char *)method, strlen(method));
-    HMAC_Update(&ctx, (const u_char *)"\n", 1);
-    if (md5 != NULL)
-        HMAC_Update(&ctx, (const u_char *)md5, strlen(md5));
-    HMAC_Update(&ctx, (const u_char *)"\n", 1);
-    if (ctype != NULL)
-        HMAC_Update(&ctx, (const u_char *)ctype, strlen(ctype));
-    HMAC_Update(&ctx, (const u_char *)"\n", 1);
-    HMAC_Update(&ctx, (const u_char *)date, strlen(date));
-    HMAC_Update(&ctx, (const u_char *)"\n", 1);
-
-    /* Sign x-amz headers */
-    for ( ; headers != NULL; headers = headers->next) {
-        const char *colon;
-        const char *value;
-
-        if (strncmp(headers->data, "x-amz", 5) != 0)
-            continue;
-        if ((colon = strchr(headers->data, ':')) == NULL)
-            continue;
-        for (value = colon + 1; isspace(*value); value++)
-            ;
-        HMAC_Update(&ctx, (const u_char *)headers->data, colon - headers->data + 1);
-        HMAC_Update(&ctx, (const u_char *)value, strlen(value));
-        HMAC_Update(&ctx, (const u_char *)"\n", 1);
-        assert(last_header == NULL || strcmp(headers->data, last_header) > 0);
-#ifndef NDEBUG
-        last_header = headers->data;
+    char payload_hash_buf[EVP_MAX_MD_SIZE * 2 + 1];
+    char creq_hash_buf[EVP_MAX_MD_SIZE * 2 + 1];
+    char hmac_buf[EVP_MAX_MD_SIZE * 2 + 1];
+    const struct curl_slist *hdr;
+    char **sorted_hdrs = NULL;
+    char *header_names = NULL;
+    const char *host;
+    size_t host_len;
+    const char *uripath;
+    size_t uripath_len;
+    const char *query_params;
+    size_t query_params_len;
+    u_int header_names_length;
+    u_int num_sorted_hdrs;
+    EVP_MD_CTX hash_ctx;
+    HMAC_CTX hmac_ctx;
+#if DEBUG_AUTHENTICATION
+    char sigbuf[1024];
 #endif
+    char hosthdr[128];
+    char datebuf[DATE_BUF_SIZE];
+    struct tm tm;
+    char *p;
+    int r;
+    int i;
+
+    /* Anything to do? */
+    if (config->accessId == NULL)
+        return 0;
+
+    /* Extract host, URI path, and query parameters from URL */
+    if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
+      || (host = p + 1) == NULL || (uripath = strchr(host, '/')) == NULL) {
+        r = EINVAL;
+        goto fail;
+    }
+    host_len = uripath - host;
+    if ((p = strchr(uripath, '?')) != NULL) {
+        uripath_len = p - uripath;
+        query_params = p + 1;
+        query_params_len = strlen(query_params);
+    } else {
+        uripath_len = strlen(uripath);
+        query_params = NULL;
+        query_params_len = 0;
     }
 
-    /* Sign final stuff */
-    HMAC_Update(&ctx, (const u_char *)"/", 1);
-    HMAC_Update(&ctx, (const u_char *)config->bucket, strlen(config->bucket));
-    HMAC_Update(&ctx, (const u_char *)resource, strlen(resource));
+    /* Initialize */
+    EVP_MD_CTX_init(&hash_ctx);
+    HMAC_CTX_init(&hmac_ctx);
 
-    /* Finish up */
-    HMAC_Final(&ctx, hmac, &hmac_len);
-    assert(hmac_len == SHA_DIGEST_LENGTH);
-    HMAC_CTX_cleanup(&ctx);
+    /* Format date */
+    strftime(datebuf, sizeof(datebuf), DATE_BUF_FMT, gmtime_r(&now, &tm));
 
-    /* Write it out base64 encoded */
-    http_io_base64_encode(buf, bufsiz, hmac, hmac_len);
+/****** Hash Payload and Add Header ******/
+
+    EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
+    if (payload != NULL)
+        EVP_DigestUpdate(&hash_ctx, payload, plen);
+    EVP_DigestFinal_ex(&hash_ctx, payload_hash, &payload_hash_len);
+    http_io_prhex(payload_hash_buf, payload_hash, payload_hash_len);
+
+    io->headers = http_io_add_header(io->headers, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
+
+/****** Create Hashed Canonical Request ******/
+
+#if DEBUG_AUTHENTICATION
+    *sigbuf = '\0';
+#endif
+
+    /* Reset hash */
+    EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
+
+    /* Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us */
+    snprintf(hosthdr, sizeof(hosthdr), "host:%.*s", host_len, host);
+    for (num_sorted_hdrs = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
+        num_sorted_hdrs++;
+    if ((sorted_hdrs = malloc(num_sorted_hdrs * sizeof(*sorted_hdrs))) == NULL) {
+        r = errno;
+        goto fail;
+    }
+    sorted_hdrs[0] = hosthdr;
+    for (i = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
+        sorted_hdrs[i++] = hdr->data;
+    assert(i == num_sorted_hdrs);
+    qsort(sorted_hdrs, num_sorted_hdrs, sizeof(*sorted_hdrs), http_io_strcasecmp_ptr);
+
+    /* Request method */
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)io->method, strlen(io->method));
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
+#endif
+
+    /* Canonical URI */
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)uripath, uripath_len);
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", uripath_len, uripath);
+#endif
+
+    /* Canonical query string */
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)query_params, query_params_len);
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", query_params_len, query_params);
+#endif
+
+    /* Canonical headers */
+    header_names_length = 0;
+    for (i = 0; i < num_sorted_hdrs; i++) {
+        const char *value = sorted_hdrs[i];
+        const char *s;
+        char lcase;
+
+        s = value;
+        do {
+            if (*s == '\0') {
+                r = EINVAL;
+                goto fail;
+            }
+            lcase = tolower(*s);
+            EVP_DigestUpdate(&hash_ctx, (const u_char *)&lcase, 1);
+#if DEBUG_AUTHENTICATION
+            snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%c", lcase);
+#endif
+            header_names_length++;
+        } while (*s++ != ':');
+        while (isspace(*s))
+            s++;
+        EVP_DigestUpdate(&hash_ctx, (const u_char *)s, strlen(s));
+        EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+        snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", s);
+#endif
+    }
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "\n");
+#endif
+
+    /* Signed headers */
+    if ((header_names = malloc(header_names_length)) == NULL) {
+        r = errno;
+        goto fail;
+    }
+    p = header_names;
+    for (i = 0; i < num_sorted_hdrs; i++) {
+        const char *value = sorted_hdrs[i];
+        const char *s;
+
+        if (p > header_names)
+            *p++ = ';';
+        for (s = value; *s != '\0' && *s != ':'; s++)
+            *p++ = tolower(*s);
+    }
+    *p++ = '\0';
+    assert(p <= header_names + header_names_length);
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)header_names, strlen(header_names));
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", header_names);
+#endif
+
+    /* Hashed payload */
+    EVP_DigestUpdate(&hash_ctx, (const u_char *)payload_hash_buf, strlen(payload_hash_buf));
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", payload_hash_buf);
+#endif
+
+    /* Get canonical request hash as a string */
+    EVP_DigestFinal_ex(&hash_ctx, creq_hash, &creq_hash_len);
+    http_io_prhex(creq_hash_buf, creq_hash, creq_hash_len);
+
+#if DEBUG_AUTHENTICATION
+    (*config->log)(LOG_DEBUG, "auth: canonical request:\n%s", sigbuf);
+    (*config->log)(LOG_DEBUG, "auth: canonical request hash = %s", creq_hash_buf);
+#endif
+
+/****** Derive Signing Key ******/
+
+    /* Do nested HMAC's */
+    HMAC_Init_ex(&hmac_ctx, priv->prefixed_key, strlen(priv->prefixed_key), EVP_sha256(), NULL);
+#if DEBUG_AUTHENTICATION
+    (*config->log)(LOG_DEBUG, "auth: prefixed_key = \"%s\"", priv->prefixed_key);
+#endif
+    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, 8);
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    assert(hmac_len <= sizeof(hmac));
+#if DEBUG_AUTHENTICATION
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+    (*config->log)(LOG_DEBUG, "auth: HMAC[%.8s] = %s", datebuf, hmac_buf);
+#endif
+    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(&hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+#if DEBUG_AUTHENTICATION
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+    (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", config->region, hmac_buf);
+#endif
+    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(&hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+#if DEBUG_AUTHENTICATION
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+    (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %sn", S3_SERVICE_NAME, hmac_buf);
+#endif
+    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+#if DEBUG_AUTHENTICATION
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+    (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", SIGNATURE_TERMINATOR, hmac_buf);
+#endif
+
+/****** Sign the String To Sign ******/
+
+#if DEBUG_AUTHENTICATION
+    *sigbuf = '\0';
+#endif
+    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
+    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", SIGNATURE_ALGORITHM);
+#endif
+    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
+    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", datebuf);
+#endif
+    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, 8);
+    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(&hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(&hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
+      datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
+#endif
+    HMAC_Update(&hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", creq_hash_buf);
+#endif
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+
+#if DEBUG_AUTHENTICATION
+    (*config->log)(LOG_DEBUG, "auth: key to sign:\n%s", sigbuf);
+    (*config->log)(LOG_DEBUG, "auth: signature hmac = %s", hmac_buf);
+#endif
+
+/****** Add Authorization Header ******/
+
+    io->headers = http_io_add_header(io->headers, "%s: %s Credential=%s/%.8s/%s/%s/%s, SignedHeaders=%s, Signature=%s",
+      AUTH_HEADER, SIGNATURE_ALGORITHM, config->accessId, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
+      header_names, hmac_buf);
+
+    /* Done */
+    r = 0;
+
+fail:
+    /* Clean up */
+    if (sorted_hdrs != NULL)
+        free(sorted_hdrs);
+    free(header_names);
+    EVP_MD_CTX_cleanup(&hash_ctx);
+    HMAC_CTX_cleanup(&hmac_ctx);
+    return r;
 }
 
 /*
- * Create URL for a block, and return pointer to the URL's path not including any "/bucket" prefix.
+ * Create URL for a block, and return pointer to the URL's URI path.
  */
-static char *
-http_io_get_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
+static void
+http_io_get_block_url(struct http_io *const io, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
-    char *resource;
     int len;
 
     if (config->vhost) {
-        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL,
+        len = snprintf(io->url, bufsiz, "%s%s%0*jx", config->baseURL,
           config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-        resource = buf + strlen(config->baseURL) - 1;
     } else {
-        len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket,
+        len = snprintf(io->url, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket,
           config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-        resource = buf + strlen(config->baseURL) + strlen(config->bucket);
     }
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
-    return resource;
 }
 
 /*
  * Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
  */
-static char *
-http_io_get_mounted_flag(char *buf, size_t bufsiz, struct http_io_conf *config)
+static void
+http_io_get_mounted_flag_url(struct http_io *const io, size_t bufsiz, struct http_io_conf *config)
 {
-    char *resource;
     int len;
 
-    if (config->vhost) {
-        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
-        resource = buf + strlen(config->baseURL) - 1;
-    } else {
-        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
-        resource = buf + strlen(config->baseURL) + strlen(config->bucket);
-    }
+    if (config->vhost)
+        len = snprintf(io->url, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
+    else
+        len = snprintf(io->url, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
-    return resource;
 }
 
 /*
- * Get HTTP Date header value based on current time.
+ * Add date header based on supplied time.
  */
 static void
-http_io_get_date(char *buf, size_t bufsiz)
+http_io_add_date(struct http_io *const io, time_t now)
 {
-    time_t now = time(NULL);
+    char buf[DATE_BUF_SIZE];
     struct tm tm;
 
-    strftime(buf, bufsiz, DATE_BUF_FMT, gmtime_r(&now, &tm));
+    strftime(buf, sizeof(buf), DATE_BUF_FMT, gmtime_r(&now, &tm));
+    io->headers = http_io_add_header(io->headers, "%s: %s", DATE_HEADER, buf);
 }
 
 static struct curl_slist *
@@ -2042,7 +2246,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     /* Sign the block number, the name of the encryption algorithm, and the block data */
     snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
+    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha256(), NULL);
     HMAC_Update(&ctx, (const u_char *)blockbuf, strlen(blockbuf));
     HMAC_Update(&ctx, (const u_char *)ciphername, strlen(ciphername));
     HMAC_Update(&ctx, (const u_char *)src, len);
@@ -2093,5 +2297,14 @@ http_io_prhex(char *buf, const u_char *data, size_t len)
         buf[i * 2 + 1] = hexdig[data[i] & 0x0f];
     }
     buf[i * 2] = '\0';
+}
+
+static int
+http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
+{
+    const char *const str1 = *(const char *const *)ptr1;
+    const char *const str2 = *(const char *const *)ptr2;
+
+    return strcasecmp(str1, str2);
 }
 
