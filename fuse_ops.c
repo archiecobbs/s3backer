@@ -170,12 +170,12 @@ static void
 fuse_op_destroy(void *data)
 {
     struct fuse_ops_private *const priv = data;
-    struct s3backer_store *const s3b = priv->s3b;
+    struct s3backer_store *const s3b = priv != NULL ? priv->s3b : NULL;
     struct s3b_config *const s3bconf = config->s3bconf;
     int r;
 
     /* Sanity check */
-    if (priv == NULL)
+    if (priv == NULL || s3b == NULL)
         return;
     (*config->log)(LOG_INFO, "unmount %s: initiated", s3bconf->mount);
 
