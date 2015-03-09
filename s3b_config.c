@@ -35,8 +35,7 @@
  ****************************************************************************/
 
 /* S3 URL */
-#define S3_BASE_URL                                 "http://s3.amazonaws.com/"
-#define S3_BASE_URL_HTTPS                           "https://s3.amazonaws.com/"
+#define S3_DOMAIN                                   "amazonaws.com"
 
 /* S3 access permission strings */
 #define S3_ACCESS_PRIVATE                           "private"
@@ -46,7 +45,7 @@
 
 /* Default values for some configuration parameters */
 #define S3BACKER_DEFAULT_ACCESS_TYPE                S3_ACCESS_PRIVATE
-#define S3BACKER_DEFAULT_BASE_URL                   S3_BASE_URL
+#define S3BACKER_DEFAULT_REGION                     "us-east-1"
 #define S3BACKER_DEFAULT_PWD_FILE                   ".s3backer_passwd"
 #define S3BACKER_DEFAULT_PREFIX                     ""
 #define S3BACKER_DEFAULT_FILENAME                   "file"
@@ -128,7 +127,8 @@ static struct s3b_config config = {
     .http_io= {
         .accessId=              NULL,
         .accessKey=             NULL,
-        .baseURL=               S3BACKER_DEFAULT_BASE_URL,
+        .baseURL=               NULL,
+        .region=                NULL,
         .bucket=                NULL,
         .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
@@ -205,6 +205,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--baseURL=%s",
         .offset=    offsetof(struct s3b_config, http_io.baseURL),
+    },
+    {
+        .templ=     "--region=%s",
+        .offset=    offsetof(struct s3b_config, http_io.region),
     },
     {
         .templ=     "--blockCacheSize=%u",
@@ -860,6 +864,8 @@ static int
 validate_config(void)
 {
     struct s3backer_store *s3b;
+    const int customBaseURL = config.http_io.baseURL != NULL;
+    const int customRegion = config.http_io.region != NULL;
     off_t auto_file_size;
     u_int auto_block_size;
     uintmax_t value;
@@ -867,6 +873,7 @@ validate_config(void)
     char blockSizeBuf[64];
     char fileSizeBuf[64];
     struct stat sb;
+    char urlbuf[512];
     int i;
     int r;
 
@@ -893,9 +900,7 @@ validate_config(void)
         search_access_for(config.accessFile, NULL, &config.http_io.accessId, NULL);
     if (config.http_io.accessId != NULL && *config.http_io.accessId == '\0')
         config.http_io.accessId = NULL;
-    if (config.http_io.accessId == NULL
-      && !config.fuse_ops.read_only
-      && (strcmp(config.http_io.baseURL, S3_BASE_URL) == 0 || strcmp(config.http_io.baseURL, S3_BASE_URL_HTTPS) == 0)) {
+    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
@@ -940,6 +945,21 @@ validate_config(void)
         }
     }
 
+    /* Set default or custom region */
+    if (config.http_io.region == NULL)
+        config.http_io.region = S3BACKER_DEFAULT_REGION;
+    if (customRegion)
+        config.http_io.vhost = 1;
+
+    /* Set default base URL */
+    if (config.http_io.baseURL == NULL) {
+        if (customRegion && strcmp(config.http_io.region, S3BACKER_DEFAULT_REGION) != 0)
+            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
+        else
+            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
+        config.http_io.baseURL = urlbuf;
+    }
+
     /* Check base URL */
     s = NULL;
     if (strncmp(config.http_io.baseURL, "http://", 7) == 0)
@@ -960,13 +980,9 @@ validate_config(void)
         warnx("invalid base URL `%s'", config.http_io.baseURL);
         return -1;
     }
-    if (config.ssl) {
-        if (strcmp(config.http_io.baseURL, S3BACKER_DEFAULT_BASE_URL) != 0
-          && strcmp(config.http_io.baseURL, S3_BASE_URL_HTTPS) != 0) {
-            warnx("specify only one of `--baseURL' and `--ssl'");
-            return -1;
-        }
-        config.http_io.baseURL = S3_BASE_URL_HTTPS;
+    if (config.ssl && customBaseURL && strncmp(config.http_io.baseURL, "https", 5) != 0) {
+        warnx("non-SSL `--baseURL' conflicts with `--ssl'");
+        return -1;
     }
 
     /* Handle virtual host style URL (prefix hostname with bucket name) */
@@ -1458,6 +1474,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
@@ -1620,10 +1637,11 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
+    fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-27s %s\n", "ssl", "Same as --baseURL " S3_BASE_URL_HTTPS);
+    fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
@@ -1634,7 +1652,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
     fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in `accessFile'");
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
-    fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", S3BACKER_DEFAULT_BASE_URL);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", "http://s3." S3_DOMAIN "/");
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheTimeout", S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT);
@@ -1651,6 +1669,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s \"%s\"\n", "prefix", S3BACKER_DEFAULT_PREFIX);
     fprintf(stderr, "\t--%-27s %u\n", "readAhead", S3BACKER_DEFAULT_READ_AHEAD);
     fprintf(stderr, "\t--%-27s %u\n", "readAheadTrigger", S3BACKER_DEFAULT_READ_AHEAD_TRIGGER);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "region", S3BACKER_DEFAULT_REGION);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "statsFilename", S3BACKER_DEFAULT_STATS_FILENAME);
     fprintf(stderr, "\t--%-27s %u\n", "timeout", S3BACKER_DEFAULT_TIMEOUT);
     fprintf(stderr, "FUSE options (partial list):\n");
