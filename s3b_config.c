@@ -552,8 +552,10 @@ s3backer_create_store(struct s3b_config *conf)
     int r;
 
     /* Sanity check */
-    if (http_io_store != NULL || test_io_store != NULL)
+    if (http_io_store != NULL || test_io_store != NULL) {
+        errno = EINVAL;
         return NULL;
+    }
 
     /* Create HTTP (or test) layer */
     if (conf->test) {
@@ -569,27 +571,27 @@ s3backer_create_store(struct s3b_config *conf)
     /* Create eventual consistency protection layer (if desired) */
     if (conf->ec_protect.cache_size > 0) {
         if ((ec_protect_store = ec_protect_create(&conf->ec_protect, store)) == NULL) 
-            goto fail;
+            goto fail_with_errno;
         store = ec_protect_store;
     }
 
     /* Create block cache layer (if desired) */
     if (conf->block_cache.cache_size > 0) {
         if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL)
-            goto fail;
+            goto fail_with_errno;
         store = block_cache_store;
     }
 
     /* Set mounted flag and check previous value one last time */
     r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : 1);
     if (r != 0) {
-        (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s",
-          conf->description, strerror(r));
+        (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s", conf->description, strerror(r));
         goto fail;
     }
     if (mounted) {
         if (!conf->force) {
             (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process", config.description);
+            r = EBUSY;
             goto fail;
         }
     }
@@ -597,6 +599,8 @@ s3backer_create_store(struct s3b_config *conf)
     /* Done */
     return store;
 
+fail_with_errno:
+    r = errno;
 fail:
     if (store != NULL)
         (*store->destroy)(store);
@@ -604,6 +608,7 @@ fail:
     ec_protect_store = NULL;
     http_io_store = NULL;
     test_io_store = NULL;
+    errno = r;
     return NULL;
 }
 
