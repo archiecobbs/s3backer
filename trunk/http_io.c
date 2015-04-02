@@ -166,7 +166,7 @@ struct http_io {
 
     // Other info that needs to be passed around
     const char          *method;                // HTTP method
-    char                *url;                   // HTTP URL
+    const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
@@ -206,8 +206,8 @@ static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_list_prepper;
 
 /* S3 REST API functions */
-static void http_io_get_block_url(struct http_io *io, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
-static void http_io_get_mounted_flag_url(struct http_io *io, size_t bufsiz, struct http_io_conf *config);
+static void http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
+static void http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config);
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 
 /* Bucket listing functions */
@@ -701,7 +701,7 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     io.method = HTTP_HEAD;
 
     /* Construct URL for the first block */
-    http_io_get_block_url(&io, sizeof(urlbuf), config, 0);
+    http_io_get_block_url(urlbuf, sizeof(urlbuf), config, 0);
 
     /* Add Date header */
     http_io_add_date(&io, now);
@@ -756,7 +756,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     io.method = HTTP_HEAD;
 
     /* Construct URL for the mounted flag */
-    http_io_get_mounted_flag_url(&io, sizeof(urlbuf), config);
+    http_io_get_mounted_flag_url(urlbuf, sizeof(urlbuf), config);
 
     /* Get old value */
     if (old_valuep != NULL) {
@@ -895,7 +895,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Construct URL for this block */
-    http_io_get_block_url(&io, sizeof(urlbuf), config, block_num);
+    http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
     http_io_add_date(&io, now);
@@ -1294,7 +1294,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
 
     /* Construct URL for this block */
-    http_io_get_block_url(&io, sizeof(urlbuf), config, block_num);
+    http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
     http_io_add_date(&io, now);
@@ -1898,16 +1898,15 @@ fail:
  * Create URL for a block, and return pointer to the URL's URI path.
  */
 static void
-http_io_get_block_url(struct http_io *const io, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
+http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
     int len;
 
-    if (config->vhost) {
-        len = snprintf(io->url, bufsiz, "%s%s%0*jx", config->baseURL,
-          config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-    } else {
-        len = snprintf(io->url, bufsiz, "%s%s/%s%0*jx", config->baseURL, config->bucket,
-          config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    if (config->vhost)
+        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    else {
+        len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL,
+          config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     }
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
@@ -1917,14 +1916,14 @@ http_io_get_block_url(struct http_io *const io, size_t bufsiz, struct http_io_co
  * Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
  */
 static void
-http_io_get_mounted_flag_url(struct http_io *const io, size_t bufsiz, struct http_io_conf *config)
+http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config)
 {
     int len;
 
     if (config->vhost)
-        len = snprintf(io->url, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
+        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
     else
-        len = snprintf(io->url, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
+        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
 }
