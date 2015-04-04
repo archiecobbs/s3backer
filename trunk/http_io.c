@@ -861,7 +861,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
         /* Add Authorization header */
-        if ((r = http_io_add_auth(priv, &io, now, new_value ? content : NULL, new_value ? strlen(content) : 0)) != 0)
+        if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
             goto done;
 
         /* Perform operation to set or clear mounted flag */
@@ -1488,7 +1488,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 
     /* Add Authorization header */
-    if ((r = http_io_add_auth(priv, &io, now, src != NULL ? src : NULL, src != NULL ? config->block_size : 0)) != 0)
+    if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
         goto fail;
 
     /* Perform operation */
