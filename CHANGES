@@ -1,6 +1,7 @@
 Version Next
 
     - Updated authentication to version 4 (issue #51)
+    - Added support for IAM credentials from EC2 meta-data (issue #48)
     - Fixed bug where `--erase' did not clear the mounted flag
     - Fixed compile problem on FreeBSD
 

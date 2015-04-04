@@ -95,7 +95,7 @@ static print_stats_t s3b_config_print_stats;
 
 static int parse_size_string(const char *s, uintmax_t *valp);
 static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
-static int search_access_for(const char *file, const char *accessId, const char **idptr, const char **pwptr);
+static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
@@ -196,6 +196,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--accessType=%s",
         .offset=    offsetof(struct s3b_config, http_io.accessType),
+    },
+    {
+        .templ=     "--accessEC2IAM",
+        .offset=    offsetof(struct s3b_config, http_io.ec2iam),
+        .value=     1
     },
     {
         .templ=     "--listBlocks",
@@ -828,7 +833,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 }
 
 static int
-search_access_for(const char *file, const char *accessId, const char **idptr, const char **pwptr)
+search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr)
 {
     char buf[1024];
     FILE *fp;
@@ -878,7 +883,7 @@ validate_config(void)
     int r;
 
     /* Default to $HOME/.s3backer for accessFile */
-    if (config.accessFile == NULL) {
+    if (!config.http_io.ec2iam && config.accessFile == NULL) {
         const char *home = getenv("HOME");
         char buf[PATH_MAX];
 
@@ -900,7 +905,9 @@ validate_config(void)
         search_access_for(config.accessFile, NULL, &config.http_io.accessId, NULL);
     if (config.http_io.accessId != NULL && *config.http_io.accessId == '\0')
         config.http_io.accessId = NULL;
-    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL) {
+
+    /* If no accessId, only read operations will succeed */
+    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL && !config.http_io.ec2iam) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
@@ -917,6 +924,12 @@ validate_config(void)
             warnx("no `accessKey' specified");
             return -1;
         }
+    }
+
+    /* Check for conflict between explicit accessId and EC2 IAM */
+    if (config.http_io.accessId != NULL && config.http_io.ec2iam) {
+        warnx("an `accessKey' must not be specified when `accessEC2IAM' enabled");
+        return -1;
     }
 
     /* Check bucket/testdir */

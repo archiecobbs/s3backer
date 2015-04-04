@@ -312,6 +312,16 @@ instead of this flag.
 Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
 Default is `private'.
+.It Fl \-accessEC2IAM
+Download access credentials in JSON document form as EC2 instance meta-data from 
+.Bk -words
+.Ar http://169.254.169.254/latest/meta-data/iam/security-credentials/s3access
+.Ek
+every five minutes.
+.Pp
+This option allows S3 credentials to be provided automatically via IAM roles to
+.Nm
+when running on an EC2 instance.
 .It Fl \-baseURL=URL
 Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockCacheFile=FILE
