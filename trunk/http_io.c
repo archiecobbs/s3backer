@@ -1878,14 +1878,14 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
     EVP_DigestUpdate(&hash_ctx, (const u_char *)uripath, uripath_len);
     EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", uripath_len, uripath);
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
 #endif
 
     /* Canonical query string */
     EVP_DigestUpdate(&hash_ctx, (const u_char *)query_params, query_params_len);
     EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", query_params_len, query_params);
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
 #endif
 
     /* Canonical headers */
