@@ -104,6 +104,11 @@
 #define S3_SERVICE_NAME             "s3"
 #define SIGNATURE_TERMINATOR        "aws4_request"
 
+/* EC2 IAM info URL */
+#define EC2_IAM_META_DATA_URL       "http://169.254.169.254/latest/meta-data/iam/security-credentials/s3access"
+#define EC2_IAM_META_DATA_ACCESSID  "AccessKeyId"
+#define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
+
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
 
@@ -126,7 +131,8 @@ struct http_io_private {
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
     u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
-    char                        *prefixed_key;
+    pthread_t                   iam_thread;     // IAM credentials refresh thread
+    u_char                      shutting_down;
 
     /* Encryption info */
     const EVP_CIPHER            *cipher;
@@ -204,11 +210,17 @@ static http_io_curl_prepper_t http_io_head_prepper;
 static http_io_curl_prepper_t http_io_read_prepper;
 static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_list_prepper;
+static http_io_curl_prepper_t http_io_iamcreds_prepper;
 
 /* S3 REST API functions */
 static void http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
 static void http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config);
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
+
+/* EC2 IAM thread */
+static void *update_iam_credentials_main(void *arg);
+static int update_iam_credentials(struct http_io_private *priv);
+static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
 /* Bucket listing functions */
 static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
@@ -254,6 +266,7 @@ http_io_create(struct http_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct http_io_private *priv;
+    struct curl_holder *holder;
     int nlocks;
     int r;
 
@@ -288,15 +301,6 @@ http_io_create(struct http_io_conf *config)
     LIST_INIT(&priv->curls);
     s3b->data = priv;
 
-    /* Create prefixed access key */
-    if (config->accessKey != NULL) {
-        if ((priv->prefixed_key = malloc(sizeof(ACCESS_KEY_PREFIX) + strlen(config->accessKey) + 1)) == NULL) {
-            r = errno;
-            goto fail3;
-        }
-        sprintf(priv->prefixed_key, "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
-    }
-
     /* Initialize openssl */
     num_openssl_locks = CRYPTO_num_locks();
     if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
@@ -304,11 +308,8 @@ http_io_create(struct http_io_conf *config)
         goto fail3;
     }
     for (nlocks = 0; nlocks < num_openssl_locks; nlocks++) {
-        if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0) {
-            while (nlocks > 0)
-                pthread_mutex_destroy(&openssl_locks[--nlocks]);
+        if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0)
             goto fail4;
-        }
     }
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
@@ -375,6 +376,14 @@ http_io_create(struct http_io_conf *config)
     /* Initialize cURL */
     curl_global_init(CURL_GLOBAL_ALL);
 
+    /* Initialize IAM credentials and start updater thread */
+    if (config->ec2iam) {
+        if ((r = update_iam_credentials(priv)) != 0)
+            goto fail5;
+        if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
+            goto fail5;
+    }
+
     /* Take ownership of non-zero block bitmap */
     priv->non_zero = config->nonzero_bitmap;
     config->nonzero_bitmap = NULL;
@@ -382,14 +391,24 @@ http_io_create(struct http_io_conf *config)
     /* Done */
     return s3b;
 
+fail5:
+    while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
+        curl_easy_cleanup(holder->curl);
+        LIST_REMOVE(holder, link);
+        free(holder);
+    }
+    curl_global_cleanup();
 fail4:
+    CRYPTO_set_locking_callback(NULL);
+    CRYPTO_set_id_callback(NULL);
+    while (nlocks > 0)
+        pthread_mutex_destroy(&openssl_locks[--nlocks]);
     free(openssl_locks);
     openssl_locks = NULL;
     num_openssl_locks = 0;
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
-    free(priv->prefixed_key);
     free(priv);
 fail1:
     free(s3b);
@@ -406,7 +425,21 @@ static void
 http_io_destroy(struct s3backer_store *const s3b)
 {
     struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
     struct curl_holder *holder;
+    int r;
+
+    /* Shut down IAM thread */
+    priv->shutting_down = 1;
+    if (config->ec2iam) {
+        (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
+        if ((r = pthread_cancel(priv->iam_thread)) != 0)
+            (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
+        if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
+        else
+            (*config->log)(LOG_DEBUG, "EC2 IAM thread successfully shutdown");
+    }
 
     /* Clean up openssl */
     while (num_openssl_locks > 0)
@@ -426,7 +459,6 @@ http_io_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
-    free(priv->prefixed_key);
     free(priv->non_zero);
     free(priv);
     free(s3b);
@@ -840,6 +872,132 @@ done:
     /*  Clean up */
     curl_slist_free_all(io.headers);
     return r;
+}
+
+static int
+update_iam_credentials(struct http_io_private *const priv)
+{
+    struct http_io_conf *const config = priv->config;
+    struct http_io io;
+    char buf[2048] = { '\0' };
+    char *access_id = NULL;
+    char *access_key = NULL;
+    size_t buflen;
+    int r;
+
+    /* Initialize I/O info */
+    memset(&io, 0, sizeof(io));
+    io.url = EC2_IAM_META_DATA_URL;
+    io.method = HTTP_GET;
+    io.dest = buf;
+    io.buf_size = sizeof(buf);
+
+    /* Perform operation */
+    (*config->log)(LOG_INFO, "acquiring EC2 IAM credentials from %s", io.url);
+    if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
+        (*config->log)(LOG_ERR, "failed to acquire EC2 IAM credentials from %s: %s", io.url, strerror(r));
+        return r;
+    }
+
+    /* Determine how many bytes we read */
+    buflen = io.buf_size - io.bufs.rdremain;
+    if (buflen > sizeof(buf) - 1)
+        buflen = sizeof(buf) - 1;
+    buf[buflen] = '\0';
+
+    /* Find credentials in JSON response */
+    if ((access_id = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSID)) == NULL
+      || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL) {
+        (*config->log)(LOG_ERR, "failed to extract EC2 IAM credentials from response: %s", strerror(errno));
+        free(access_id);
+        return EINVAL;
+    }
+
+    /* Update credentials */
+    pthread_mutex_lock(&priv->mutex);
+    free(config->accessId);
+    free(config->accessKey);
+    config->accessId = access_id;
+    config->accessKey = access_key;
+    pthread_mutex_unlock(&priv->mutex);
+    (*config->log)(LOG_INFO, "successfully updated EC2 IAM credentials from %s", io.url);
+
+    /* Done */
+    return 0;
+}
+
+static void *
+update_iam_credentials_main(void *arg)
+{
+    struct http_io_private *const priv = arg;
+
+    while (!priv->shutting_down) {
+
+        // Sleep for five minutes
+        sleep(300);
+
+        // Shutting down?
+        if (priv->shutting_down)
+            break;
+
+        // Attempt to update credentials
+        update_iam_credentials(priv);
+    }
+
+    // Done
+    return NULL;
+}
+
+static char *
+parse_json_field(struct http_io_private *priv, const char *json, const char *field)
+{
+    struct http_io_conf *const config = priv->config;
+    regmatch_t match[2];
+    regex_t regex;
+    char buf[128];
+    char *value;
+    size_t vlen;
+    int r;
+
+    snprintf(buf, sizeof(buf), "\"%s\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"", field);
+    memset(&regex, 0, sizeof(regex));
+    if ((r = regcomp(&regex, buf, REG_EXTENDED)) != 0) {
+        regerror(r, &regex, buf, sizeof(buf));
+        (*config->log)(LOG_INFO, "regex compilation failed: %s", buf);
+        errno = EINVAL;
+        return NULL;
+    }
+    if ((r = regexec(&regex, json, sizeof(match) / sizeof(*match), match, 0)) != 0) {
+        regerror(r, &regex, buf, sizeof(buf));
+        (*config->log)(LOG_INFO, "failed to find JSON field \"%s\" in credentials response: %s", field, buf);
+        regfree(&regex);
+        errno = EINVAL;
+        return NULL;
+    }
+    regfree(&regex);
+    vlen = match[1].rm_eo - match[1].rm_so;
+    if ((value = malloc(vlen + 1)) == NULL) {
+        r = errno;
+        (*config->log)(LOG_INFO, "malloc: %s", strerror(r));
+        errno = r;
+        return NULL;
+    }
+    memcpy(value, json + match[1].rm_so, vlen);
+    value[vlen] = '\0';
+    return value;
+}
+
+static void
+http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
+{
+    memset(&io->bufs, 0, sizeof(io->bufs));
+    io->bufs.rdremain = io->buf_size;
+    io->bufs.rddata = io->dest;
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
+    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
+    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
 }
 
 static int
@@ -1641,6 +1799,8 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
 #endif
     char hosthdr[128];
     char datebuf[DATE_BUF_SIZE];
+    char access_id[128];
+    char access_key[128];
     struct tm tm;
     char *p;
     int r;
@@ -1694,7 +1854,7 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
     EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
 
     /* Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us */
-    snprintf(hosthdr, sizeof(hosthdr), "host:%.*s", host_len, host);
+    snprintf(hosthdr, sizeof(hosthdr), "host:%.*s", (int)host_len, host);
     for (num_sorted_hdrs = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
         num_sorted_hdrs++;
     if ((sorted_hdrs = malloc(num_sorted_hdrs * sizeof(*sorted_hdrs))) == NULL) {
@@ -1801,10 +1961,16 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
 
 /****** Derive Signing Key ******/
 
+    /* Snapshot current credentials */
+    pthread_mutex_lock(&priv->mutex);
+    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
+    snprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
+    pthread_mutex_unlock(&priv->mutex);
+
     /* Do nested HMAC's */
-    HMAC_Init_ex(&hmac_ctx, priv->prefixed_key, strlen(priv->prefixed_key), EVP_sha256(), NULL);
+    HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
 #if DEBUG_AUTHENTICATION
-    (*config->log)(LOG_DEBUG, "auth: prefixed_key = \"%s\"", priv->prefixed_key);
+    (*config->log)(LOG_DEBUG, "auth: access_key = \"%s\"", access_key);
 #endif
     HMAC_Update(&hmac_ctx, (const u_char *)datebuf, 8);
     HMAC_Final(&hmac_ctx, hmac, &hmac_len);
@@ -1878,7 +2044,7 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
 /****** Add Authorization Header ******/
 
     io->headers = http_io_add_header(io->headers, "%s: %s Credential=%s/%.8s/%s/%s/%s, SignedHeaders=%s, Signature=%s",
-      AUTH_HEADER, SIGNATURE_ALGORITHM, config->accessId, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
+      AUTH_HEADER, SIGNATURE_ALGORITHM, access_id, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
       header_names, hmac_buf);
 
     /* Done */

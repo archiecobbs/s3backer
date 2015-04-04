@@ -51,6 +51,7 @@
 #include <expat.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <regex.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
