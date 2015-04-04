@@ -2411,7 +2411,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     /* Sign the block number, the name of the encryption algorithm, and the block data */
     snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha256(), NULL);
+    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
     HMAC_Update(&ctx, (const u_char *)blockbuf, strlen(blockbuf));
     HMAC_Update(&ctx, (const u_char *)ciphername, strlen(ciphername));
     HMAC_Update(&ctx, (const u_char *)src, len);
