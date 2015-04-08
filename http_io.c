@@ -63,10 +63,12 @@
 /* Mounted file object name */
 #define MOUNTED_FLAG                "s3backer-mounted"
 
-/* `x-amz-date' header format */
-#define DATE_HEADER                 "x-amz-date"
+/* HTTP `Date' and `x-amz-date' header formats */
+#define HTTP_DATE_HEADER            "Date"
+#define AWS_DATE_HEADER             "x-amz-date"
+#define HTTP_DATE_BUF_FMT           "%a, %d %b %Y %H:%M:%S GMT"
+#define AWS_DATE_BUF_FMT            "%Y%m%dT%H%M%SZ"
 #define DATE_BUF_SIZE               64
-#define DATE_BUF_FMT                "%Y%m%dT%H%M%SZ"
 
 /* Size required for URL buffer */
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
@@ -837,7 +839,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             /* Create content for the mounted flag object (timestamp) */
             gethostname(content, sizeof(content - 1));
             content[sizeof(content) - 1] = '\0';
-            strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
+            strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" AWS_DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
             io.src = content;
             io.buf_size = strlen(content);
             MD5_Init(&ctx);
@@ -1832,7 +1834,7 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
     HMAC_CTX_init(&hmac_ctx);
 
     /* Format date */
-    strftime(datebuf, sizeof(datebuf), DATE_BUF_FMT, gmtime_r(&now, &tm));
+    strftime(datebuf, sizeof(datebuf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
 
 /****** Hash Payload and Add Header ******/
 
@@ -2103,8 +2105,8 @@ http_io_add_date(struct http_io *const io, time_t now)
     char buf[DATE_BUF_SIZE];
     struct tm tm;
 
-    strftime(buf, sizeof(buf), DATE_BUF_FMT, gmtime_r(&now, &tm));
-    io->headers = http_io_add_header(io->headers, "%s: %s", DATE_HEADER, buf);
+    strftime(buf, sizeof(buf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
+    io->headers = http_io_add_header(io->headers, "%s: %s", AWS_DATE_HEADER, buf);
 }
 
 static struct curl_slist *
