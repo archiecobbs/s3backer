@@ -45,6 +45,7 @@
 
 /* Default values for some configuration parameters */
 #define S3BACKER_DEFAULT_ACCESS_TYPE                S3_ACCESS_PRIVATE
+#define S3BACKER_DEFAULT_AUTH_VERSION               AUTH_VERSION_AWS4
 #define S3BACKER_DEFAULT_REGION                     "us-east-1"
 #define S3BACKER_DEFAULT_PWD_FILE                   ".s3backer_passwd"
 #define S3BACKER_DEFAULT_PREFIX                     ""
@@ -119,6 +120,12 @@ static const char *const s3_acls[] = {
     S3_ACCESS_AUTHENTICATED_READ
 };
 
+/* Valid S3 authentication types */
+static const char *const s3_auth_types[] = {
+    AUTH_VERSION_AWS2,
+    AUTH_VERSION_AWS4,
+};
+
 /* Configuration structure */
 static char user_agent_buf[64];
 static struct s3b_config config = {
@@ -132,6 +139,7 @@ static struct s3b_config config = {
         .bucket=                NULL,
         .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
+        .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
         .user_agent=            user_agent_buf,
         .compress=              S3BACKER_DEFAULT_COMPRESSION,
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
@@ -201,6 +209,10 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--accessEC2IAM",
         .offset=    offsetof(struct s3b_config, http_io.ec2iam),
         .value=     1
+    },
+    {
+        .templ=     "--authVersion=%s",
+        .offset=    offsetof(struct s3b_config, http_io.authVersion),
     },
     {
         .templ=     "--listBlocks",
@@ -932,6 +944,16 @@ validate_config(void)
         return -1;
     }
 
+    /* Check auth version */
+    for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++) {
+        if (strcmp(config.http_io.authVersion, s3_auth_types[i]) == 0)
+            break;
+    }
+    if (i == sizeof(s3_auth_types) / sizeof(*s3_auth_types)) {
+        warnx("illegal authentication version `%s'", config.http_io.authVersion);
+        return -1;
+    }
+
     /* Check bucket/testdir */
     if (!config.test) {
         if (config.http_io.bucket == NULL) {
@@ -1487,6 +1509,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
     (*config.log)(LOG_DEBUG, "%24s: %s", "ec2iam", config.http_io.ec2iam ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "authVersion", config.http_io.authVersion);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
@@ -1613,6 +1636,11 @@ usage(void)
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
+    fprintf(stderr, "\t--%-27s %s\n", "authVersion=TYPE", "Specify S3 authentication style; one of:");
+    fprintf(stderr, "\t  %-27s ", "");
+    for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++)
+        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_auth_types[i]);
+    fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM", "Acquire S3 credentials via IAM from EC2 machine");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
@@ -1667,6 +1695,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
     fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in `accessFile'");
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
+    fprintf(stderr, "\t--%-27s \"%s\"\n", "authVersion", S3BACKER_DEFAULT_AUTH_VERSION);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", "http://s3." S3_DOMAIN "/");
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheSize", S3BACKER_DEFAULT_BLOCK_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheThreads", S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS);

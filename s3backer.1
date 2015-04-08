@@ -322,6 +322,17 @@ every five minutes.
 This option allows S3 credentials to be provided automatically via IAM roles to
 .Nm
 when running on an EC2 instance.
+.It Fl \-authVersion=TYPE
+Specify how to authenticate requests. There are two supported authentication methods:
+.Ar aws2
+is the original AWS authentication scheme.
+.Ar aws4
+is the newer, recommended authentication scheme.
+.Pp
+.Ar aws4
+is the default setting starting in version 1.4, and is required for certain non-US regions, while
+.Ar aws2
+may still be required by some non-Amazon S3 providers.
 .It Fl \-baseURL=URL
 Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
 .It Fl \-blockCacheFile=FILE
