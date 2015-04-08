@@ -1486,6 +1486,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "ec2iam", config.http_io.ec2iam ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
@@ -1612,6 +1613,7 @@ usage(void)
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
     fprintf(stderr, "\n");
+    fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM", "Acquire S3 credentials via IAM from EC2 machine");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");
