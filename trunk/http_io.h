@@ -23,14 +23,19 @@
  */
 
 /* Upload/download indexes */
-#define HTTP_DOWNLOAD   0
-#define HTTP_UPLOAD     1
+#define HTTP_DOWNLOAD       0
+#define HTTP_UPLOAD         1
+
+/* Authentication types */
+#define AUTH_VERSION_AWS2   "aws2"
+#define AUTH_VERSION_AWS4   "aws4"
 
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     char                *accessId;
     char                *accessKey;
     const char          *accessType;
+    const char          *authVersion;
     const char          *baseURL;
     const char          *region;
     const char          *bucket;

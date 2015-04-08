@@ -218,6 +218,8 @@ static http_io_curl_prepper_t http_io_iamcreds_prepper;
 static void http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
 static void http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config);
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
+static int http_io_add_auth2(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
+static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 
 /* EC2 IAM thread */
 static void *update_iam_credentials_main(void *arg);
@@ -237,7 +239,7 @@ static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *st
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
 static struct curl_slist *http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 2, 3)));
-static void http_io_add_date(struct http_io *const io, time_t now);
+static void http_io_add_date(struct http_io_private *priv, struct http_io *const io, time_t now);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
 static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
 
@@ -247,6 +249,8 @@ static u_long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
 static u_int http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst);
 static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
+static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
+  const char *name, int value_only, char *sigbuf, size_t sigbuflen);
 static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
@@ -540,7 +544,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, config->prefix);
 
         /* Add Date header */
-        http_io_add_date(&io, now);
+        http_io_add_date(priv, &io, now);
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
@@ -738,7 +742,7 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, 0);
 
     /* Add Date header */
-    http_io_add_date(&io, now);
+    http_io_add_date(priv, &io, now);
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
@@ -796,7 +800,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     if (old_valuep != NULL) {
 
         /* Add Date header */
-        http_io_add_date(&io, now);
+        http_io_add_date(priv, &io, now);
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
@@ -830,7 +834,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         io.method = new_value ? HTTP_PUT : HTTP_DELETE;
 
         /* Add Date header */
-        http_io_add_date(&io, now);
+        http_io_add_date(priv, &io, now);
 
         /* To set the flag PUT some content containing current date */
         if (new_value) {
@@ -1058,7 +1062,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
-    http_io_add_date(&io, now);
+    http_io_add_date(priv, &io, now);
 
     /* Add If-Match or If-None-Match header as required */
     if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0) {
@@ -1457,7 +1461,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
     /* Add Date header */
-    http_io_add_date(&io, now);
+    http_io_add_date(priv, &io, now);
 
     /* Add PUT-only headers */
     if (src != NULL) {
@@ -1774,6 +1778,141 @@ static int
 http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
     const struct http_io_conf *const config = priv->config;
+
+    /* Anything to do? */
+    if (config->accessId == NULL)
+        return 0;
+
+    /* Which auth version? */
+    if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0)
+        return http_io_add_auth2(priv, io, now, payload, plen);
+    if (strcmp(config->authVersion, AUTH_VERSION_AWS4) == 0)
+        return http_io_add_auth4(priv, io, now, payload, plen);
+
+    /* Oops */
+    return EINVAL;
+}
+
+/**
+ * AWS verison 2 authentication
+ */
+static int
+http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
+{
+    const struct http_io_conf *const config = priv->config;
+    const struct curl_slist *header;
+    u_char hmac[SHA_DIGEST_LENGTH];
+    const char *resource;
+    char **amz_hdrs = NULL;
+    char access_id[128];
+    char access_key[128];
+    char authbuf[200];
+#if DEBUG_AUTHENTICATION
+    char sigbuf[1024];
+    char hmac_buf[EVP_MAX_MD_SIZE * 2 + 1];
+#else
+    char sigbuf[1];
+#endif
+    int num_amz_hdrs;
+    const char *qmark;
+    size_t resource_len;
+    u_int hmac_len;
+    HMAC_CTX hmac_ctx;
+    int i;
+    int r;
+
+    /* Snapshot current credentials */
+    pthread_mutex_lock(&priv->mutex);
+    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
+    snprintf(access_key, sizeof(access_key), "%s", config->accessKey);
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Initialize HMAC */
+    HMAC_CTX_init(&hmac_ctx);
+    HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
+
+#if DEBUG_AUTHENTICATION
+    *sigbuf = '\0';
+#endif
+
+    /* Sign initial stuff */
+    HMAC_Update(&hmac_ctx, (const u_char *)io->method, strlen(io->method));
+    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
+#endif
+    update_hmac_from_header(&hmac_ctx, io, MD5_HEADER, 1, sigbuf, sizeof(sigbuf));
+    update_hmac_from_header(&hmac_ctx, io, CTYPE_HEADER, 1, sigbuf, sizeof(sigbuf));
+    update_hmac_from_header(&hmac_ctx, io, HTTP_DATE_HEADER, 1, sigbuf, sizeof(sigbuf));
+
+    /* Get x-amz headers sorted by name */
+    for (header = io->headers, num_amz_hdrs = 0; header != NULL; header = header->next) {
+        if (strncmp(header->data, "x-amz", 5) == 0)
+            num_amz_hdrs++;
+    }
+    if ((amz_hdrs = malloc(num_amz_hdrs * sizeof(*amz_hdrs))) == NULL) {
+        r = errno;
+        goto fail;
+    }
+    for (header = io->headers, i = 0; header != NULL; header = header->next) {
+        if (strncmp(header->data, "x-amz", 5) == 0)
+            amz_hdrs[i++] = header->data;
+    }
+    assert(i == num_amz_hdrs);
+    qsort(amz_hdrs, num_amz_hdrs, sizeof(*amz_hdrs), http_io_strcasecmp_ptr);
+
+    /* Sign x-amz headers (in sorted order) */
+    for (i = 0; i < num_amz_hdrs; i++)
+        update_hmac_from_header(&hmac_ctx, io, amz_hdrs[i], 0, sigbuf, sizeof(sigbuf));
+
+    /* Get resource */
+    resource = config->vhost ? io->url + strlen(config->baseURL) - 1 : io->url + strlen(config->baseURL) + strlen(config->bucket);
+    resource_len = (qmark = strchr(resource, '?')) != NULL ? qmark - resource : strlen(resource);
+
+    /* Sign final stuff */
+    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(&hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
+    HMAC_Update(&hmac_ctx, (const u_char *)resource, resource_len);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, resource_len, resource);
+#endif
+
+    /* Finish up */
+    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    assert(hmac_len == SHA_DIGEST_LENGTH);
+    HMAC_CTX_cleanup(&hmac_ctx);
+
+    /* Base64-encode result */
+    http_io_base64_encode(authbuf, sizeof(authbuf), hmac, hmac_len);
+
+#if DEBUG_AUTHENTICATION
+    (*config->log)(LOG_DEBUG, "auth: string to sign:\n%s", sigbuf);
+    http_io_prhex(hmac_buf, hmac, hmac_len);
+    (*config->log)(LOG_DEBUG, "auth: signature hmac = %s", hmac_buf);
+    (*config->log)(LOG_DEBUG, "auth: signature hmac base64 = %s", authbuf);
+#endif
+
+    /* Add auth header */
+    io->headers = http_io_add_header(io->headers, "%s: AWS %s:%s", AUTH_HEADER, access_id, authbuf);
+
+    /* Done */
+    r = 0;
+
+fail:
+    /* Clean up */
+    if (amz_hdrs != NULL)
+        free(amz_hdrs);
+    HMAC_CTX_cleanup(&hmac_ctx);
+    return r;
+}
+
+/**
+ * AWS verison 4 authentication
+ */
+static int
+http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
+{
+    const struct http_io_conf *const config = priv->config;
     u_char payload_hash[EVP_MAX_MD_SIZE];
     u_char creq_hash[EVP_MAX_MD_SIZE];
     u_char hmac[EVP_MAX_MD_SIZE];
@@ -1808,9 +1947,6 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
     int r;
     int i;
 
-    /* Anything to do? */
-    if (config->accessId == NULL)
-        return 0;
 
     /* Extract host, URI path, and query parameters from URL */
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
@@ -2100,13 +2236,19 @@ http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *conf
  * Add date header based on supplied time.
  */
 static void
-http_io_add_date(struct http_io *const io, time_t now)
+http_io_add_date(struct http_io_private *const priv, struct http_io *const io, time_t now)
 {
+    struct http_io_conf *const config = priv->config;
     char buf[DATE_BUF_SIZE];
     struct tm tm;
 
-    strftime(buf, sizeof(buf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
-    io->headers = http_io_add_header(io->headers, "%s: %s", AWS_DATE_HEADER, buf);
+    if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0) {
+        strftime(buf, sizeof(buf), HTTP_DATE_BUF_FMT, gmtime_r(&now, &tm));
+        io->headers = http_io_add_header(io->headers, "%s: %s", HTTP_DATE_HEADER, buf);
+    } else {
+        strftime(buf, sizeof(buf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
+        io->headers = http_io_add_header(io->headers, "%s: %s", AWS_DATE_HEADER, buf);
+    }
 }
 
 static struct curl_slist *
@@ -2420,6 +2562,42 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     HMAC_Final(&ctx, (u_char *)hmac, &hmac_len);
     assert(hmac_len == SHA_DIGEST_LENGTH);
     HMAC_CTX_cleanup(&ctx);
+}
+
+static void
+update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
+  const char *name, int value_only, char *sigbuf, size_t sigbuflen)
+{
+    const struct curl_slist *header;
+    const char *colon;
+    const char *value;
+    size_t name_len;
+
+    /* Find and add header */
+    name_len = (colon = strchr(name, ':')) != NULL ? colon - name : strlen(name);
+    for (header = io->headers; header != NULL; header = header->next) {
+        if (strncasecmp(header->data, name, name_len) == 0 && header->data[name_len] == ':') {
+            if (!value_only) {
+                HMAC_Update(ctx, (const u_char *)header->data, name_len + 1);
+#if DEBUG_AUTHENTICATION
+                snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", name_len + 1, header->data);
+#endif
+            }
+            for (value = header->data + name_len + 1; isspace(*value); value++)
+                ;
+            HMAC_Update(ctx, (const u_char *)value, strlen(value));
+#if DEBUG_AUTHENTICATION
+            snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%s", value);
+#endif
+            break;
+        }
+    }
+
+    /* Add newline whether or not header was found */
+    HMAC_Update(ctx, (const u_char *)"\n", 1);
+#if DEBUG_AUTHENTICATION
+    snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "\n");
+#endif
 }
 
 /*
