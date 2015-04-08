@@ -1,4 +1,4 @@
-Version Next
+Version 1.4.0
 
     - Updated authentication to version 4 (issue #51)
     - Added support for IAM credentials from EC2 meta-data (issue #48)
