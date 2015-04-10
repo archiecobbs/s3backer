@@ -105,11 +105,13 @@
 #define ACCESS_KEY_PREFIX           "AWS4"
 #define S3_SERVICE_NAME             "s3"
 #define SIGNATURE_TERMINATOR        "aws4_request"
+#define SECURITY_TOKEN_HEADER       "x-amz-security-token"
 
 /* EC2 IAM info URL */
 #define EC2_IAM_META_DATA_URL       "http://169.254.169.254/latest/meta-data/iam/security-credentials/s3access"
 #define EC2_IAM_META_DATA_ACCESSID  "AccessKeyId"
 #define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
+#define EC2_IAM_META_DATA_TOKEN     "Token"
 
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
@@ -888,6 +890,7 @@ update_iam_credentials(struct http_io_private *const priv)
     char buf[2048] = { '\0' };
     char *access_id = NULL;
     char *access_key = NULL;
+    char *iam_token = NULL;
     size_t buflen;
     int r;
 
@@ -913,9 +916,11 @@ update_iam_credentials(struct http_io_private *const priv)
 
     /* Find credentials in JSON response */
     if ((access_id = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSID)) == NULL
-      || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL) {
+      || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL
+      || (iam_token = parse_json_field(priv, buf, EC2_IAM_META_DATA_TOKEN)) == NULL) {
         (*config->log)(LOG_ERR, "failed to extract EC2 IAM credentials from response: %s", strerror(errno));
         free(access_id);
+        free(access_key);
         return EINVAL;
     }
 
@@ -923,8 +928,10 @@ update_iam_credentials(struct http_io_private *const priv)
     pthread_mutex_lock(&priv->mutex);
     free(config->accessId);
     free(config->accessKey);
+    free(config->iam_token);
     config->accessId = access_id;
     config->accessKey = access_key;
+    config->iam_token = iam_token;
     pthread_mutex_unlock(&priv->mutex);
     (*config->log)(LOG_INFO, "successfully updated EC2 IAM credentials from %s", io.url);
 
@@ -1942,11 +1949,18 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     char datebuf[DATE_BUF_SIZE];
     char access_id[128];
     char access_key[128];
+    char iam_token[1024];
     struct tm tm;
     char *p;
     int r;
     int i;
 
+    /* Snapshot current credentials */
+    pthread_mutex_lock(&priv->mutex);
+    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
+    snprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
+    snprintf(iam_token, sizeof(iam_token), "%s", config->iam_token != NULL ? config->iam_token : "");
+    pthread_mutex_unlock(&priv->mutex);
 
     /* Extract host, URI path, and query parameters from URL */
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
@@ -1981,6 +1995,11 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     http_io_prhex(payload_hash_buf, payload_hash, payload_hash_len);
 
     io->headers = http_io_add_header(io->headers, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
+
+/****** Add IAM security token header (if any) ******/
+
+    if (*iam_token != '\0')
+        io->headers = http_io_add_header(io->headers, "%s: %s", SECURITY_TOKEN_HEADER, iam_token);
 
 /****** Create Hashed Canonical Request ******/
 
@@ -2098,12 +2117,6 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #endif
 
 /****** Derive Signing Key ******/
-
-    /* Snapshot current credentials */
-    pthread_mutex_lock(&priv->mutex);
-    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
-    snprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
-    pthread_mutex_unlock(&priv->mutex);
 
     /* Do nested HMAC's */
     HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
