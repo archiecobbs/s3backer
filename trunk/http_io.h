@@ -34,6 +34,7 @@
 struct http_io_conf {
     char                *accessId;
     char                *accessKey;
+    char                *iam_token;
     const char          *accessType;
     const char          *authVersion;
     const char          *baseURL;
