@@ -36,6 +36,7 @@ struct http_io_conf {
     char                *accessKey;
     char                *iam_token;
     const char          *accessType;
+    const char          *ec2iam_role;
     const char          *authVersion;
     const char          *baseURL;
     const char          *region;
@@ -50,7 +51,6 @@ struct http_io_conf {
     int                 debug_http;
     int                 quiet;
     int                 rrs;                        // reduced redundancy storage
-    int                 ec2iam;                     // download credentials from EC2 meta-data
     int                 compress;                   // zlib compression level
     int                 vhost;                      // use virtual host style URL
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()

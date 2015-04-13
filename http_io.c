@@ -108,7 +108,7 @@
 #define SECURITY_TOKEN_HEADER       "x-amz-security-token"
 
 /* EC2 IAM info URL */
-#define EC2_IAM_META_DATA_URL       "http://169.254.169.254/latest/meta-data/iam/security-credentials/s3access"
+#define EC2_IAM_META_DATA_URLBASE   "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
 #define EC2_IAM_META_DATA_ACCESSID  "AccessKeyId"
 #define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
 #define EC2_IAM_META_DATA_TOKEN     "Token"
@@ -385,7 +385,7 @@ http_io_create(struct http_io_conf *config)
     curl_global_init(CURL_GLOBAL_ALL);
 
     /* Initialize IAM credentials and start updater thread */
-    if (config->ec2iam) {
+    if (config->ec2iam_role != NULL) {
         if ((r = update_iam_credentials(priv)) != 0)
             goto fail5;
         if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
@@ -439,7 +439,7 @@ http_io_destroy(struct s3backer_store *const s3b)
 
     /* Shut down IAM thread */
     priv->shutting_down = 1;
-    if (config->ec2iam) {
+    if (config->ec2iam_role != NULL) {
         (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
         if ((r = pthread_cancel(priv->iam_thread)) != 0)
             (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
@@ -886,6 +886,7 @@ static int
 update_iam_credentials(struct http_io_private *const priv)
 {
     struct http_io_conf *const config = priv->config;
+    char urlbuf[sizeof(EC2_IAM_META_DATA_URLBASE) + 128];
     struct http_io io;
     char buf[2048] = { '\0' };
     char *access_id = NULL;
@@ -894,9 +895,12 @@ update_iam_credentials(struct http_io_private *const priv)
     size_t buflen;
     int r;
 
+    /* Build URL */
+    snprintf(urlbuf, sizeof(urlbuf), "%s%s", EC2_IAM_META_DATA_URLBASE, config->ec2iam_role);
+
     /* Initialize I/O info */
     memset(&io, 0, sizeof(io));
-    io.url = EC2_IAM_META_DATA_URL;
+    io.url = urlbuf;
     io.method = HTTP_GET;
     io.dest = buf;
     io.buf_size = sizeof(buf);
