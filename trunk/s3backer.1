@@ -312,16 +312,16 @@ instead of this flag.
 Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
 Default is `private'.
-.It Fl \-accessEC2IAM
-Download access credentials in JSON document form as EC2 instance meta-data from 
+.It Fl \-accessEC2IAM=ROLE
+Download access credentials and security token in JSON document form from
 .Bk -words
-.Ar http://169.254.169.254/latest/meta-data/iam/security-credentials/s3access
+.Ar http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE
 .Ek
 every five minutes.
 .Pp
-This option allows S3 credentials to be provided automatically via IAM roles to
+This option allows S3 credentials to be provided automatically via the specified IAM role to
 .Nm
-when running on an EC2 instance.
+when running on an Amazon EC2 instance.
 .It Fl \-authVersion=TYPE
 Specify how to authenticate requests. There are two supported authentication methods:
 .Ar aws2

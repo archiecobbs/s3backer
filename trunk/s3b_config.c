@@ -206,9 +206,8 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.accessType),
     },
     {
-        .templ=     "--accessEC2IAM",
-        .offset=    offsetof(struct s3b_config, http_io.ec2iam),
-        .value=     1
+        .templ=     "--accessEC2IAM=%s",
+        .offset=    offsetof(struct s3b_config, http_io.ec2iam_role),
     },
     {
         .templ=     "--authVersion=%s",
@@ -895,7 +894,7 @@ validate_config(void)
     int r;
 
     /* Default to $HOME/.s3backer for accessFile */
-    if (!config.http_io.ec2iam && config.accessFile == NULL) {
+    if (config.http_io.ec2iam_role == NULL && config.accessFile == NULL) {
         const char *home = getenv("HOME");
         char buf[PATH_MAX];
 
@@ -919,7 +918,7 @@ validate_config(void)
         config.http_io.accessId = NULL;
 
     /* If no accessId, only read operations will succeed */
-    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL && !config.http_io.ec2iam) {
+    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL && config.http_io.ec2iam_role == NULL) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
@@ -938,9 +937,9 @@ validate_config(void)
         }
     }
 
-    /* Check for conflict between explicit accessId and EC2 IAM */
-    if (config.http_io.accessId != NULL && config.http_io.ec2iam) {
-        warnx("an `accessKey' must not be specified when `accessEC2IAM' enabled");
+    /* Check for conflict between explicit accessId and EC2 IAM role */
+    if (config.http_io.accessId != NULL && config.http_io.ec2iam_role != NULL) {
+        warnx("an `accessKey' must not be specified when an `accessEC2IAM' role is specified");
         return -1;
     }
 
@@ -1508,7 +1507,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
     (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "ec2iam", config.http_io.ec2iam ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "ec2iam_role", config.http_io.ec2iam_role != NULL ? config.http_io.ec2iam_role : "");
     (*config.log)(LOG_DEBUG, "%24s: %s", "authVersion", config.http_io.authVersion);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
@@ -1641,7 +1640,7 @@ usage(void)
     for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++)
         fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_auth_types[i]);
     fprintf(stderr, "\n");
-    fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM", "Acquire S3 credentials via IAM from EC2 machine");
+    fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM=ROLE", "Acquire S3 credentials from EC2 machine via IAM role");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");
