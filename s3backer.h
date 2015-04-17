@@ -209,5 +209,5 @@ struct s3backer_store {
 };
 
 /* svnrev.c */
-extern const int s3backer_svnrev;
+extern const char *const s3backer_version;
 

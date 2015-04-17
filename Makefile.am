@@ -77,5 +77,5 @@ AM_CFLAGS=          $(FUSE_CFLAGS)
 SUBDIRS=            debian
 
 svnrev.c:
-			printf 'const int s3backer_svnrev = %u;\n' `svn info | grep -w Rev | sed 's/^.*Rev: //g'` > svnrev.c
+			printf 'const char *const s3backer_version = "%s";\n' "`git describe`" > svnrev.c
 

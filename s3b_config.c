@@ -512,7 +512,7 @@ s3backer_get_config(int argc, char **argv)
     config.fuse_ops.gid = getgid();
 
     /* Set user-agent */
-    snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/r%d", PACKAGE, VERSION, s3backer_svnrev);
+    snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
 
     /* Copy passed args */
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
@@ -806,7 +806,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
-            fprintf(stderr, "%s version %s (r%d)\n", PACKAGE, VERSION, s3backer_svnrev);
+            fprintf(stderr, "%s version %s (%s)\n", PACKAGE, VERSION, s3backer_version);
             fprintf(stderr, "Copyright (C) 2008-2011 Archie L. Cobbs.\n");
             fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
             fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
