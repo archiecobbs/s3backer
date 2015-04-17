@@ -20,8 +20,8 @@ Release:        1
 License:        GNU General Public License, Version 2
 Summary:        FUSE-based single file backing store via Amazon S3
 Group:          System/Filesystems
-Source:         http://%{name}.googlecode.com/files/%{name}-%{version}.tar.gz
-URL:            http://%{name}.googlecode.com/
+Source:         https://s3.amazonaws.com/archie-public/%{name}/%{name}-%{version}.tar.gz
+URL:            https://github.com/archiecobbs/%{name}
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root
 %if 0%{?suse_version} >= 1100
 BuildRequires:  libcurl-devel >= 7.16.2

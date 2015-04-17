@@ -11,7 +11,7 @@ rm -rf autom4te*.cache scripts aclocal.m4 configure config.log config.status .de
 rm -f config.h.in config.h.in~ config.h
 rm -f scripts
 find . \( -name Makefile -o -name Makefile.in \) -print0 | xargs -0 rm -f
-rm -f svnrev.c s3backer.spec
+rm -f gitrev.c s3backer.spec
 rm -f *.o s3backer tester
 rm -f s3backer-?.?.?.tar.gz
 

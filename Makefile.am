@@ -57,7 +57,7 @@ s3backer_SOURCES=   main.c \
 		    reset.c \
 		    s3b_config.c \
 		    test_io.c \
-		    svnrev.c
+		    gitrev.c
 
 tester_SOURCES=     tester.c \
 		    block_cache.c \
@@ -70,12 +70,12 @@ tester_SOURCES=     tester.c \
 		    reset.c \
 		    s3b_config.c \
 		    test_io.c \
-		    svnrev.c
+		    gitrev.c
 
 AM_CFLAGS=          $(FUSE_CFLAGS)
 
 SUBDIRS=            debian
 
-svnrev.c:
-			printf 'const char *const s3backer_version = "%s";\n' "`git describe`" > svnrev.c
+gitrev.c:
+			printf 'const char *const s3backer_version = "%s";\n' "`git describe`" > gitrev.c
 

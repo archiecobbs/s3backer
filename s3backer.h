@@ -208,6 +208,6 @@ struct s3backer_store {
     void        *data;
 };
 
-/* svnrev.c */
+/* gitrev.c */
 extern const char *const s3backer_version;
 

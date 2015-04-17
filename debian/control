@@ -4,7 +4,7 @@ Priority: extra
 Maintainer: Peter Petrov <onestone@gmail.com>
 Build-Depends: cdbs, debhelper, autotools-dev, libfuse-dev, libcurl4-openssl-dev | libcurl-dev, libssl-dev, zlib1g-dev, libexpat1-dev, pkg-config
 Standards-Version: 3.8.0
-Homepage: http://s3backer.googlecode.com/
+Homepage: https://github.com/archiecobbs/s3backer
 
 Package: s3backer
 Architecture: any
