@@ -1,8 +1,9 @@
-Version 1.4.0
+Version 1.4.0 released April 17, 2015
 
     - Added support for authentication version 4 (issue #51)
     - Added support for credentials via IAM role from EC2 meta-data (issue #48)
     - Fixed bug where `--erase' did not clear the mounted flag
+    - Moved from Google project hosting to GitHub
     - Fixed compile problem on FreeBSD
 
 Version 1.3.7 (r496) released 18 July 2013
