@@ -1,5 +1,4 @@
 #!/bin/bash
-# $Id$
 
 #
 # Script to regenerate all the GNU auto* gunk.

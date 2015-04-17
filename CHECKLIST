@@ -33,5 +33,3 @@ OBS
 Bump version
     edit configure.ac and version therein
     svn commit
-
-$Id$

@@ -18,15 +18,12 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301, USA.
 #
-# $Id$
-#
 
 AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.4.0], [http://s3backer.googlecode.com/], [s3backer])
 AC_CONFIG_AUX_DIR(scripts)
 AM_INIT_AUTOMAKE
 dnl AM_MAINTAINER_MODE
 AC_PREREQ(2.59)
-AC_REVISION($Id$)
 AC_PREFIX_DEFAULT(/usr)
 AC_PROG_MAKE_SET
 

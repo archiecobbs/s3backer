@@ -1,5 +1,4 @@
 #!/bin/sh
-# $Id$
 
 #
 # Script to clean out generated GNU auto* gunk.
