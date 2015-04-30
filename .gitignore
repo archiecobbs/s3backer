@@ -15,5 +15,5 @@ s3backer
 s3backer.spec
 scripts
 stamp-h1
-svnrev.c
+gitrev.c
 tester

@@ -1957,6 +1957,10 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     int r;
     int i;
 
+    /* Initialize */
+    EVP_MD_CTX_init(&hash_ctx);
+    HMAC_CTX_init(&hmac_ctx);
+
     /* Snapshot current credentials */
     pthread_mutex_lock(&priv->mutex);
     snprintf(access_id, sizeof(access_id), "%s", config->accessId);
@@ -1980,10 +1984,6 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
         query_params = NULL;
         query_params_len = 0;
     }
-
-    /* Initialize */
-    EVP_MD_CTX_init(&hash_ctx);
-    HMAC_CTX_init(&hmac_ctx);
 
     /* Format date */
     strftime(datebuf, sizeof(datebuf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
