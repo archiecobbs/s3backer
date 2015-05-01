@@ -989,7 +989,10 @@ validate_config(void)
             snprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
         else
             snprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
-        config.http_io.baseURL = urlbuf;
+        if ((config.http_io.baseURL = strdup(urlbuf)) == NULL) {
+            warn("malloc");
+            return -1;
+        }
     }
 
     /* Check base URL */
