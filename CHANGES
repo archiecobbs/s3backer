@@ -1,3 +1,7 @@
+Version Next
+
+    - Fix use-after-free bug configuring base URL (github issue #44)
+
 Version 1.4.0 released April 17, 2015
 
     - Added support for authentication version 4 (issue #51)
