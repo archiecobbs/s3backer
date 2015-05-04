@@ -1,4 +1,4 @@
-Version Next
+Version 1.4.1 released May 4, 2015
 
     - Fix use-after-free bug configuring base URL (github issue #44)
 
