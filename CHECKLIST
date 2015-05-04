@@ -8,11 +8,10 @@ Final check
 Tag release and release tarball
     sh cleanup.sh
     verify everything is clean
-    verify configure.ac contains VERSION
     update CHANGES with today's date and VERSION
+    edit configure.ac and update with VERSION
     git commit
     git tag -a -m 'Tagging release VERSION' VERSION
-    make sure gitrev.c does not exist
     sh autogen.sh && ./configure && make distcheck
     upload tarball to Amazon S3
 
@@ -24,6 +23,3 @@ OBS
     update s3backer.spec
     update OBS project
 
-Bump version
-    edit configure.ac and version therein
-    git commit
