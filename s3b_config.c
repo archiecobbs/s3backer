@@ -67,6 +67,8 @@
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
+#define S3BACKER_MAX_LIST_BLOCKS_CHUNK            1000
+#define S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK        S3BACKER_MAX_LIST_BLOCKS_CHUNK
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -143,6 +145,7 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+		.max_keys=              S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK
     },
 
     /* "Eventual consistency" protection config */
@@ -425,6 +428,10 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--directIO",
         .offset=    offsetof(struct s3b_config, fuse_ops.direct_io),
         .value=     1
+    },
+    {
+        .templ=     "--maxKeys=%u",
+        .offset=    offsetof(struct s3b_config, http_io.max_keys),
     },
 };
 
@@ -1434,6 +1441,16 @@ validate_config(void)
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
     config.fuse_ops.log = config.log;
+
+    /* Check max keys config */
+    if (config.http_io.max_keys <= 0) {
+        warnx("invalid max keys size %u. Minimum is 1.", config.http_io.max_keys);
+        return -1;
+    }
+    if (config.http_io.max_keys > S3BACKER_MAX_LIST_BLOCKS_CHUNK) {
+        warnx("invalid max keys size %u. Current S3 implementation limit is %u. ", config.http_io.max_keys, S3BACKER_MAX_LIST_BLOCKS_CHUNK);
+		config.http_io.max_keys = S3BACKER_MAX_LIST_BLOCKS_CHUNK;
+    }
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.erase || config.reset)

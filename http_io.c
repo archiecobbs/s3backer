@@ -86,9 +86,6 @@
                                       + sizeof(LIST_ELEM_CONTENTS) \
                                       + sizeof(LIST_ELEM_KEY) + 1)
 
-/* How many blocks to list at a time */
-#define LIST_BLOCKS_CHUNK           0x100
-
 /* PBKDF2 key generation iterations */
 #define PBKDF2_ITERATIONS           5000
 
@@ -540,7 +537,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
             snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%0*jx&",
               LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, config->max_keys);
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, config->prefix);
 
         /* Add Date header */

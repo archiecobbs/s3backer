@@ -59,6 +59,7 @@ struct http_io_conf {
     u_int               initial_retry_pause;
     u_int               max_retry_pause;
     uintmax_t           max_speed[2];
+	int                 max_keys;
     log_func_t          *log;
 };
 
