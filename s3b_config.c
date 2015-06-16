@@ -67,8 +67,7 @@
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
-#define S3BACKER_MAX_LIST_BLOCKS_CHUNK            1000
-#define S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK        S3BACKER_MAX_LIST_BLOCKS_CHUNK
+#define S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK          S3_MAX_LIST_BLOCKS_CHUNK
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -1447,9 +1446,9 @@ validate_config(void)
         warnx("invalid max keys size %u. Minimum is 1.", config.http_io.max_keys);
         return -1;
     }
-    if (config.http_io.max_keys > S3BACKER_MAX_LIST_BLOCKS_CHUNK) {
-        warnx("invalid max keys size %u. Current S3 implementation limit is %u. ", config.http_io.max_keys, S3BACKER_MAX_LIST_BLOCKS_CHUNK);
-		config.http_io.max_keys = S3BACKER_MAX_LIST_BLOCKS_CHUNK;
+    if (config.http_io.max_keys > S3_MAX_LIST_BLOCKS_CHUNK) {
+        warnx("invalid max keys size %u. Setting to current S3 implementation maximum %u.", config.http_io.max_keys, S3_MAX_LIST_BLOCKS_CHUNK);
+		config.http_io.max_keys = S3_MAX_LIST_BLOCKS_CHUNK;
     }
 
     /* If `--listBlocks' was given, build non-empty block bitmap */

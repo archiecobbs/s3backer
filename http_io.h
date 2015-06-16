@@ -28,6 +28,9 @@
 #define AUTH_VERSION_AWS2   "aws2"
 #define AUTH_VERSION_AWS4   "aws4"
 
+#define S3_MAX_LIST_BLOCKS_CHUNK	1000
+
+
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     char                *accessId;
