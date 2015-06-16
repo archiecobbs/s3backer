@@ -1498,6 +1498,7 @@ http_io_delete_multiple_objects_main(void *arg)
 fail:
     /*  Clean up */
     curl_slist_free_all(io.headers);
+	free(src);
 
     return NULL;
 }
