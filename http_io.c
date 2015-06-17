@@ -127,9 +127,11 @@ struct curl_holder {
 /* Delete multiple object support*/
 struct http_io_dmo {
     pthread_t                   worker_thread;						// delete multiple objects thread
-	pthread_cond_t				cond;								// Signal to the worker thread
+	pthread_cond_t				worker_cond;						// Signal to the worker thread
+	pthread_cond_t				writer_cond;						// Signal to the "original" writer thread
 	volatile int				count;								// Objects to delete
 	s3b_block_t					blocks[S3_MAX_LIST_BLOCKS_CHUNK];	// Blocks
+	struct s3backer_store       *s3b;                               // Backing store
 };
 
 /* Internal state */
@@ -184,7 +186,6 @@ struct http_io {
     const char          *method;                // HTTP method
     const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
-	const char		    *postdata;				// POST data
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
     s3b_block_t         block_num;              // The block we're reading/writing
@@ -275,7 +276,7 @@ static u_char zero_hmac[SHA_DIGEST_LENGTH];
 
 /* Initialize dmo structure */
 static struct http_io_dmo *
-http_io_dmo_create(struct http_io_private *priv)
+http_io_dmo_create(struct s3backer_store *const s3b)
 {
 	struct http_io_dmo *dmo;
 
@@ -286,19 +287,26 @@ http_io_dmo_create(struct http_io_private *priv)
 	}
 
 	// initialize local condition variable
-	if (pthread_cond_init(&dmo->cond, NULL) != 0) {
+	if (pthread_cond_init(&dmo->worker_cond, NULL) != 0) {
 		goto fail2;
 	}
 
-	// Now create thread
-	if (pthread_create(&dmo->worker_thread, NULL, http_io_delete_multiple_objects_main, priv) != 0) {
+	// initialize original "writer" condition variable
+	if (pthread_cond_init(&dmo->writer_cond, NULL) != 0) {
 		goto fail3;
+	}
+
+	// Now create thread
+	if (pthread_create(&dmo->worker_thread, NULL, http_io_delete_multiple_objects_main, s3b) != 0) {
+		goto fail4;
 	}
 
 	return dmo;
 
+fail4:
+	pthread_cond_destroy(&dmo->writer_cond);
 fail3:
-	pthread_cond_destroy(&dmo->cond);
+	pthread_cond_destroy(&dmo->worker_cond);
 fail2:
 	free(dmo);
 fail1:
@@ -308,7 +316,8 @@ fail1:
 static void
 http_io_dmo_destroy(struct http_io_dmo *dmo)
 {
-	pthread_cond_destroy(&dmo->cond);
+	pthread_cond_destroy(&dmo->writer_cond);
+	pthread_cond_destroy(&dmo->worker_cond);
 	free(dmo);
 }
 
@@ -444,6 +453,10 @@ http_io_create(struct http_io_conf *config)
     /* Take ownership of non-zero block bitmap */
     priv->non_zero = config->nonzero_bitmap;
     config->nonzero_bitmap = NULL;
+
+
+	/* Use Delete Multiple Object support by default */
+	config->use_delete_multiple_object = 1;
 
     /* Done */
     return s3b;
@@ -1369,7 +1382,8 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
 static void *
 http_io_delete_multiple_objects_main(void *arg)
 {
-    struct http_io_private *const priv = arg;
+	struct s3backer_store *const s3b = arg;
+	struct http_io_private *const priv = s3b->data;
 	struct http_io_dmo *dmo = priv->dmo;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
@@ -1397,11 +1411,14 @@ http_io_delete_multiple_objects_main(void *arg)
 	// Loop here
 	while (1) {
 		pthread_mutex_lock(&priv->mutex);
-		signalled = pthread_cond_timedwait(&dmo->cond, &priv->mutex, &timeout);
+		signalled = pthread_cond_timedwait(&dmo->worker_cond, &priv->mutex, &timeout);
 
 		// Check if we timed out or have no more space in the block list
 		if ((signalled == ETIMEDOUT) || (dmo->count >= S3_MAX_LIST_BLOCKS_CHUNK))
 			break; // Timeout or blocks full!
+
+		// Add a small delay to final timeout since we are adding up objects
+		timeout.tv_nsec += 500 * 1000; // 500 us
 
 		// One block was enqueued. Unlock everything and loop again
 		pthread_mutex_unlock(&priv->mutex);
@@ -1409,28 +1426,29 @@ http_io_delete_multiple_objects_main(void *arg)
 
 	// So now we have job to do!
 	if (config->debug)
-		(*config->log)(LOG_ERR, "performing delete multple object. Count is %u\n", dmo->count);
+		(*config->log)(LOG_DEBUG, "performing delete multple object. Count is %u\n", dmo->count);
 
 /*
-	<Delete><Object><Key>key1</Key></Object><Object><Key>key2</Key></Object</Delete>
+	<?xml version="1.0" encoding="UTF-8"?><Delete><Object><Key>key1</Key></Object><Object><Key>key2</Key></Object</Delete>
 	
+	<?xml version="1.0" encoding="UTF-8"?> ---> 38 bytes fixed
 	<Delete>  --> 8 bytes fixed
 
 	<Object>  --> 8 bytes
 	<Key>	  --> 5 bytes
-	actualkey --> 20 bytes are enough
+	actualkey --> 20 bytes are more than enough
 	</Key>	  --> 6 bytes
 	</Object> --> 9 bytes
 
 	</Delete>  --> 9 bytes fixed
 	----------------------
 				total = 48 bytes for each key 
-					+ 17 bytes 
+					+ 17 + 38
 */
 	// instantiate a big enough buffer, see above
-	int buf_size = (dmo->count * 48) + 20;
+	int buf_size = (dmo->count * 48) + 17 + 38;
 	src = (char*)malloc(buf_size); 
-	snprintf(src, 9, "<Delete>");
+	snprintf(src, 128, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Delete>");
 	for (i = 0; i < dmo->count; i++) {
 		char buf2[48];
 		snprintf(buf2, 48, "<Object><Key>%0*jx</Key></Object>", S3B_BLOCK_NUM_DIGITS, (uintmax_t)dmo->blocks[i]);
@@ -1441,29 +1459,14 @@ http_io_delete_multiple_objects_main(void *arg)
 
 	// Now we can free the structure and unlock the mutex
 	priv->dmo = NULL;
-	http_io_dmo_destroy(dmo);
 	pthread_mutex_unlock(&priv->mutex);
 
     /* Initialize I/O info */
     memset(&io, 0, sizeof(io));
     io.url = urlbuf;
     io.method = HTTP_POST;
-    io.postdata = src;
+    io.src = src;
     io.buf_size = srcLen;
-
-	/* Build md5 */
-    memset(md5, 0, MD5_DIGEST_LENGTH);
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, src, srcLen);
-    MD5_Final(md5, &ctx);
-
-    /* Add Content-MD5 header */
-    http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
-    io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
-
-    /* Add Content-Type header */
-    io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, MOUNTED_FLAG_CONTENT_TYPE);
-
 
     /* Construct URL for this request  */
     if (config->vhost)
@@ -1472,10 +1475,24 @@ http_io_delete_multiple_objects_main(void *arg)
         snprintf(urlbuf, sizeof(urlbuf), "%s%s/%s?delete", config->baseURL, config->bucket, config->prefix); 
     }
 	
-    /* Add Date header  */
+	/* Build md5 */
+    memset(md5, 0, MD5_DIGEST_LENGTH);
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, src, srcLen);
+    MD5_Final(md5, &ctx);
+
+	/* Add Date header  */
     http_io_add_date(priv, &io, now);
 
-    //* Add storage class header (if needed)
+    /* Add Content-Type header */
+    io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, MOUNTED_FLAG_CONTENT_TYPE);
+
+    /* Add Content-MD5 header */
+    http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
+    io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
+
+
+	//* Add storage class header (if needed)
     if (config->rrs) {
         io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
 	}
@@ -1490,15 +1507,29 @@ http_io_delete_multiple_objects_main(void *arg)
 
     /* Update stats */
     if (r == 0) {
+		// Everything was OK.
         pthread_mutex_lock(&priv->mutex);
-        priv->stats.zero_blocks_written++;
+        priv->stats.zero_blocks_written += dmo->count;
+		pthread_cond_broadcast(&dmo->writer_cond);
         pthread_mutex_unlock(&priv->mutex);
     }
+	else
+	{
+		/* A problem occurred. Fallback to normal delete method */
+		if (config->debug)
+			(*config->log)(LOG_ERR, "delete multple object failed. Switching to single object deletion method.\n");
+
+        pthread_mutex_lock(&priv->mutex);
+		config->use_delete_multiple_object = 0;
+		pthread_cond_broadcast(&dmo->writer_cond);
+        pthread_mutex_unlock(&priv->mutex);
+	}
 
 fail:
     /*  Clean up */
     curl_slist_free_all(io.headers);
 	free(src);
+	http_io_dmo_destroy(dmo);
 
     return NULL;
 }
@@ -1554,29 +1585,33 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
 	// Intercept here all the delete requests and add them up to worker thread
 	// in order to take advantage of the Delete Multiple Objects support
-	if (src == NULL) {
+	if (src == NULL && config->use_delete_multiple_object) {
         pthread_mutex_lock(&priv->mutex);
 
 		// Create the structure if not exists
 		if (!priv->dmo) {
-			priv->dmo = http_io_dmo_create(priv);
+			priv->dmo = http_io_dmo_create(s3b);
 		};
 
 		// if structure is available then enqueue items and send a signal 
 		// to the worker thread, else switch to the single delete
-		if (priv->dmo) {
-			// Update
-			priv->dmo->blocks[priv->dmo->count++] = block_num;
+		struct http_io_dmo *dmo = priv->dmo;
+		if (dmo) {
+			// Update the block list
+			dmo->blocks[dmo->count++] = block_num;
 
-			// Signal and unlock
-			pthread_cond_signal(&priv->dmo->cond);
-			pthread_mutex_unlock(&priv->mutex);
+			// Signal and wait the delete
+			pthread_cond_signal(&dmo->worker_cond);
+			pthread_cond_wait(&dmo->writer_cond, &priv->mutex);
 
-			// Do not perform any stats update here as they will be done later and return a dummy success deletion
-			return 0;
+			// If use_delete_multiple_object is still active then the delete was OK
+			if (config->use_delete_multiple_object) {
+				pthread_mutex_unlock(&priv->mutex);
+				return 0;
+			}
 		}
 
-		// Nope... go to normal delete
+		// Nope... go to (or retry a) normal delete
         pthread_mutex_unlock(&priv->mutex);
 	}
 
@@ -1762,8 +1797,6 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
     }
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
-	if (io->postdata != NULL)
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, io->postdata);
 }
 
 static int

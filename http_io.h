@@ -64,6 +64,7 @@ struct http_io_conf {
     uintmax_t           max_speed[2];
 	int                 max_keys;
     log_func_t          *log;
+	volatile int        use_delete_multiple_object;
 };
 
 /* Statistics structure for http_io store */
