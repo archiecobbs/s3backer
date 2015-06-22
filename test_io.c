@@ -332,7 +332,7 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    s3b_block_t block_num;
+    s3b_block_t block_num, reversed_block_num;
     struct dirent *dent;
     DIR *dir;
     int i;
@@ -343,7 +343,7 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
     /* Scan directory */
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
-        if (http_io_parse_block(config, dent->d_name, &block_num) == 0)
+        if (http_io_parse_block(config, dent->d_name, &block_num, &reversed_block_num) == 0)
             (*callback)(arg, block_num);
     }
 
