@@ -27,6 +27,7 @@
 #include "http_io.h"
 #include "test_io.h"
 #include "s3b_config.h"
+#include <math.h>
 
 /****************************************************************************
  *                          DEFINITIONS                                     *
@@ -68,6 +69,8 @@
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 #define S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK          S3_MAX_LIST_BLOCKS_CHUNK
+#define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
+#define S3BACKER_DEFAULT_MAX_BULK_DELETE_THREADS    16
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -79,12 +82,6 @@
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
 #endif  /* __APPLE__ */
 
-/* Block counting info */
-struct list_blocks {
-    u_int       *bitmap;
-    int         print_dots;
-    uintmax_t   count;
-};
 #define BLOCKS_PER_DOT                  0x100
 
 /****************************************************************************
@@ -131,21 +128,25 @@ static struct s3b_config config = {
 
     /* HTTP config */
     .http_io= {
-        .accessId=              NULL,
-        .accessKey=             NULL,
-        .baseURL=               NULL,
-        .region=                NULL,
-        .bucket=                NULL,
-        .prefix=                S3BACKER_DEFAULT_PREFIX,
-        .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
-        .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
-        .user_agent=            user_agent_buf,
-        .compress=              S3BACKER_DEFAULT_COMPRESSION,
-        .timeout=               S3BACKER_DEFAULT_TIMEOUT,
-        .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
-        .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
-		.max_keys=              S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK
+        .accessId=                  NULL,
+        .accessKey=                 NULL,
+        .baseURL=                   NULL,
+        .region=                    NULL,
+        .bucket=                    NULL,
+        .prefix=                    S3BACKER_DEFAULT_PREFIX,
+        .accessType=                S3BACKER_DEFAULT_ACCESS_TYPE,
+        .authVersion=               S3BACKER_DEFAULT_AUTH_VERSION,
+        .user_agent=                user_agent_buf,
+        .compress=                  S3BACKER_DEFAULT_COMPRESSION,
+        .timeout=                   S3BACKER_DEFAULT_TIMEOUT,
+        .initial_retry_pause=       S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
+        .max_retry_pause=           S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+		.max_keys=                  S3BACKER_DEFAULT_LIST_BLOCKS_CHUNK,
+        .list_blocks_threads=       S3BACKER_DEFAULT_LIST_BLOCKS_THREADS,
+        .use_bulk_delete=           1,
+        .max_bulk_delete_threads=   S3BACKER_DEFAULT_MAX_BULK_DELETE_THREADS,
     },
+    
 
     /* "Eventual consistency" protection config */
     .ec_protect= {
@@ -432,6 +433,19 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--maxKeys=%u",
         .offset=    offsetof(struct s3b_config, http_io.max_keys),
     },
+    {
+        .templ=     "--listBlocksThreads=%u",
+        .offset=    offsetof(struct s3b_config, http_io.list_blocks_threads),
+    },
+    {
+        .templ=     "--noBulkDelete",
+        .offset=    offsetof(struct s3b_config, http_io.use_bulk_delete),
+        .value=     0
+    },
+    {
+        .templ=     "--maxBulkDeleteThreads=%u",
+        .offset=    offsetof(struct s3b_config, http_io.max_bulk_delete_threads),
+    },
 };
 
 /* Default flags we send to FUSE */
@@ -672,15 +686,20 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
             (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_read", http_io_stats.empty_blocks_read);
             (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_written", http_io_stats.empty_blocks_written);
         }
+        (*printer)(prarg, "%-28s %u\n", "http_active_connections", http_io_stats.http_active_connections);
         (*printer)(prarg, "%-28s %u\n", "http_gets", http_io_stats.http_gets.count);
         (*printer)(prarg, "%-28s %u\n", "http_puts", http_io_stats.http_puts.count);
         (*printer)(prarg, "%-28s %u\n", "http_deletes", http_io_stats.http_deletes.count);
+        (*printer)(prarg, "%-28s %u\n", "http_bulk_deletes", http_io_stats.http_bulk_deletes.count);
+        (*printer)(prarg, "%-28s %u\n", "http_active_bulk_deletes", http_io_stats.http_active_bulk_deletes);
         (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_get_time", http_io_stats.http_gets.count > 0 ?
           http_io_stats.http_gets.time / http_io_stats.http_gets.count : 0.0);
         (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_put_time", http_io_stats.http_puts.count > 0 ?
           http_io_stats.http_puts.time / http_io_stats.http_puts.count : 0.0);
         (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_delete_time", http_io_stats.http_deletes.count > 0 ?
           http_io_stats.http_deletes.time / http_io_stats.http_deletes.count : 0.0);
+        (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_bulk_delete_time", http_io_stats.http_bulk_deletes.count > 0 ?
+          http_io_stats.http_bulk_deletes.time / http_io_stats.http_bulk_deletes.count : 0.0);
         (*printer)(prarg, "%-28s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
         (*printer)(prarg, "%-28s %u\n", "http_forbidden", http_io_stats.http_forbidden);
         (*printer)(prarg, "%-28s %u\n", "http_stale", http_io_stats.http_stale);
@@ -878,6 +897,20 @@ search_access_for(const char *file, const char *accessId, char **idptr, char **p
     }
     fclose(fp);
     return 0;
+}
+
+
+static unsigned int 
+roundUpToNextPowerOfTwo(unsigned int x)
+{
+    x--;
+    x |= x >> 1;  // handle  2 bit numbers
+    x |= x >> 2;  // handle  4 bit numbers
+    x |= x >> 4;  // handle  8 bit numbers
+    x |= x >> 8;  // handle 16 bit numbers
+    x |= x >> 16; // handle 32 bit numbers
+    x++;
+    return x;
 }
 
 static int
@@ -1451,6 +1484,23 @@ validate_config(void)
 		config.http_io.max_keys = S3_MAX_LIST_BLOCKS_CHUNK;
     }
 
+    /* Check list blocks threads */
+    if (config.http_io.list_blocks_threads <= 0) {
+        warnx("invalid number of list blocks threads %u. Setting to the default %d.", config.http_io.list_blocks_threads, S3BACKER_DEFAULT_LIST_BLOCKS_THREADS);
+        return -1;
+    }
+    if (config.http_io.list_blocks_threads > S3BACKER_MAX_LIST_BLOCKS_THREADS) {
+        warnx("invalid number of list blocks threads %u. Setting to current supported maximum %d.", config.http_io.list_blocks_threads, S3BACKER_MAX_LIST_BLOCKS_THREADS);
+		config.http_io.list_blocks_threads = S3BACKER_MAX_LIST_BLOCKS_THREADS;
+    }
+    // Round to the nearest power of two
+    int next = roundUpToNextPowerOfTwo(config.http_io.list_blocks_threads);
+    if (config.http_io.list_blocks_threads != next) {
+        warnx("invalid number of list blocks threads %u. Must be a power of two. Setting to the nearest %d.", config.http_io.list_blocks_threads, next);
+		config.http_io.list_blocks_threads = next;
+    }
+
+
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.erase || config.reset)
         config.list_blocks = 0;
@@ -1458,6 +1508,8 @@ validate_config(void)
         struct s3backer_store *temp_store;
         struct list_blocks lb;
         size_t nwords;
+
+        pthread_mutex_init(&lb.mutex, NULL);
 
         /* Logging */
         if (!config.quiet) {
@@ -1475,11 +1527,20 @@ validate_config(void)
             err(1, "calloc");
         lb.print_dots = !config.quiet;
         lb.count = 0;
+        lb.bucket_size = 0;
+
+        // Start timing
+        struct timeval begin, end;
+        gettimeofday(&begin, NULL);
 
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
         if ((r = (*temp_store->list_blocks)(temp_store, list_blocks_callback, &lb)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
+
+        // End timing
+        gettimeofday(&end, NULL);
+        double elapsed = (end.tv_sec - begin.tv_sec) + ((end.tv_usec - begin.tv_usec)/1000000.0);
 
         /* Close temporary store */
         (*temp_store->destroy)(temp_store);
@@ -1490,8 +1551,10 @@ validate_config(void)
         /* Logging */
         if (!config.quiet) {
             fprintf(stderr, "done\n");
-            warnx("found %ju non-zero blocks", lb.count);
+            warnx("found %ju non-zero blocks in %.3lf secs. Total bucket size is %ju.", lb.count, elapsed, lb.bucket_size);
         }
+
+        pthread_mutex_destroy(&lb.mutex);
     }
 
     /* Done */
@@ -1504,12 +1567,14 @@ list_blocks_callback(void *arg, s3b_block_t block_num)
     struct list_blocks *const lb = arg;
     const int bits_per_word = sizeof(*lb->bitmap) * 8;
 
+    pthread_mutex_lock(&lb->mutex);
     lb->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
     lb->count++;
     if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
         fprintf(stderr, ".");
         fflush(stderr);
     }
+    pthread_mutex_unlock(&lb->mutex);
 }
 
 static void

@@ -29,9 +29,9 @@
 #include "s3b_config.h"
 #include "erase.h"
 
-#define BLOCKS_PER_DOT          0x100
+#define BLOCKS_PER_DOT          1000
 #define MAX_QUEUE_LENGTH        1000
-#define NUM_ERASURE_THREADS     25
+#define NUM_ERASURE_THREADS     1000
 
 /* Erasure state */
 struct erase_state {
@@ -75,6 +75,10 @@ s3backer_erase(struct s3b_config *config)
             goto fail0;
         }
     }
+
+    // Start timing
+    struct timeval begin, end;
+    gettimeofday(&begin, NULL);
 
     /* Initialize state */
     memset(priv, 0, sizeof(*priv));
@@ -135,10 +139,18 @@ fail3:
         if ((r = pthread_join(priv->threads[i], NULL)) != 0)
             warnx("pthread_join: %s", strerror(r));
     }
+
+    (*priv->s3b->flush)(priv->s3b);
+
+
+    // End timing
+    gettimeofday(&end, NULL);
+    double elapsed = (end.tv_sec - begin.tv_sec) + ((end.tv_usec - begin.tv_usec)/1000000.0);
+
     if (priv->s3b != NULL) {
         if (ok && !config->quiet) {
             fprintf(stderr, "done\n");
-            warnx("erased %ju non-zero blocks", priv->count);
+            warnx("erased %ju non-zero blocks in %.3lf secs", priv->count, elapsed);
         }
         (*priv->s3b->destroy)(priv->s3b);
     }

@@ -28,7 +28,8 @@
 #define AUTH_VERSION_AWS2   "aws2"
 #define AUTH_VERSION_AWS4   "aws4"
 
-#define S3_MAX_LIST_BLOCKS_CHUNK	1000
+#define S3_MAX_LIST_BLOCKS_CHUNK	        1000
+#define MAXIMUM_CONCURRENT_BULK_DELETES     16
 
 
 /* Configuration info structure for http_io store */
@@ -64,7 +65,9 @@ struct http_io_conf {
     uintmax_t           max_speed[2];
 	int                 max_keys;
     log_func_t          *log;
-	volatile int        use_delete_multiple_object;
+    unsigned int        list_blocks_threads;
+	volatile int        use_bulk_delete;
+    unsigned int        max_bulk_delete_threads;
 };
 
 /* Statistics structure for http_io store */
@@ -88,6 +91,9 @@ struct http_io_stats {
     struct http_io_evst http_gets;                  // total successful
     struct http_io_evst http_puts;                  // total successful
     struct http_io_evst http_deletes;               // total successful
+    struct http_io_evst http_bulk_deletes;          // total successful
+    u_int               http_active_bulk_deletes;  // currently running
+    u_int               http_active_connections;    // Active io
     u_int               http_unauthorized;
     u_int               http_forbidden;
     u_int               http_stale;
@@ -114,6 +120,7 @@ struct http_io_stats {
     /* Misc */
     u_int               out_of_memory_errors;
 };
+
 
 /* http_io.c */
 extern struct s3backer_store *http_io_create(struct http_io_conf *config);
