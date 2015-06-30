@@ -92,6 +92,7 @@ typedef uint32_t    s3b_block_t;
  * How many hex digits we will use to print a block number.
  */
 #define S3B_BLOCK_NUM_DIGITS    ((int)(sizeof(s3b_block_t) * 2))
+#define S3BACKER_MAX_LIST_BLOCKS_THREADS            4096
 
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
@@ -101,6 +102,15 @@ typedef void        block_list_func_t(void *arg, s3b_block_t block_num);
 
 /* Block write cancel check function type */
 typedef int         check_cancel_t(void *arg, s3b_block_t block_num);
+
+/* Block counting info */
+struct list_blocks {
+    pthread_mutex_t mutex;
+    u_int       *bitmap;
+    int         print_dots;
+    uintmax_t   count;
+    uintmax_t   bucket_size;
+};
 
 /* Backing store instance structure */
 struct s3backer_store {

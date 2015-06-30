@@ -1,24 +1,23 @@
-
 /*
- * s3backer - FUSE-based single file backing store via Amazon S3
- * 
- * Copyright 2008-2011 Archie L. Cobbs <archie@dellroad.org>
- * 
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- */
+* s3backer - FUSE-based single file backing store via Amazon S3
+* 
+* Copyright 2008-2011 Archie L. Cobbs <archie@dellroad.org>
+* 
+* This program is free software; you can redistribute it and/or
+* modify it under the terms of the GNU General Public License
+* as published by the Free Software Foundation; either version 2
+* of the License, or (at your option) any later version.
+* 
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+* 
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the Free Software
+* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+* 02110-1301, USA.
+*/
 
 #include "s3backer.h"
 #include "block_part.h"
@@ -28,7 +27,9 @@
 #define HTTP_GET                    "GET"
 #define HTTP_PUT                    "PUT"
 #define HTTP_DELETE                 "DELETE"
+#define HTTP_POST                   "POST"
 #define HTTP_HEAD                   "HEAD"
+#define HTTP_OK                     200
 #define HTTP_NOT_MODIFIED           304
 #define HTTP_UNAUTHORIZED           401
 #define HTTP_FORBIDDEN              403
@@ -70,7 +71,7 @@
 
 /* Size required for URL buffer */
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
-                                      + strlen((config)->prefix) + S3B_BLOCK_NUM_DIGITS + 2)
+    + strlen((config)->prefix) + S3B_BLOCK_NUM_DIGITS + 2)
 
 /* Bucket listing API constants */
 #define LIST_PARAM_MARKER           "marker"
@@ -81,13 +82,16 @@
 #define LIST_ELEM_IS_TRUNCATED      "IsTruncated"
 #define LIST_ELEM_CONTENTS          "Contents"
 #define LIST_ELEM_KEY               "Key"
+#define LIST_ELEM_SIZE              "Size"
 #define LIST_TRUE                   "true"
 #define LIST_MAX_PATH               (sizeof(LIST_ELEM_LIST_BUCKET_RESLT) \
-                                      + sizeof(LIST_ELEM_CONTENTS) \
-                                      + sizeof(LIST_ELEM_KEY) + 1)
+    + sizeof(LIST_ELEM_CONTENTS) \
+    + sizeof(LIST_ELEM_KEY) + 1)
 
-/* How many blocks to list at a time */
-#define LIST_BLOCKS_CHUNK           0x100
+#define DELETE_ELEM_DELETERESULT    "DeleteResult"
+#define DELETE_ELEM_ERROR           "Error"
+#define DELETE_ELEM_DELETED         "Deleted"
+#define DELETE_ELEM_KEY             "Key"
 
 /* PBKDF2 key generation iterations */
 #define PBKDF2_ITERATIONS           5000
@@ -115,15 +119,50 @@
 #define WHITESPACE                  " \t\v\f\r\n"
 
 /*
- * HTTP-based implementation of s3backer_store.
- *
- * This implementation does no caching or consistency checking.
- */
+* HTTP-based implementation of s3backer_store.
+*
+* This implementation does no caching or consistency checking.
+*/
 
 /* Internal definitions */
 struct curl_holder {
     CURL                        *curl;
     LIST_ENTRY(curl_holder)     link;
+};
+
+/* Delete multiple object support*/
+struct http_io_bulk_delete_retry_block {
+    s3b_block_t     block_num;
+    int             retry_count;
+};
+
+struct http_io_bulk_delete {
+    pthread_t                       worker_thread;						// delete multiple objects thread
+    pthread_cond_t				    block_enqueued_cond;			    // Signal "job eneueud" to the worker thread
+    pthread_mutex_t				    worker_thread_initialized_mutex;    // Mutex with the writer thread
+    pthread_cond_t				    worker_thread_initialized_cond;		// Signal to the writer thread
+    int                             worker_thread_initialized;          // Initialiazitaion variable
+    int				                count;								// Objects to delete
+    struct http_io_bulk_delete_retry_block  blocks[S3_MAX_LIST_BLOCKS_CHUNK];	// Blocks
+    struct s3backer_store           *s3b;                               // Backing store
+
+    // Some stats
+    int                             failed_count;
+    int                             succeded_count;
+};
+
+/* Parallel block list */
+struct http_io_parallel_list_blocks {
+    pthread_t                   worker_thread;
+    struct s3backer_store       *s3b;
+    block_list_func_t           *callback;
+    void                        *callback_arg;
+    char                        prefix[4];
+    volatile uintmax_t          objects_count;
+    volatile uintmax_t          partial_bucket_size;
+    volatile int                result;
+    pthread_cond_t				*cond;  // Signal to the main thread
+    volatile int                *runningThreadsCount;
 };
 
 /* Internal state */
@@ -141,6 +180,9 @@ struct http_io_private {
     u_int                       keylen;                         // length of key and ivkey
     u_char                      key[EVP_MAX_KEY_LENGTH];        // key used to encrypt data
     u_char                      ivkey[EVP_MAX_KEY_LENGTH];      // key used to encrypt block number to get IV for data
+
+    struct http_io_bulk_delete	        *bulk_delete;	    // delete multiple objects batch
+    pthread_cond_t                      bulk_delete_done;   // Signal to writer thread
 };
 
 /* I/O buffers */
@@ -168,6 +210,8 @@ struct http_io {
     int                 xml_text_max;           // max chars in 'xml_text' buffer
     int                 list_truncated;         // returned list was truncated
     s3b_block_t         last_block;             // last dirty block listed
+    volatile uintmax_t  objects_size;           // object size
+    volatile uintmax_t  objects_count;          // partial objects count
     block_list_func_t   *callback_func;         // callback func for listing blocks
     void                *callback_arg;          // callback arg for listing blocks
     struct http_io_conf *config;                // configuration
@@ -198,14 +242,16 @@ typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict);
+                              u_char *actual_md5, const u_char *expect_md5, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
-  check_cancel_t *check_cancel, void *check_cancel_arg);
+                               check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_flush(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
+static void *http_io_bulk_delete_thread_main(void *arg);
+static void http_io_bulk_delete_callback(struct http_io_bulk_delete *bulk_delete, s3b_block_t block_num, int success);
 
 /* Other functions */
 static http_io_curl_prepper_t http_io_head_prepper;
@@ -250,7 +296,7 @@ static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, si
 static u_int http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst);
 static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
 static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
-  const char *name, int value_only, char *sigbuf, size_t sigbuflen);
+                                    const char *name, int value_only, char *sigbuf, size_t sigbuflen);
 static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
@@ -262,13 +308,78 @@ static int num_openssl_locks;
 static u_char zero_md5[MD5_DIGEST_LENGTH];
 static u_char zero_hmac[SHA_DIGEST_LENGTH];
 
+
+/* Initialize bulk_delete structure */
+static struct http_io_bulk_delete *
+    http_io_bulk_delete_create(struct s3backer_store *const s3b)
+{
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_bulk_delete *bulk_delete;
+
+    // Initialize base structure
+    bulk_delete = calloc(1, sizeof(struct http_io_bulk_delete));
+    if (!bulk_delete) {
+        goto fail1;
+    }
+
+    // initialize block_enqueued_cond variable
+    if (pthread_cond_init(&bulk_delete->block_enqueued_cond, NULL) != 0) {
+        goto fail2;
+    }
+
+    // initialize thread_initialized_cond variable
+    if (pthread_cond_init(&bulk_delete->worker_thread_initialized_cond, NULL) != 0) {
+        goto fail3;
+    }
+
+    // initialize thread_initialized_mutex variable
+    if (pthread_mutex_init(&bulk_delete->worker_thread_initialized_mutex, NULL) != 0) {
+        goto fail4;
+    }
+
+    // Assign it now, so the new starting thread can get the structure correctly
+    // and we avoid a race condition
+    priv->bulk_delete = bulk_delete;
+    pthread_mutex_lock(&bulk_delete->worker_thread_initialized_mutex);
+
+    // Now create thread
+    if (pthread_create(&bulk_delete->worker_thread, NULL, http_io_bulk_delete_thread_main, s3b) != 0) {
+        goto fail5;
+    }
+
+    return bulk_delete;
+
+fail5:
+    priv->bulk_delete = NULL;
+    pthread_mutex_lock(&bulk_delete->worker_thread_initialized_mutex);
+    pthread_mutex_destroy(&bulk_delete->worker_thread_initialized_mutex);
+fail4:
+    pthread_cond_destroy(&bulk_delete->worker_thread_initialized_cond);
+fail3:
+    pthread_cond_destroy(&bulk_delete->block_enqueued_cond);
+fail2:
+    free(bulk_delete);
+fail1:
+    return NULL;
+}
+
+static void
+http_io_bulk_delete_destroy(struct http_io_bulk_delete *bulk_delete)
+{
+    pthread_mutex_destroy(&bulk_delete->worker_thread_initialized_mutex);
+    pthread_cond_destroy(&bulk_delete->worker_thread_initialized_cond);
+	pthread_cond_destroy(&bulk_delete->block_enqueued_cond);
+	free(bulk_delete);
+}
+
+
 /*
- * Constructor
- *
- * On error, returns NULL and sets `errno'.
- */
+* Constructor
+*
+* On error, returns NULL and sets `errno'.
+*/
 struct s3backer_store *
-http_io_create(struct http_io_conf *config)
+    http_io_create(struct http_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct http_io_private *priv;
@@ -307,15 +418,19 @@ http_io_create(struct http_io_conf *config)
     LIST_INIT(&priv->curls);
     s3b->data = priv;
 
+    if ((r = pthread_cond_init(&priv->bulk_delete_done, NULL)) != 0)
+        goto fail3;
+
+
     /* Initialize openssl */
     num_openssl_locks = CRYPTO_num_locks();
     if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
         r = errno;
-        goto fail3;
+        goto fail4;
     }
     for (nlocks = 0; nlocks < num_openssl_locks; nlocks++) {
         if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0)
-            goto fail4;
+            goto fail5;
     }
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
@@ -334,48 +449,48 @@ http_io_create(struct http_io_conf *config)
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
             (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
         if (EVP_CIPHER_block_size(priv->cipher) != EVP_CIPHER_iv_length(priv->cipher)) {
             (*config->log)(LOG_ERR, "invalid encryption cipher `%s': block size %d != IV length %d",
-              config->encryption, EVP_CIPHER_block_size(priv->cipher), EVP_CIPHER_iv_length(priv->cipher));
+                config->encryption, EVP_CIPHER_block_size(priv->cipher), EVP_CIPHER_iv_length(priv->cipher));
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
         cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
             (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
 
         /* Hash password to get bulk data encryption key */
         snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
-          (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
-            (*config->log)(LOG_ERR, "failed to create encryption key");
-            r = EINVAL;
-            goto fail4;
+            (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
+                (*config->log)(LOG_ERR, "failed to create encryption key");
+                r = EINVAL;
+                goto fail5;
         }
 
         /* Hash the bulk encryption key to get the IV encryption key */
         if ((r = PKCS5_PBKDF2_HMAC_SHA1((char *)priv->key, priv->keylen,
-          priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
-            (*config->log)(LOG_ERR, "failed to create encryption key");
-            r = EINVAL;
-            goto fail4;
+            priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
+                (*config->log)(LOG_ERR, "failed to create encryption key");
+                r = EINVAL;
+                goto fail5;
         }
 
         /* Encryption debug */
 #if DEBUG_ENCRYPTION
-    {
-        char keybuf[priv->keylen * 2 + 1];
-        char ivkeybuf[priv->keylen * 2 + 1];
-        http_io_prhex(keybuf, priv->key, priv->keylen);
-        http_io_prhex(ivkeybuf, priv->ivkey, priv->keylen);
-        (*config->log)(LOG_DEBUG, "ENCRYPTION INIT: cipher=\"%s\" pass=\"%s\" salt=\"%s\" key=0x%s ivkey=0x%s", config->encryption, config->password, saltbuf, keybuf, ivkeybuf);
-    }
+        {
+            char keybuf[priv->keylen * 2 + 1];
+            char ivkeybuf[priv->keylen * 2 + 1];
+            http_io_prhex(keybuf, priv->key, priv->keylen);
+            http_io_prhex(ivkeybuf, priv->ivkey, priv->keylen);
+            (*config->log)(LOG_DEBUG, "ENCRYPTION INIT: cipher=\"%s\" pass=\"%s\" salt=\"%s\" key=0x%s ivkey=0x%s", config->encryption, config->password, saltbuf, keybuf, ivkeybuf);
+        }
 #endif
     }
 
@@ -385,26 +500,29 @@ http_io_create(struct http_io_conf *config)
     /* Initialize IAM credentials and start updater thread */
     if (config->ec2iam_role != NULL) {
         if ((r = update_iam_credentials(priv)) != 0)
-            goto fail5;
+            goto fail6;
         if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
-            goto fail5;
+            goto fail6;
     }
 
     /* Take ownership of non-zero block bitmap */
     priv->non_zero = config->nonzero_bitmap;
     config->nonzero_bitmap = NULL;
 
+    /* Use Delete Multiple Object support by default */
+    config->use_bulk_delete = 1;
+
     /* Done */
     return s3b;
 
-fail5:
+fail6:
     while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
         LIST_REMOVE(holder, link);
         free(holder);
     }
     curl_global_cleanup();
-fail4:
+fail5:
     CRYPTO_set_locking_callback(NULL);
     CRYPTO_set_id_callback(NULL);
     while (nlocks > 0)
@@ -412,6 +530,8 @@ fail4:
     free(openssl_locks);
     openssl_locks = NULL;
     num_openssl_locks = 0;
+fail4:
+    pthread_cond_destroy(&priv->bulk_delete_done);
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
@@ -425,10 +545,10 @@ fail0:
 }
 
 /*
- * Destructor
- */
+* Destructor
+*/
 static void
-http_io_destroy(struct s3backer_store *const s3b)
+    http_io_destroy(struct s3backer_store *const s3b)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -471,13 +591,29 @@ http_io_destroy(struct s3backer_store *const s3b)
 }
 
 static int
-http_io_flush(struct s3backer_store *const s3b)
+    http_io_flush(struct s3backer_store *const s3b)
 {
+    struct http_io_private *const priv = s3b->data;
+    
+    if (priv->config->debug)
+        (*priv->config->log)(LOG_DEBUG, "HTTP Flush triggered. Waiting for %d operations", priv->stats.http_active_bulk_deletes + priv->stats.http_active_connections);
+
+    // Wait until all bulk deletes are completed
+    int wait = 1;
+    while (wait) {
+        sleep(5);
+        pthread_mutex_lock(&priv->mutex);
+        wait = priv->stats.http_active_bulk_deletes + priv->stats.http_active_connections;
+        if (priv->config->debug)
+            (*priv->config->log)(LOG_DEBUG, "HTTP Flush is waiting for %d operations", wait);
+        pthread_mutex_unlock(&priv->mutex);
+    }
+
     return 0;
 }
 
 void
-http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
+    http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
 {
     struct http_io_private *const priv = s3b->data;
 
@@ -486,9 +622,13 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
     pthread_mutex_unlock(&priv->mutex);
 }
 
-static int
-http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
+static void *
+http_io_list_blocks_helper(void *arg)
 {
+    struct http_io_parallel_list_blocks *const plb = arg;
+    struct s3backer_store *s3b = plb->s3b;
+    block_list_func_t *callback = plb->callback;
+    void *callback_arg = plb->callback_arg;
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
@@ -503,16 +643,17 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     io.config = config;
     io.xml_error = XML_ERROR_NONE;
     io.callback_func = callback;
-    io.callback_arg = arg;
+    io.callback_arg = callback_arg;
 
     /* Create XML parser */
     if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
         (*config->log)(LOG_ERR, "failed to create XML parser");
-        return ENOMEM;
+        plb->result = ENOMEM;
+        return NULL;
     }
 
     /* Allocate buffers for XML path and tag text content */
-    io.xml_text_max = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 10;
+    io.xml_text_max = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 128;
     if ((io.xml_text = malloc(io.xml_text_max + 1)) == NULL) {
         (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
         goto oom;
@@ -523,14 +664,15 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     }
 
     /* List blocks */
+    plb->partial_bucket_size = 0;
     do {
         const time_t now = time(NULL);
 
         /* Reset XML parser state */
-        XML_ParserReset(io.xml, NULL);
-        XML_SetUserData(io.xml, &io);
-        XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
-        XML_SetCharacterDataHandler(io.xml, http_io_list_text);
+        //XML_ParserReset(io.xml, NULL);
+        //XML_SetUserData(io.xml, &io);
+        //XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
+        //XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
         /* Format URL */
         snprintf(urlbuf, sizeof(urlbuf), "%s%s?", config->baseURL, config->vhost ? "" : config->bucket);
@@ -538,10 +680,10 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         /* Add URL parameters (note: must be in "canonical query string" format for proper authentication) */
         if (io.list_truncated) {
             snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%0*jx&",
-              LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
+                LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, config->prefix);
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, config->max_keys);
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s%s", LIST_PARAM_PREFIX, config->prefix, plb->prefix);
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
@@ -549,6 +691,10 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
             goto fail;
+
+        // Reset counters before performing the request
+        io.objects_size = 0;
+        io.objects_count = 0;
 
         /* Perform operation */
         r = http_io_perform_io(priv, &io, http_io_list_prepper);
@@ -571,17 +717,29 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         /* Check for XML error */
         if (io.xml_error != XML_ERROR_NONE) {
             (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
-              io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
+                io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
             r = EIO;
             goto fail;
         }
+
+        /* Sum up object sizes */
+        plb->partial_bucket_size += io.objects_size;
+        plb->objects_count += io.objects_count;
     } while (io.list_truncated);
+    if (config->debug && *plb->prefix)
+        (*config->log)(LOG_DEBUG, "Prefix %s has %ju objects. Partial size is %ju.", plb->prefix, plb->objects_count, plb->partial_bucket_size);
 
     /* Done */
     XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
-    return 0;
+    plb->result = 0;
+
+    pthread_mutex_lock(&priv->mutex);
+    pthread_cond_signal(plb->cond);
+    (*plb->runningThreadsCount)--;
+    pthread_mutex_unlock(&priv->mutex);
+    return NULL;
 
 oom:
     /* Update stats */
@@ -596,11 +754,99 @@ fail:
         XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
-    return r;
+    plb->result = r;
+
+    pthread_mutex_lock(&priv->mutex);
+    pthread_cond_signal(plb->cond);
+    (*plb->runningThreadsCount)--;
+    pthread_mutex_unlock(&priv->mutex);
+
+    return NULL;
+}
+
+
+static int
+    http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
+{
+    struct http_io_parallel_list_blocks threads[S3BACKER_MAX_LIST_BLOCKS_THREADS];
+    struct http_io_private *const priv = s3b->data;
+    int i, result = 0;
+    uintmax_t bucket_size = 0;
+    uintmax_t objects_count = 0;
+    volatile int runningThreadsCount = 0;
+    static int prefixLengths[] = { 0, 1, 2, 3 }; // Prefix lengths of each list query
+    static int maxCounters[] = { 0x0001, 0x0010, 0x0100, 0x1000 }; // Maximum prefix number
+    int tablesIndex;
+
+    // Create multiple threads to perform listing on each subkey
+    // Optimize access pattern based on the number of threads
+    int num_threads = priv->config->list_blocks_threads;
+    if (num_threads > 256) {
+        tablesIndex = 3;
+    } else
+    if (num_threads > 16) {
+        tablesIndex = 2;
+    } else
+    if (num_threads > 1) {
+        tablesIndex = 1;
+    } else {
+        tablesIndex = 0;
+    }
+    int prefixLength = prefixLengths[tablesIndex];
+    int max = maxCounters[tablesIndex];
+
+    // initialize local condition variable
+    pthread_cond_t one_thread_free_cond;
+    pthread_cond_init(&one_thread_free_cond, NULL);
+
+    for (i = 0; i < max; i++) {
+        threads[i].s3b = s3b;
+        threads[i].callback = callback;
+        threads[i].callback_arg = arg;
+        threads[i].result = 0;
+        threads[i].partial_bucket_size = 0;
+        threads[i].objects_count = 0;
+        threads[i].cond = &one_thread_free_cond;
+        threads[i].runningThreadsCount = &runningThreadsCount;
+
+        snprintf(threads[i].prefix, 4, "%x%x%x", i & 0x0f, (i >> 4) & 0x0f, (i >> 8) & 0x0f);
+        threads[i].prefix[prefixLength] = 0;
+        
+        if (pthread_create(&threads[i].worker_thread, NULL, http_io_list_blocks_helper, &threads[i]) != 0) {
+            return -1;
+        }
+        
+        pthread_mutex_lock(&priv->mutex);
+        runningThreadsCount++;
+        pthread_mutex_unlock(&priv->mutex);
+
+        if (runningThreadsCount >= num_threads) {
+            pthread_mutex_lock(&priv->mutex);
+            pthread_cond_wait(&one_thread_free_cond, &priv->mutex);
+            pthread_mutex_unlock(&priv->mutex);
+        }
+    }
+
+    for (i = 0; i < max; i++) {
+        pthread_join(threads[i].worker_thread, NULL);
+        if (threads[i].result)
+            result = -1;
+
+        bucket_size += threads[i].partial_bucket_size;
+        objects_count += threads[i].objects_count;
+    }
+
+    /* report total bucket size */
+    struct list_blocks *const lb = arg;
+    lb->bucket_size = bucket_size;
+
+    (*priv->config->log)(LOG_INFO, "Bucket has %ju objects. Total size is %ju.", objects_count, bucket_size);
+
+    return result;
 }
 
 static void
-http_io_list_prepper(CURL *curl, struct http_io *io)
+    http_io_list_prepper(CURL *curl, struct http_io *io)
 {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_list_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
@@ -610,7 +856,7 @@ http_io_list_prepper(CURL *curl, struct http_io *io)
 }
 
 static size_t
-http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
+    http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     size_t total = size * nmemb;
@@ -626,12 +872,12 @@ http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *strea
 }
 
 static void
-http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
+    http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
 {
     struct http_io *const io = (struct http_io *)arg;
     const size_t plen = strlen(io->xml_path);
     char *newbuf;
-
+    
     /* Update current path */
     if ((newbuf = realloc(io->xml_path, plen + 1 + strlen(name) + 1)) == NULL) {
         (*io->config->log)(LOG_DEBUG, "realloc: %s", strerror(errno));
@@ -647,11 +893,12 @@ http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
     io->xml_text[0] = '\0';
 }
 
+
 static void
-http_io_list_elem_end(void *arg, const XML_Char *name)
+    http_io_list_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
-    s3b_block_t block_num;
+    s3b_block_t block_num, reversed_block_num;
 
     /* Handle <Truncated> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0)
@@ -659,9 +906,30 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 
     /* Handle <Key> tag */
     else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
-        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0) {
+        if (http_io_parse_block(io->config, io->xml_text, &block_num, &reversed_block_num) == 0) {
             (*io->callback_func)(io->callback_arg, block_num);
-            io->last_block = block_num;
+            io->last_block = reversed_block_num;
+        }
+    }
+
+    /* Handle <Size> tag */
+    else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_SIZE) == 0) {
+        uintmax_t size = atoi(io->xml_text);
+        io->objects_size += size;
+        io->objects_count++;
+    } else
+
+    /* Handle <Key> tag in the <Deleted> section*/
+    if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETERESULT "/" DELETE_ELEM_DELETED "/" DELETE_ELEM_KEY) == 0) {
+        if (http_io_parse_block(io->config, io->xml_text, &block_num, &reversed_block_num) == 0) {
+            http_io_bulk_delete_callback(io->callback_arg, reversed_block_num, 1);
+        }
+    } else
+
+    /* Handle <Key> tag in the <Error> section*/
+    if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETERESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_KEY) == 0) {
+        if (http_io_parse_block(io->config, io->xml_text, &block_num, &reversed_block_num) == 0) {
+            http_io_bulk_delete_callback(io->callback_arg, reversed_block_num, 0);
         }
     }
 
@@ -675,7 +943,7 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 }
 
 static void
-http_io_list_text(void *arg, const XML_Char *s, int len)
+    http_io_list_text(void *arg, const XML_Char *s, int len)
 {
     struct http_io *const io = (struct http_io *)arg;
     int avail;
@@ -690,13 +958,31 @@ http_io_list_text(void *arg, const XML_Char *s, int len)
 }
 
 /*
- * Parse a block's item name (including prefix) and set the corresponding bit in the bitmap.
- */
+* Improve S3 name hashing by reversing the bit sequence of the block number
+*/
+static s3b_block_t bit_reverse(s3b_block_t block_num)
+{
+    int nbits = sizeof(s3b_block_t) * 8;
+    s3b_block_t reversed_block_num = 0;
+
+    while (nbits--) {
+        reversed_block_num <<= 1;
+        reversed_block_num |= (block_num & 1) ? 1 : 0;
+        block_num >>= 1;
+    }
+
+    return reversed_block_num;
+}
+
+
+/*
+* Parse a block's item name (including prefix) and set the corresponding bit in the bitmap.
+*/
 int
-http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_nump)
+    http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_nump, s3b_block_t *reversed_block_nump)
 {
     const size_t plen = strlen(config->prefix);
-    s3b_block_t block_num = 0;
+    s3b_block_t reversed_block_num = 0, block_num;
     int i;
 
     /* Check prefix */
@@ -710,9 +996,11 @@ http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *
 
         if (!isxdigit(ch))
             break;
-        block_num <<= 4;
-        block_num |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+        reversed_block_num <<= 4;
+        reversed_block_num |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
     }
+
+    block_num = bit_reverse(reversed_block_num);
 
     /* Was parse successful? */
     if (i != S3B_BLOCK_NUM_DIGITS || name[i] != '\0' || block_num >= config->num_blocks)
@@ -720,11 +1008,13 @@ http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *
 
     /* Done */
     *block_nump = block_num;
+    *reversed_block_nump = reversed_block_num;
     return 0;
 }
 
+
 static int
-http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
+    http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -767,7 +1057,7 @@ done:
 }
 
 static void
-http_io_head_prepper(CURL *curl, struct http_io *io)
+    http_io_head_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
@@ -779,7 +1069,7 @@ http_io_head_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+    http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -881,7 +1171,7 @@ done:
 }
 
 static int
-update_iam_credentials(struct http_io_private *const priv)
+    update_iam_credentials(struct http_io_private *const priv)
 {
     struct http_io_conf *const config = priv->config;
     char urlbuf[sizeof(EC2_IAM_META_DATA_URLBASE) + 128];
@@ -918,12 +1208,12 @@ update_iam_credentials(struct http_io_private *const priv)
 
     /* Find credentials in JSON response */
     if ((access_id = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSID)) == NULL
-      || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL
-      || (iam_token = parse_json_field(priv, buf, EC2_IAM_META_DATA_TOKEN)) == NULL) {
-        (*config->log)(LOG_ERR, "failed to extract EC2 IAM credentials from response: %s", strerror(errno));
-        free(access_id);
-        free(access_key);
-        return EINVAL;
+        || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL
+        || (iam_token = parse_json_field(priv, buf, EC2_IAM_META_DATA_TOKEN)) == NULL) {
+            (*config->log)(LOG_ERR, "failed to extract EC2 IAM credentials from response: %s", strerror(errno));
+            free(access_id);
+            free(access_key);
+            return EINVAL;
     }
 
     /* Update credentials */
@@ -942,7 +1232,7 @@ update_iam_credentials(struct http_io_private *const priv)
 }
 
 static void *
-update_iam_credentials_main(void *arg)
+    update_iam_credentials_main(void *arg)
 {
     struct http_io_private *const priv = arg;
 
@@ -964,7 +1254,7 @@ update_iam_credentials_main(void *arg)
 }
 
 static char *
-parse_json_field(struct http_io_private *priv, const char *json, const char *field)
+    parse_json_field(struct http_io_private *priv, const char *json, const char *field)
 {
     struct http_io_conf *const config = priv->config;
     regmatch_t match[2];
@@ -1003,7 +1293,7 @@ parse_json_field(struct http_io_private *priv, const char *json, const char *fie
 }
 
 static void
-http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
+    http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     io->bufs.rdremain = io->buf_size;
@@ -1016,8 +1306,8 @@ http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict)
+    http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
+    u_char *actual_md5, const u_char *expect_md5, int strict)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1120,7 +1410,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             /* Encryption must be enabled */
             if (config->encryption == NULL) {
                 (*config->log)(LOG_ERR, "block %0*jx is encrypted with `%s' but `--encrypt' was not specified",
-                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher);
+                    S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher);
                 r = EIO;
                 break;
             }
@@ -1128,7 +1418,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             /* Verify encryption type */
             if (strcasecmp(block_cipher, EVP_CIPHER_name(priv->cipher)) != 0) {
                 (*config->log)(LOG_ERR, "block %0*jx was encrypted using `%s' but `%s' encryption is configured",
-                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher, EVP_CIPHER_name(priv->cipher));
+                    S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher, EVP_CIPHER_name(priv->cipher));
                 r = EIO;
                 break;
             }
@@ -1136,14 +1426,14 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             /* Verify block's signature */
             if (memcmp(io.hmac, zero_hmac, sizeof(io.hmac)) == 0) {
                 (*config->log)(LOG_ERR, "block %0*jx is encrypted, but no signature was found",
-                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+                    S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
                 r = EIO;
                 break;
             }
             http_io_authsig(priv, block_num, io.dest, did_read, hmac);
             if (memcmp(io.hmac, hmac, sizeof(hmac)) != 0) {
                 (*config->log)(LOG_ERR, "block %0*jx has an incorrect signature (did you provide the right password?)",
-                  S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+                    S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
                 r = EIO;
                 break;
             }
@@ -1207,7 +1497,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 bad_encoding:
         /* It was something we don't recognize */
         (*config->log)(LOG_ERR, "read of block %0*jx returned unexpected encoding \"%s\"",
-          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, layer);
+            S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, layer);
         r = EIO;
         break;
     }
@@ -1221,7 +1511,7 @@ bad_encoding:
     /* Check for wrong length read */
     if (r == 0 && did_read != config->block_size) {
         (*config->log)(LOG_ERR, "read of block %0*jx returned %lu != %lu bytes",
-          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (u_long)did_read, (u_long)config->block_size);
+            S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (u_long)did_read, (u_long)config->block_size);
         r = EIO;
     }
 
@@ -1231,12 +1521,31 @@ bad_encoding:
 
     /* Update stats */
     pthread_mutex_lock(&priv->mutex);
+
+    /* Update non-zero map */
+    const int bits_per_word = sizeof(*priv->non_zero) * 8;
+    const int word = block_num / bits_per_word;
+    const int bit = 1 << (block_num % bits_per_word);
     switch (r) {
     case 0:
         priv->stats.normal_blocks_read++;
+        if (priv->non_zero != NULL)
+            priv->non_zero[word] |= bit; // Force this block to "used"
+
+        // If this block is all zeros then free S3 resources by issuing a delete to save space.
+        // That shouldn't really happen, however....
+        if (http_io_is_zero_block(dest, config->block_size)) {
+            // Remove this element from map
+            if (priv->non_zero != NULL)
+                priv->non_zero[word] &= ~bit; // Remove this block from map
+            // TODO: issue a delete to save space
+        }
         break;
     case ENOENT:
         priv->stats.zero_blocks_read++;
+        if (priv->non_zero != NULL) {
+            priv->non_zero[word] &= ~bit; // Remove this block from map
+        }
         break;
     default:
         break;
@@ -1299,7 +1608,7 @@ fail:
 }
 
 static void
-http_io_read_prepper(CURL *curl, struct http_io *io)
+    http_io_read_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     io->bufs.rdremain = io->buf_size;
@@ -1314,12 +1623,373 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
 }
 
+
+static void
+    http_io_bulk_delete_prepper(CURL *curl, struct http_io *io)
+{
+    memset(&io->bufs, 0, sizeof(io->bufs));
+    io->bufs.wrremain = io->buf_size;
+    io->bufs.wrdata = io->src;
+    io->bufs.rdremain = 65536;
+    io->bufs.rddata = io->dest;
+
+    curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
+    curl_easy_setopt(curl, CURLOPT_READDATA, io);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_list_reader);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
+    curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
+    curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
+}
+
+static void
+    http_io_bulk_delete_callback(struct http_io_bulk_delete *bulk_delete, s3b_block_t block_num, int success) 
+{
+    int i;
+    bulk_delete->succeded_count += (success > 0 ? 1 : 0);
+    bulk_delete->failed_count += (success == 0 ? 1 : 0);
+
+    // Search for this block in the retry list and remove the entry
+    for (i = 0; i < bulk_delete->count; i++) {
+        if (bulk_delete->blocks[i].block_num == block_num) {
+            // Block found.
+            bulk_delete->blocks[i].retry_count = (success ? 0 : bulk_delete->blocks[i].retry_count + 1);
+            break;
+        }
+    }
+}
+
+static void *
+    http_io_bulk_delete_thread_main(void *arg)
+{
+    static uint32_t created_threads = 0;
+
+    struct s3backer_store *const s3b = arg;
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_bulk_delete *bulk_delete = priv->bulk_delete;
+    struct http_io_conf *const config = priv->config;
+    char urlbuf[URL_BUF_SIZE(config)];
+    u_char md5[MD5_DIGEST_LENGTH];
+    char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+    const time_t now = time(NULL);
+    struct http_io io;
+    int r, i;
+    const int BUF_SIZE = 65536;
+    char *src = (char*)malloc(BUF_SIZE);
+    int retry_count = 0;
+    uint32_t thread_id;
+
+    // Signal the writer thread that this thread is ready to accept requests
+    pthread_mutex_lock(&bulk_delete->worker_thread_initialized_mutex);
+    bulk_delete->worker_thread_initialized = 1;
+    thread_id = ++created_threads;
+    pthread_cond_signal(&bulk_delete->worker_thread_initialized_cond);
+    pthread_mutex_unlock(&bulk_delete->worker_thread_initialized_mutex);
+    assert(bulk_delete);
+
+    // Update stats
+    pthread_mutex_lock(&priv->mutex);
+    priv->stats.http_active_bulk_deletes++;
+    if (config->debug)
+        (*config->log)(LOG_DEBUG, "Bulk delete triggered. Worker thread ready. Thread ID #%d, Active threads: %d", thread_id, priv->stats.http_active_bulk_deletes);
+
+    // Wait blocks numbers to bulk delete
+    while (1) {
+        // Setup wait time
+        struct timeval now2;            /* time when we started waiting        */ 
+        struct timespec timeout;        /* timeout value for the wait function */ 
+        gettimeofday(&now2, NULL); 
+        int signalled = 0;
+        int blocksCount = bulk_delete->count;
+
+        // Wait time: from 0 to 200 additional ms
+        time_t sec = now2.tv_sec;
+        long nsec = (now2.tv_usec + (200 - blocksCount/5) * 1000) * 1000;
+
+        // Check for overflow
+        sec += nsec / 1000000000L;
+        nsec = nsec % 1000000000L;
+
+        timeout.tv_sec = sec;
+        timeout.tv_nsec = nsec;
+
+        // Loop test predicates
+        while (1) {
+            if (blocksCount) {
+                // Some blocks already in the queue... Wait for a timeout or a new block
+                signalled = pthread_cond_timedwait(&bulk_delete->block_enqueued_cond, &priv->mutex, &timeout);
+                if (signalled == ETIMEDOUT || bulk_delete->count != blocksCount)
+                    break;
+            }
+            else {
+                // No blocks to delete. Wait until creator thread enqueues a block.
+                signalled = pthread_cond_wait(&bulk_delete->block_enqueued_cond, &priv->mutex);
+                if (bulk_delete->count != blocksCount)
+                    break;
+            }
+        }
+
+        // Check if we timed out or have no more space in the block list
+        if (signalled == ETIMEDOUT || bulk_delete->count >= S3_MAX_LIST_BLOCKS_CHUNK)
+            break;
+    }
+    assert(bulk_delete->count > 0 && bulk_delete->count <= S3_MAX_LIST_BLOCKS_CHUNK);
+
+    // Remove the reference to this delete batch from the pool and run bulk delete
+    priv->bulk_delete = NULL;
+    pthread_mutex_unlock(&priv->mutex);
+
+    while (retry_count <= 10) {
+        if (config->debug)
+            (*config->log)(LOG_DEBUG, "Bulk delete blocks count: %u (attempt #%d, Thread ID #%d)", bulk_delete->count, retry_count, thread_id);
+
+        /*
+        <?xml version="1.0" encoding="UTF-8"?><Delete><Object><Key>key1</Key></Object><Object><Key>key2</Key></Object</Delete>
+
+        <?xml version="1.0" encoding="UTF-8"?> ---> 38 bytes fixed
+        <Delete>  --> 8 bytes fixed
+
+        <Object>  --> 8 bytes
+        <Key>	  --> 5 bytes
+        actualkey --> 20 bytes are more than enough
+        </Key>	  --> 6 bytes
+        </Object> --> 9 bytes
+
+        </Delete>  --> 9 bytes fixed
+        ----------------------
+        total = 48 bytes for each key 
+        + 17 + 38
+        */
+        src[0] = 0;
+        snprintf(src, 128, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Delete>");
+        for (i = 0; i < bulk_delete->count; i++) {
+            char buf2[128];
+            snprintf(buf2, 128, "<Object><Key>%0*jx</Key></Object>", S3B_BLOCK_NUM_DIGITS, (uintmax_t)(bit_reverse(bulk_delete->blocks[i].block_num)));
+            strcat(src, buf2);
+        }
+        strcat(src, "</Delete>");
+        int srcLen = strlen(src);
+
+        /* Initialize I/O info */
+        memset(&io, 0, sizeof(io));
+        io.url = urlbuf;
+        io.method = HTTP_POST;
+        io.config = config;
+        io.src = src;
+        io.buf_size = srcLen;
+        io.dest = src;                  // Reuse src buffer
+        io.callback_arg = bulk_delete;          // Pass the structure as this parameter
+        io.xml_error = XML_ERROR_NONE;
+
+        /* Create an XML parser to parse the result*/
+        if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
+            (*config->log)(LOG_ERR, "failed to create XML parser");
+            config->use_bulk_delete = 0;
+            goto cleanup;
+        }
+
+        /* Allocate buffers for XML path and tag text content */
+        io.xml_text_max = 1024; // More than enough
+        if ((io.xml_text = malloc(io.xml_text_max + 1)) == NULL) {
+            (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
+            config->use_bulk_delete = 0;
+            goto cleanup;
+        }
+        if ((io.xml_path = calloc(1, 1)) == NULL) {
+            (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+            config->use_bulk_delete = 0;
+            goto cleanup;
+        }
+
+        /* Reset XML parser state */
+        //XML_ParserReset(io.xml, NULL);
+        //XML_SetUserData(io.xml, &io);
+        //XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
+        //XML_SetCharacterDataHandler(io.xml, http_io_list_text);
+
+        /* Construct URL for this request  */
+        if (config->vhost)
+            snprintf(urlbuf, sizeof(urlbuf), "%s?delete", config->baseURL);
+        else 
+            snprintf(urlbuf, sizeof(urlbuf), "%s%s?delete", config->baseURL, config->bucket); 
+
+        MD5((unsigned char*)src, srcLen, md5);
+        http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
+        io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
+
+        /* Add Date header  */
+        http_io_add_date(priv, &io, now);
+
+        //* Add storage class header (if needed)
+        if (config->rrs) {
+            io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
+        }
+
+        // Add Authorization header 
+        http_io_add_auth(priv, &io, now, io.src, io.buf_size);
+
+        // Reset counters
+        bulk_delete->failed_count = 0;
+        bulk_delete->succeded_count = 0;
+
+        /* Perform operation */
+        r = http_io_perform_io(priv, &io, http_io_bulk_delete_prepper);
+
+        /* Check results */
+        if (r == 0) {
+            if (XML_Parse(io.xml, NULL, 0, 1) != XML_STATUS_OK) {
+                io.xml_error = XML_GetErrorCode(io.xml);
+                io.xml_error_line = XML_GetCurrentLineNumber(io.xml);
+                io.xml_error_column = XML_GetCurrentColumnNumber(io.xml);
+            }
+
+            /* Check for XML error */
+            if (io.xml_error != XML_ERROR_NONE) {
+                (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
+                    io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
+                r = EIO;
+                retry_count = 11; // Hack to print debug info
+                break;
+            }
+
+            // Now we have the results in the bulk_delete struct. Queue the failed items again (if any).
+            // See function "http_io_list_elem_end"
+
+            /* Update stats and non-zero map*/
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.zero_blocks_written += bulk_delete->succeded_count;
+            priv->stats.http_deletes.count += bulk_delete->succeded_count;
+
+            /* Update bitmap of non-zero blocks by removing this block */
+            if (priv->non_zero != NULL) {
+                const int bits_per_word = sizeof(*priv->non_zero) * 8;
+                for (i = 0; i < bulk_delete->count; i++) {
+                    // Success? remove this block from map
+                    if (bulk_delete->blocks[i].retry_count == 0) {
+                        int word = bulk_delete->blocks[i].block_num / bits_per_word;
+                        int bit = 1 << (i % bits_per_word);
+                        priv->non_zero[word] &= ~bit;
+                    }
+                }
+            }
+            pthread_mutex_unlock(&priv->mutex);
+
+            if (config->debug) {
+                (*config->log)(LOG_INFO, "Bulk delete results (Thread ID #%d): total=%d, succeded=%d, failed=%d", thread_id, bulk_delete->count, bulk_delete->succeded_count, bulk_delete->failed_count);
+
+                // Dump deleted blocks
+                src[0] = 0;
+                for (i = 0; i < bulk_delete->count; i++) {
+                    if (bulk_delete->blocks[i].retry_count == 0) {
+                        char buf2[128];
+                        snprintf(buf2, 128, "%0*jx ", S3B_BLOCK_NUM_DIGITS, (uintmax_t)(bit_reverse(bulk_delete->blocks[i].block_num)));
+                        strcat(src, buf2);
+                    }
+                }
+                (*config->log)(LOG_INFO, "Bulk delete succeded blocks (Thread ID #%d): %s", thread_id, src);
+            }
+
+            // Success ?
+            if (bulk_delete->count == bulk_delete->succeded_count)
+                break; // Yes!
+
+            src[0] = 0;
+            for (i = 0; i < bulk_delete->count; i++) {
+                if (bulk_delete->blocks[i].retry_count != 0) {
+                    char buf2[128];
+                    snprintf(buf2, 128, "%0*jx ", S3B_BLOCK_NUM_DIGITS, (uintmax_t)(bit_reverse(bulk_delete->blocks[i].block_num)));
+                    strcat(src, buf2);
+                }
+            }
+            if (strlen(src) != 0)
+                (*config->log)(LOG_INFO, "Bulk delete failed blocks (Thread ID #%d): %s", thread_id, src);
+
+            // Enqueue again failed items
+            int givenUpBlocks = 0;
+            int lastBlockNum = bulk_delete->count - 1;
+            for (i = lastBlockNum; i >= 0; i--) {
+                // Remove from the list all the blocks deleted, or the block retried 10 times
+                if (bulk_delete->blocks[i].retry_count == 0 || bulk_delete->blocks[i].retry_count == 10) {
+                    if (bulk_delete->blocks[i].retry_count == 10) {
+                        // Give up on this block
+                        (*config->log)(LOG_INFO, "Bulk delete (Thread ID #%d) is giving up on block %0*jx ", thread_id, S3B_BLOCK_NUM_DIGITS, (uintmax_t)(bulk_delete->blocks[i].block_num));
+                        givenUpBlocks++;
+                    }
+                    // Clear this block
+                    bulk_delete->blocks[i].block_num = 0;
+                    bulk_delete->blocks[i].retry_count = 0;
+
+                    // Replace this block with the last block num (eventually the same that has been already zeroed)
+                    bulk_delete->blocks[i].block_num = bulk_delete->blocks[lastBlockNum].block_num;
+                    bulk_delete->blocks[i].retry_count = bulk_delete->blocks[lastBlockNum].retry_count;
+                    lastBlockNum--;
+                } else {
+                    // Increase retry count
+                    bulk_delete->blocks[i].retry_count++;
+                }
+            }
+
+            // Still job to do? Some objects could have been given up...
+            if (lastBlockNum < 0) {
+                // No. Quit
+                (*config->log)(LOG_INFO, "Bulk delete (Thread ID #%d) gave up on %d blocks.", thread_id, givenUpBlocks);
+                break;
+            }
+            bulk_delete->count = lastBlockNum + 1;
+            (*config->log)(LOG_INFO, "Bulk delete (Thread ID #%d) is enqueuing %d blocks.", thread_id, bulk_delete->count);
+        }
+
+        /* Local clean up */
+        curl_slist_free_all(io.headers);
+
+        if (io.xml) XML_ParserFree(io.xml);
+        if (io.xml_path) free(io.xml_path);
+        if (io.xml_text) free(io.xml_text);
+
+
+        /* A problem occurred. */
+        (*config->log)(LOG_INFO, "Bulk delete failed. Retrying in 5 seconds (attempt #%d, Thread ID #%d).", retry_count, thread_id);
+        retry_count++;
+        sleep(5); // Sleep 5 seconds and retry
+    }
+
+cleanup:
+    /* Clean up */
+    curl_slist_free_all(io.headers);
+
+    if (io.xml) XML_ParserFree(io.xml);
+    if (io.xml_path) free(io.xml_path);
+    if (io.xml_text) free(io.xml_text);
+    if (src) free(src);
+
+    pthread_mutex_lock(&priv->mutex);
+
+    // If failed for more than 10 times then disable this feature...
+    if (retry_count > 10) {
+        (*config->log)(LOG_INFO, "Bulk delete failed %d times. Some objects could not deleted. Thread ID #%d.", retry_count - 1, thread_id);
+        config->use_bulk_delete = 0;
+    }
+
+    // Self destroy
+    (*config->log)(LOG_INFO, "Bulk delete Thread ID #%d finish. Active threads: %d", thread_id, priv->stats.http_active_bulk_deletes);
+    int bulk_count = priv->stats.http_active_bulk_deletes;
+    priv->stats.http_active_bulk_deletes--;
+    if (bulk_count >= config->max_bulk_delete_threads);
+        pthread_cond_broadcast(&priv->bulk_delete_done);
+    pthread_mutex_unlock(&priv->mutex);
+
+    http_io_bulk_delete_destroy(bulk_delete);
+    return NULL;
+}
+
 /*
- * Write block if src != NULL, otherwise delete block.
- */
+* Write block if src != NULL, otherwise delete block.
+*/
 static int
-http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
-  check_cancel_t *check_cancel, void *check_cancel_arg)
+    http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+    check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1358,8 +2028,54 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
                 pthread_mutex_unlock(&priv->mutex);
                 return 0;
             }
-        } else
-            priv->non_zero[word] |= bit;
+        }
+        pthread_mutex_unlock(&priv->mutex);
+    }
+
+    // Intercept here all the delete requests and add them up to worker thread
+    // in order to take advantage of the Delete Multiple Objects support
+    if (src == NULL && config->use_bulk_delete) {
+        // Limit concurrent deletes to maximum allowed to relax a bit the pressure on S3
+        pthread_mutex_lock(&priv->mutex);
+        while (priv->stats.http_active_bulk_deletes >= config->max_bulk_delete_threads)
+            pthread_cond_wait(&priv->bulk_delete_done, &priv->mutex);
+
+        // Create a new structure if it doesn't exists or the current
+        // structure already reached the maximum number of blocks it can support
+        struct http_io_bulk_delete *bulk_delete = priv->bulk_delete;
+        if (!bulk_delete || bulk_delete->count >= S3_MAX_LIST_BLOCKS_CHUNK) {
+            // Assign a new bulk delete to priv->bulk_delete (see http_io_bulk_delete_create)
+            bulk_delete = http_io_bulk_delete_create(s3b);
+
+            // Wait until worker thread is initialized
+            if (bulk_delete) {
+                // Mutex is held in the http_io_bulk_delete_create to avoid a race condition
+                while (!bulk_delete->worker_thread_initialized) // predicate
+                    pthread_cond_wait(&bulk_delete->worker_thread_initialized_cond, &bulk_delete->worker_thread_initialized_mutex);
+                pthread_mutex_unlock(&bulk_delete->worker_thread_initialized_mutex);
+            }
+        }
+
+        // if structure is available then enqueue items and send a signal 
+        // to the worker thread, else switch to the single delete
+        if (bulk_delete)
+        {
+            // Enqueue the block in the list
+            bulk_delete->blocks[bulk_delete->count].block_num = block_num;
+            bulk_delete->blocks[bulk_delete->count].retry_count = 0;
+            bulk_delete->count++;
+
+            // Signal the worker thread
+            pthread_cond_signal(&bulk_delete->block_enqueued_cond);
+            pthread_mutex_unlock(&priv->mutex);
+            return 0;
+        }
+        else {
+            // bulk_delete was not created. Disable it.
+            config->use_bulk_delete = 0;
+        }
+
+        // Nope... go to (or retry a) normal delete
         pthread_mutex_unlock(&priv->mutex);
     }
 
@@ -1451,7 +2167,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", CONTENT_ENCODING_DEFLATE);
         if (encrypted) {
             snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
-              compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);
+                compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);
         }
         io.headers = http_io_add_header(io.headers, "%s", ebuf);
     }
@@ -1491,7 +2207,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (src != NULL && block_num == 0) {
         io.headers = http_io_add_header(io.headers, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
         io.headers = http_io_add_header(io.headers, "%s: %ju",
-          FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
+            FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
     }
 
     /* Add signature header (if encrypting) */
@@ -1511,11 +2227,23 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Update stats */
     if (r == 0) {
+        /* Info to update bitmap of non-zero blocks by removing this block */
+        const int bits_per_word = sizeof(*priv->non_zero) * 8;
+        const int word = block_num / bits_per_word;
+        const int bit = 1 << (block_num % bits_per_word);
+
         pthread_mutex_lock(&priv->mutex);
-        if (src == NULL)
+        if (src == NULL) {
             priv->stats.zero_blocks_written++;
+            if (priv->non_zero != NULL)
+                priv->non_zero[word] &= ~bit; // Remove this block from map
+        }
         else
+        {
             priv->stats.normal_blocks_written++;
+            if (priv->non_zero != NULL)
+                priv->non_zero[word] |= bit; // Add this block to map
+        }
         pthread_mutex_unlock(&priv->mutex);
     }
 
@@ -1528,7 +2256,7 @@ fail:
 }
 
 static void
-http_io_write_prepper(CURL *curl, struct http_io *io)
+    http_io_write_prepper(CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     if (io->src != NULL) {
@@ -1548,7 +2276,7 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
+    http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1557,7 +2285,7 @@ http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int
 }
 
 static int
-http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
+    http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1566,10 +2294,10 @@ http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_in
 }
 
 /*
- * Perform HTTP operation.
- */
+* Perform HTTP operation.
+*/
 static int
-http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper)
+    http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper)
 {
     struct http_io_conf *const config = priv->config;
     struct timespec delay;
@@ -1581,12 +2309,24 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     int attempt;
     CURL *curl;
 
+    pthread_mutex_lock(&priv->mutex);
+    priv->stats.http_active_connections++;
+    pthread_mutex_unlock(&priv->mutex);
+
     /* Debug */
     if (config->debug)
         (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
 
     /* Make attempts */
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
+        // Reset XML parser state here since it can happen that we have already received some data
+        // and the timeout occurs, and that means that the XML parser is not in clean state
+        if (io->xml) {
+            XML_ParserReset(io->xml, NULL);
+            XML_SetUserData(io->xml, io);
+            XML_SetElementHandler(io->xml, http_io_list_elem_start, http_io_list_elem_end);
+            XML_SetCharacterDataHandler(io->xml, http_io_list_text);
+        }
 
         /* Acquire and initialize CURL instance */
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
@@ -1596,6 +2336,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         /* Perform HTTP operation and check result */
         if (attempt > 0)
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, io->method, io->url);
+
         curl_code = curl_easy_perform(curl);
 
         /* Find out what the HTTP result code was (if any) */
@@ -1616,8 +2357,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
         /* In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful */
         if (curl_code == CURLE_HTTP_RETURNED_ERROR
-          && http_code == HTTP_NOT_FOUND
-          && strcmp(io->method, HTTP_DELETE) == 0)
+            && http_code == HTTP_NOT_FOUND
+            && strcmp(io->method, HTTP_DELETE) == 0)
             curl_code = 0;
 
         /* Handle success */
@@ -1659,11 +2400,20 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             } else if (strcmp(io->method, HTTP_HEAD) == 0) {
                 priv->stats.http_heads.count++;
                 priv->stats.http_heads.time += curl_time;
+            } else if (strcmp(io->method, HTTP_POST) == 0) {
+                priv->stats.http_bulk_deletes.count++;
+                priv->stats.http_bulk_deletes.time += curl_time;
             }
             pthread_mutex_unlock(&priv->mutex);
 
             /* Done */
             http_io_release_curl(priv, &curl, r == 0);
+            
+            /* Update stats */
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.http_active_connections--;
+            pthread_mutex_unlock(&priv->mutex);
+
             return r;
         }
 
@@ -1677,6 +2427,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_DEBUG, "write aborted: %s %s", io->method, io->url);
             pthread_mutex_lock(&priv->mutex);
             priv->stats.http_canceled_writes++;
+            priv->stats.http_active_connections--;
             pthread_mutex_unlock(&priv->mutex);
             return ECONNABORTED;
         case CURLE_OPERATION_TIMEDOUT:
@@ -1685,22 +2436,40 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             priv->stats.curl_timeouts++;
             pthread_mutex_unlock(&priv->mutex);
             break;
+        case CURLE_PARTIAL_FILE:
+            (*config->log)(LOG_NOTICE, "operation transferred partial file: %s %s", io->method, io->url);
+            pthread_mutex_lock(&priv->mutex);
+            priv->stats.curl_other_error++;
+            pthread_mutex_unlock(&priv->mutex);
+            //if (total_pause >= config->max_retry_pause) {
+                (*config->log)(LOG_ERR, "giving up on: %s %s", io->method, io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_active_connections--;
+                pthread_mutex_unlock(&priv->mutex);
+                return ENOENT;
+            //}
+            break;
         case CURLE_HTTP_RETURNED_ERROR:                 /* special handling for some specific HTTP codes */
             switch (http_code) {
             case HTTP_NOT_FOUND:
                 if (config->debug)
                     (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_active_connections--;
+                pthread_mutex_unlock(&priv->mutex);
                 return ENOENT;
             case HTTP_UNAUTHORIZED:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_unauthorized++;
+                priv->stats.http_active_connections--;
                 pthread_mutex_unlock(&priv->mutex);
                 return EACCES;
             case HTTP_FORBIDDEN:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_forbidden++;
+                priv->stats.http_active_connections--;
                 pthread_mutex_unlock(&priv->mutex);
                 return EPERM;
             case HTTP_PRECONDITION_FAILED:
@@ -1713,6 +2482,9 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 if (io->expect_304) {
                     if (config->debug)
                         (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
+                    pthread_mutex_lock(&priv->mutex);
+                    priv->stats.http_active_connections--;
+                    pthread_mutex_unlock(&priv->mutex);
                     return EEXIST;
                 }
                 /* FALLTHROUGH */
@@ -1736,7 +2508,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             break;
         default:
             (*config->log)(LOG_ERR, "operation failed: %s (%s)", curl_easy_strerror(curl_code),
-              total_pause >= config->max_retry_pause ? "final attempt" : "will retry");
+                total_pause >= config->max_retry_pause ? "final attempt" : "will retry");
             pthread_mutex_lock(&priv->mutex);
             switch (curl_code) {
             case CURLE_OUT_OF_MEMORY:
@@ -1775,16 +2547,19 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
     /* Give up */
     (*config->log)(LOG_ERR, "giving up on: %s %s", io->method, io->url);
+    pthread_mutex_lock(&priv->mutex);
+    priv->stats.http_active_connections--;
+    pthread_mutex_unlock(&priv->mutex);
     return EIO;
 }
 
 /*
- * Compute S3 authorization hash using secret access key and add Authorization and SHA256 hash headers.
- *
- * Note: headers must be unique and not wrapped.
- */
+* Compute S3 authorization hash using secret access key and add Authorization and SHA256 hash headers.
+*
+* Note: headers must be unique and not wrapped.
+*/
 static int
-http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
+    http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
     const struct http_io_conf *const config = priv->config;
 
@@ -1803,10 +2578,10 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
 }
 
 /**
- * AWS verison 2 authentication
- */
+* AWS verison 2 authentication
+*/
 static int
-http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
+    http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
     const struct http_io_conf *const config = priv->config;
     const struct curl_slist *header;
@@ -1878,6 +2653,10 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     resource = config->vhost ? io->url + strlen(config->baseURL) - 1 : io->url + strlen(config->baseURL) + strlen(config->bucket);
     resource_len = (qmark = strchr(resource, '?')) != NULL ? qmark - resource : strlen(resource);
 
+    // "?delete" query string is needed in auth
+    if (strstr(resource, "?delete"))
+        resource_len += 7;
+
     /* Sign final stuff */
     HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
     HMAC_Update(&hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
@@ -1916,10 +2695,10 @@ fail:
 }
 
 /**
- * AWS verison 4 authentication
- */
+* AWS verison 4 authentication
+*/
 static int
-http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
+    http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
     const struct http_io_conf *const config = priv->config;
     u_char payload_hash[EVP_MAX_MD_SIZE];
@@ -1970,9 +2749,9 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
     /* Extract host, URI path, and query parameters from URL */
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
-      || (host = p + 1) == NULL || (uripath = strchr(host, '/')) == NULL) {
-        r = EINVAL;
-        goto fail;
+        || (host = p + 1) == NULL || (uripath = strchr(host, '/')) == NULL) {
+            r = EINVAL;
+            goto fail;
     }
     host_len = uripath - host;
     if ((p = strchr(uripath, '?')) != NULL) {
@@ -1988,7 +2767,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     /* Format date */
     strftime(datebuf, sizeof(datebuf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
 
-/****** Hash Payload and Add Header ******/
+    /****** Hash Payload and Add Header ******/
 
     EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
     if (payload != NULL)
@@ -1998,12 +2777,12 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
     io->headers = http_io_add_header(io->headers, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
 
-/****** Add IAM security token header (if any) ******/
+    /****** Add IAM security token header (if any) ******/
 
     if (*iam_token != '\0')
         io->headers = http_io_add_header(io->headers, "%s: %s", SECURITY_TOKEN_HEADER, iam_token);
 
-/****** Create Hashed Canonical Request ******/
+    /****** Create Hashed Canonical Request ******/
 
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
@@ -2118,7 +2897,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     (*config->log)(LOG_DEBUG, "auth: canonical request hash = %s", creq_hash_buf);
 #endif
 
-/****** Derive Signing Key ******/
+    /****** Derive Signing Key ******/
 
     /* Do nested HMAC's */
     HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
@@ -2154,7 +2933,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", SIGNATURE_TERMINATOR, hmac_buf);
 #endif
 
-/****** Sign the String To Sign ******/
+    /****** Sign the String To Sign ******/
 
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
@@ -2180,7 +2959,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
-      datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
+        datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
 #endif
     HMAC_Update(&hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
 #if DEBUG_AUTHENTICATION
@@ -2194,11 +2973,11 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     (*config->log)(LOG_DEBUG, "auth: signature hmac = %s", hmac_buf);
 #endif
 
-/****** Add Authorization Header ******/
+    /****** Add Authorization Header ******/
 
     io->headers = http_io_add_header(io->headers, "%s: %s Credential=%s/%.8s/%s/%s/%s, SignedHeaders=%s, Signature=%s",
-      AUTH_HEADER, SIGNATURE_ALGORITHM, access_id, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
-      header_names, hmac_buf);
+        AUTH_HEADER, SIGNATURE_ALGORITHM, access_id, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
+        header_names, hmac_buf);
 
     /* Done */
     r = 0;
@@ -2213,29 +2992,31 @@ fail:
     return r;
 }
 
+
 /*
- * Create URL for a block, and return pointer to the URL's URI path.
- */
+* Create URL for a block, and return pointer to the URL's URI path.
+*/
 static void
-http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
+    http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
     int len;
+    s3b_block_t reversed_block_num = bit_reverse(block_num);
 
     if (config->vhost)
-        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)reversed_block_num);
     else {
         len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL,
-          config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)reversed_block_num);
     }
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
 }
 
 /*
- * Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
- */
+* Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
+*/
 static void
-http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config)
+    http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config)
 {
     int len;
 
@@ -2248,10 +3029,10 @@ http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *conf
 }
 
 /*
- * Add date header based on supplied time.
- */
+* Add date header based on supplied time.
+*/
 static void
-http_io_add_date(struct http_io_private *const priv, struct http_io *const io, time_t now)
+    http_io_add_date(struct http_io_private *const priv, struct http_io *const io, time_t now)
 {
     struct http_io_conf *const config = priv->config;
     char buf[DATE_BUF_SIZE];
@@ -2267,7 +3048,7 @@ http_io_add_date(struct http_io_private *const priv, struct http_io *const io, t
 }
 
 static struct curl_slist *
-http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
+    http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
 {
     char buf[1024];
     va_list args;
@@ -2280,7 +3061,7 @@ http_io_add_header(struct curl_slist *headers, const char *fmt, ...)
 }
 
 static CURL *
-http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
+    http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
 {
     struct http_io_conf *const config = priv->config;
     struct curl_holder *holder;
@@ -2329,7 +3110,7 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
 }
 
 static size_t
-http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
+    http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     struct http_io_bufs *const bufs = &io->bufs;
@@ -2344,7 +3125,7 @@ http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 }
 
 static size_t
-http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream)
+    http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     struct http_io_bufs *const bufs = &io->bufs;
@@ -2364,7 +3145,7 @@ http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream)
 }
 
 static size_t
-http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
+    http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     const size_t total = size * nmemb;
@@ -2407,9 +3188,9 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 
         *io->content_encoding = '\0';
         for (s = strtok_r(buf + sizeof(CONTENT_ENCODING_HEADER), WHITESPACE ",", &state);
-          s != NULL; s = strtok_r(NULL, WHITESPACE ",", &state)) {
-            celen = strlen(io->content_encoding);
-            snprintf(io->content_encoding + celen, sizeof(io->content_encoding) - celen, "%s%s", celen > 0 ? "," : "", s);
+            s != NULL; s = strtok_r(NULL, WHITESPACE ",", &state)) {
+                celen = strlen(io->content_encoding);
+                snprintf(io->content_encoding + celen, sizeof(io->content_encoding) - celen, "%s%s", celen > 0 ? "," : "", s);
         }
     }
 
@@ -2418,7 +3199,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 }
 
 static void
-http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
+    http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
 {
     struct curl_holder *holder;
     CURL *const curl = *curlp;
@@ -2443,7 +3224,7 @@ http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
 }
 
 static void
-http_io_openssl_locker(int mode, int i, const char *file, int line)
+    http_io_openssl_locker(int mode, int i, const char *file, int line)
 {
     if ((mode & CRYPTO_LOCK) != 0)
         pthread_mutex_lock(&openssl_locks[i]);
@@ -2452,13 +3233,13 @@ http_io_openssl_locker(int mode, int i, const char *file, int line)
 }
 
 static u_long
-http_io_openssl_ider(void)
+    http_io_openssl_ider(void)
 {
     return (u_long)pthread_self();
 }
 
 static void
-http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
+    http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
 {
     BUF_MEM *bptr;
     BIO* bmem;
@@ -2475,7 +3256,7 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
 }
 
 static int
-http_io_is_zero_block(const void *data, u_int block_size)
+    http_io_is_zero_block(const void *data, u_int block_size)
 {
     static const u_long zero;
     const u_int *ptr;
@@ -2492,10 +3273,10 @@ http_io_is_zero_block(const void *data, u_int block_size)
 }
 
 /*
- * Encrypt or decrypt one block
- */
+* Encrypt or decrypt one block
+*/
 static u_int
-http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest)
+    http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest)
 {
     u_char ivec[EVP_MAX_IV_LENGTH];
     EVP_CIPHER_CTX ctx;
@@ -2546,12 +3327,12 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 
     /* Encryption debug */
 #if DEBUG_ENCRYPTION
-{
-    struct http_io_conf *const config = priv->config;
-    char ivecbuf[sizeof(ivec) * 2 + 1];
-    http_io_prhex(ivecbuf, ivec, sizeof(ivec));
-    (*config->log)(LOG_DEBUG, "%sCRYPT: block=%s ivec=0x%s len: %d -> %d", (enc ? "EN" : "DE"), blockbuf, ivecbuf, len, total_len);
-}
+    {
+        struct http_io_conf *const config = priv->config;
+        char ivecbuf[sizeof(ivec) * 2 + 1];
+        http_io_prhex(ivecbuf, ivec, sizeof(ivec));
+        (*config->log)(LOG_DEBUG, "%sCRYPT: block=%s ivec=0x%s len: %d -> %d", (enc ? "EN" : "DE"), blockbuf, ivecbuf, len, total_len);
+    }
 #endif
 
     /* Done */
@@ -2560,7 +3341,7 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 }
 
 static void
-http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac)
+    http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac)
 {
     const char *const ciphername = EVP_CIPHER_name(priv->cipher);
     char blockbuf[64];
@@ -2580,8 +3361,8 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
 }
 
 static void
-update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
-  const char *name, int value_only, char *sigbuf, size_t sigbuflen)
+    update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
+    const char *name, int value_only, char *sigbuf, size_t sigbuflen)
 {
     const struct curl_slist *header;
     const char *colon;
@@ -2616,11 +3397,11 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
 }
 
 /*
- * Parse exactly "nbytes" contiguous 2-digit hex bytes.
- * On failure, zero out the buffer and return -1.
- */
+* Parse exactly "nbytes" contiguous 2-digit hex bytes.
+* On failure, zero out the buffer and return -1.
+*/
 static int
-http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
+    http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
 {
     int i;
 
@@ -2647,7 +3428,7 @@ http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
 }
 
 static void
-http_io_prhex(char *buf, const u_char *data, size_t len)
+    http_io_prhex(char *buf, const u_char *data, size_t len)
 {
     static const char *hexdig = "0123456789abcdef";
     int i;
@@ -2660,7 +3441,7 @@ http_io_prhex(char *buf, const u_char *data, size_t len)
 }
 
 static int
-http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
+    http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
 {
     const char *const str1 = *(const char *const *)ptr1;
     const char *const str2 = *(const char *const *)ptr2;

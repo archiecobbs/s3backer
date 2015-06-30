@@ -29,6 +29,34 @@
 #include "erase.h"
 #include "reset.h"
 
+
+/* Enable to debug app crashes */
+#define COLLECT_STACK_TRACE         1
+
+#if COLLECT_STACK_TRACE
+#include <execinfo.h>
+#include <signal.h>
+struct s3b_config *crash_config;
+void app_crash(int);
+void app_crash(int sig) {
+    void* callstack[128];
+    int i, frames = backtrace(callstack, 128);
+    char** strs = backtrace_symbols(callstack, frames);
+    for (i = 0; i < frames; ++i) {
+        printf("s3backer crash: %s", strs[i]);
+    }
+    for (i = 0; i < frames; ++i) {
+        fprintf(stderr, "s3backer crash: %s", strs[i]);
+    }
+    for (i = 0; i < frames; ++i) {
+        (*crash_config->log)(LOG_INFO, "s3backer crash: %s", strs[i]);
+    }
+    free(strs);
+
+    exit(1);
+}
+#endif
+
 int
 main(int argc, char **argv)
 {
@@ -38,6 +66,12 @@ main(int argc, char **argv)
     /* Get configuration */
     if ((config = s3backer_get_config(argc, argv)) == NULL)
         return 1;
+
+#if COLLECT_STACK_TRACE
+    crash_config = config;
+    signal(SIGSEGV, app_crash);   // install handler
+#endif
+
 
     /* Handle `--erase' flag */
     if (config->erase) {
