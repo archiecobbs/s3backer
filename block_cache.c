@@ -158,6 +158,7 @@ struct block_cache_private {
     pthread_cond_t                  worker_work;    // there is new work for worker thread(s)
     pthread_cond_t                  worker_exit;    // a worker thread has exited
     pthread_cond_t                  write_complete; // a write has completed
+    struct block_cache_usage_stats  *usage_stats;   /* Pointer to array of usage stats (for each block) */
 };
 
 /* Callback info */
@@ -198,6 +199,8 @@ static uint64_t block_cache_get_time_millis(void);
 static int block_cache_read_data(struct block_cache_private *priv, struct cache_entry *entry, void *dest, u_int off, u_int len);
 static int block_cache_write_data(struct block_cache_private *priv, struct cache_entry *entry, const void *src, u_int off,
   u_int len);
+static void block_cache_update_read_stats(struct block_cache_private *priv, s3b_block_t block_num);
+static void block_cache_update_write_stats(struct block_cache_private *priv, s3b_block_t block_num);
 
 /* Invariants checking */
 #ifndef NDEBUG
@@ -551,6 +554,9 @@ block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_nu
     assert(len <= priv->config->block_size);
     assert(off + len <= priv->config->block_size);
 
+    /* update read usage stats here, so we eventually count read hits too */
+    block_cache_update_read_stats(priv, block_num);
+
 again:
     /* Check to see if a cache entry already exists */
     if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
@@ -745,6 +751,9 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
+
+    /* update write usage stats here, so we eventually count write hits too */
+    block_cache_update_write_stats(priv, block_num);
 
 again:
     /* Sanity check */
@@ -1337,6 +1346,31 @@ block_cache_dirty_callback(void *arg, void *value)
         break;
     }
 }
+
+
+static void block_cache_update_read_stats(struct block_cache_private *priv, s3b_block_t block_num)
+{
+    uint64_t timestamp = block_cache_get_time_millis();
+    if (priv->stats.usage_stats[block_num].num_reads > 0) {
+        uint64_t old_timestamp = priv->stats.usage_stats[block_num].last_read_timestamp;
+        priv->stats.usage_stats[block_num].cumulative_reads_time += (timestamp - old_timestamp);
+    }
+    priv->stats.usage_stats[block_num].last_read_timestamp = timestamp;
+    priv->stats.usage_stats[block_num].num_reads++;
+}
+
+static void block_cache_update_write_stats(struct block_cache_private *priv, s3b_block_t block_num)
+{
+    uint64_t timestamp = block_cache_get_time_millis();
+    if (priv->stats.usage_stats[block_num].num_writes > 0) {
+        uint64_t old_timestamp = priv->stats.usage_stats[block_num].last_write_timestamp;
+        priv->stats.usage_stats[block_num].cumulative_writes_time += (timestamp - old_timestamp);
+    }
+    priv->stats.usage_stats[block_num].last_write_timestamp = timestamp;
+    priv->stats.usage_stats[block_num].num_writes++;
+}
+
+
 
 #ifndef NDEBUG
 
