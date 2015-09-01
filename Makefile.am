@@ -74,8 +74,6 @@ tester_SOURCES=     tester.c \
 
 AM_CFLAGS=          $(FUSE_CFLAGS)
 
-SUBDIRS=            debian
-
 gitrev.c:
 			printf 'const char *const s3backer_version = "%s";\n' "`git describe`" > gitrev.c
 
