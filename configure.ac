@@ -21,7 +21,7 @@
 
 AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.4.1], [https://github.com/archiecobbs/s3backer], [s3backer])
 AC_CONFIG_AUX_DIR(scripts)
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE(foreign)
 dnl AM_MAINTAINER_MODE
 AC_PREREQ(2.59)
 AC_PREFIX_DEFAULT(/usr)
