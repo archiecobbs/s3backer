@@ -383,6 +383,10 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--storageClass=%s",
+        .offset=    offsetof(struct s3b_config, http_io.storage_class),
+    },
+    {
         .templ=     "--ssl",
         .offset=    offsetof(struct s3b_config, ssl),
         .value=     1
@@ -989,6 +993,15 @@ validate_config(void)
             warn("%s", config.http_io.bucket);
             return -1;
         }
+    }
+
+    /* Check storage class */
+    if (config.http_io.storage_class != NULL
+      && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD) != 0
+      && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD_IA) != 0
+      && strcmp(config.http_io.storage_class, STORAGE_CLASS_REDUCED_REDUNDANCY) != 0) {
+        warnx("invalid storage class `%s'", config.http_io.storage_class);
+        return -1;
     }
 
     /* Set default or custom region */
@@ -1696,10 +1709,11 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
-    fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage");
+    fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage (deprecated)");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "storageClass=TYPE", "Specify storage class for written blocks");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");

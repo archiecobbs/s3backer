@@ -42,6 +42,11 @@
 #define AUTH_VERSION_AWS2   "aws2"
 #define AUTH_VERSION_AWS4   "aws4"
 
+/* Storage classes */
+#define STORAGE_CLASS_STANDARD              "STANDARD"
+#define STORAGE_CLASS_STANDARD_IA           "STANDARD_IA"
+#define STORAGE_CLASS_REDUCED_REDUNDANCY    "REDUCED_REDUNDANCY"
+
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     char                *accessId;
@@ -49,6 +54,7 @@ struct http_io_conf {
     char                *iam_token;
     const char          *accessType;
     const char          *ec2iam_role;
+    const char          *storage_class;
     const char          *authVersion;
     const char          *baseURL;
     const char          *region;
@@ -62,7 +68,7 @@ struct http_io_conf {
     int                 debug;
     int                 debug_http;
     int                 quiet;
-    int                 rrs;                        // reduced redundancy storage
+    int                 rrs;                        // reduced redundancy storage (backward compat.)
     int                 compress;                   // zlib compression level
     int                 vhost;                      // use virtual host style URL
     u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()

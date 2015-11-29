@@ -58,8 +58,6 @@
 #define ACL_HEADER                  "x-amz-acl"
 #define CONTENT_SHA256_HEADER       "x-amz-content-sha256"
 #define STORAGE_CLASS_HEADER        "x-amz-storage-class"
-#define SCLASS_STANDARD             "STANDARD"
-#define SCLASS_REDUCED_REDUNDANCY   "REDUCED_REDUNDANCY"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
 #define HMAC_HEADER                 "x-amz-meta-s3backer-hmac"
@@ -839,6 +837,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+        const char *storage_class;
         MD5_CTX ctx;
 
         /* Reset I/O info */
@@ -877,8 +876,10 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
 
         /* Add storage class header (if needed) */
-        if (config->rrs)
-            io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
+        storage_class = config->storage_class != NULL ?
+          config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
+        if (storage_class != NULL)
+            io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
@@ -1344,6 +1345,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     u_char md5[MD5_DIGEST_LENGTH];
     const time_t now = time(NULL);
     void *encoded_buf = NULL;
+    const char *storage_class;
     struct http_io io;
     int compressed = 0;
     int encrypted = 0;
@@ -1508,13 +1510,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
           FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
     }
 
-    /* Add signature header (if encrypting) */
-    if (src != NULL && config->encryption != NULL)
-        io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
-
     /* Add storage class header (if needed) */
-    if (config->rrs)
-        io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, SCLASS_REDUCED_REDUNDANCY);
+    storage_class = config->storage_class != NULL ? config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
+    if (storage_class != NULL)
+        io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)

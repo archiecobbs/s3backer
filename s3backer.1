@@ -727,7 +727,8 @@ will clear it manually.
 But see also BUGS below.
 .Pp
 .It Fl \-rrs
-When writing blocks, specify Reduced Redundancy Storage.
+Deprecated; equivalent to
+.Fl \-storageClass=REDUCED_REDUNDANCY .
 .It Fl \-size=SIZE
 Specify the size (in bytes) of the backed file to be exported by the filesystem.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes, or 'Y' for yottabytes.
@@ -751,6 +752,17 @@ Specify the name of the human-readable statistics file that appears in the
 filesystem.
 A value of empty string disables the appearance of this file.
 Default is `stats'.
+.It Fl \-storageClass=TYPE
+Specify storage class.
+.Pp
+Valid values are:
+.Pa STANDARD ,
+.Pa STANDARD_IA ,
+and
+.Pa REDUCED_REDUNDANCY .
+.Pp
+The default is
+.Pa STANDARD .
 .It Fl \-test
 Operate in local test mode.
 Filesystem blocks are stored as regular files in the directory

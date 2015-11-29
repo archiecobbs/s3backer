@@ -1,3 +1,7 @@
+Version Next
+
+    - Add support for STANDARD_IA storage class (issue #59)
+
 Version 1.4.2 released September 1, 2015
 
     - Update license to fix OpenSSL vs. GPL conflict
