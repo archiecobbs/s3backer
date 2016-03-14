@@ -1,6 +1,7 @@
 Version Next
 
     - Add support for STANDARD_IA storage class (issue #59)
+    - Set "Accept-Encoding" header appropriately (issue #48)
 
 Version 1.4.2 released September 1, 2015
 

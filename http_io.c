@@ -51,6 +51,7 @@
 #define AUTH_HEADER                 "Authorization"
 #define CTYPE_HEADER                "Content-Type"
 #define CONTENT_ENCODING_HEADER     "Content-Encoding"
+#define ACCEPT_ENCODING_HEADER      "Accept-Encoding"
 #define ETAG_HEADER                 "ETag"
 #define CONTENT_ENCODING_DEFLATE    "deflate"
 #define CONTENT_ENCODING_ENCRYPT    "encrypt"
@@ -1037,6 +1038,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
+    char accepted_encodings[64];
     const time_t now = time(NULL);
     int encrypted = 0;
     struct http_io io;
@@ -1102,6 +1104,14 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         http_io_prhex(md5buf, expect_md5, MD5_DIGEST_LENGTH);
         io.headers = http_io_add_header(io.headers, "%s: \"%s\"", header, md5buf);
     }
+
+    /* Set Accept-Encoding header */
+    snprintf(accepted_encodings, sizeof(accepted_encodings), "%s", CONTENT_ENCODING_DEFLATE);
+    if (config->encryption != NULL) {
+        snprintf(accepted_encodings + strlen(accepted_encodings), sizeof(accepted_encodings) - strlen(accepted_encodings),
+          ", %s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
+    }
+    io.headers = http_io_add_header(io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accepted_encodings);
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
