@@ -1849,7 +1849,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     const char *qmark;
     size_t resource_len;
     u_int hmac_len;
-    HMAC_CTX hmac_ctx;
+    HMAC_CTX* hmac_ctx = NULL;
     int i;
     int r;
 
@@ -1860,22 +1860,23 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     pthread_mutex_unlock(&priv->mutex);
 
     /* Initialize HMAC */
-    HMAC_CTX_init(&hmac_ctx);
-    HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
+    hmac_ctx = HMAC_CTX_new();
+    assert(NULL != hmac_ctx);
+    HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
 
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
 #endif
 
     /* Sign initial stuff */
-    HMAC_Update(&hmac_ctx, (const u_char *)io->method, strlen(io->method));
-    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)io->method, strlen(io->method));
+    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
-    update_hmac_from_header(&hmac_ctx, io, MD5_HEADER, 1, sigbuf, sizeof(sigbuf));
-    update_hmac_from_header(&hmac_ctx, io, CTYPE_HEADER, 1, sigbuf, sizeof(sigbuf));
-    update_hmac_from_header(&hmac_ctx, io, HTTP_DATE_HEADER, 1, sigbuf, sizeof(sigbuf));
+    update_hmac_from_header(hmac_ctx, io, MD5_HEADER, 1, sigbuf, sizeof(sigbuf));
+    update_hmac_from_header(hmac_ctx, io, CTYPE_HEADER, 1, sigbuf, sizeof(sigbuf));
+    update_hmac_from_header(hmac_ctx, io, HTTP_DATE_HEADER, 1, sigbuf, sizeof(sigbuf));
 
     /* Get x-amz headers sorted by name */
     for (header = io->headers, num_amz_hdrs = 0; header != NULL; header = header->next) {
@@ -1895,24 +1896,23 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 
     /* Sign x-amz headers (in sorted order) */
     for (i = 0; i < num_amz_hdrs; i++)
-        update_hmac_from_header(&hmac_ctx, io, amz_hdrs[i], 0, sigbuf, sizeof(sigbuf));
+        update_hmac_from_header(hmac_ctx, io, amz_hdrs[i], 0, sigbuf, sizeof(sigbuf));
 
     /* Get resource */
     resource = config->vhost ? io->url + strlen(config->baseURL) - 1 : io->url + strlen(config->baseURL) + strlen(config->bucket);
     resource_len = (qmark = strchr(resource, '?')) != NULL ? qmark - resource : strlen(resource);
 
     /* Sign final stuff */
-    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(&hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
-    HMAC_Update(&hmac_ctx, (const u_char *)resource, resource_len);
+    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
+    HMAC_Update(hmac_ctx, (const u_char *)resource, resource_len);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, resource_len, resource);
 #endif
 
     /* Finish up */
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
     assert(hmac_len == SHA_DIGEST_LENGTH);
-    HMAC_CTX_cleanup(&hmac_ctx);
 
     /* Base64-encode result */
     http_io_base64_encode(authbuf, sizeof(authbuf), hmac, hmac_len);
@@ -1934,7 +1934,7 @@ fail:
     /* Clean up */
     if (amz_hdrs != NULL)
         free(amz_hdrs);
-    HMAC_CTX_cleanup(&hmac_ctx);
+    HMAC_CTX_free(hmac_ctx);
     return r;
 }
 
@@ -1965,8 +1965,8 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     size_t query_params_len;
     u_int header_names_length;
     u_int num_sorted_hdrs;
-    EVP_MD_CTX hash_ctx;
-    HMAC_CTX hmac_ctx;
+    EVP_MD_CTX* hash_ctx;
+    HMAC_CTX* hmac_ctx = NULL;
 #if DEBUG_AUTHENTICATION
     char sigbuf[1024];
 #endif
@@ -1981,8 +1981,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     int i;
 
     /* Initialize */
-    EVP_MD_CTX_init(&hash_ctx);
-    HMAC_CTX_init(&hmac_ctx);
+    hash_ctx = EVP_MD_CTX_new();
 
     /* Snapshot current credentials */
     pthread_mutex_lock(&priv->mutex);
@@ -2013,10 +2012,10 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
 /****** Hash Payload and Add Header ******/
 
-    EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
+    EVP_DigestInit_ex(hash_ctx, EVP_sha256(), NULL);
     if (payload != NULL)
-        EVP_DigestUpdate(&hash_ctx, payload, plen);
-    EVP_DigestFinal_ex(&hash_ctx, payload_hash, &payload_hash_len);
+        EVP_DigestUpdate(hash_ctx, payload, plen);
+    EVP_DigestFinal_ex(hash_ctx, payload_hash, &payload_hash_len);
     http_io_prhex(payload_hash_buf, payload_hash, payload_hash_len);
 
     io->headers = http_io_add_header(io->headers, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
@@ -2033,7 +2032,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #endif
 
     /* Reset hash */
-    EVP_DigestInit_ex(&hash_ctx, EVP_sha256(), NULL);
+    EVP_DigestInit_ex(hash_ctx, EVP_sha256(), NULL);
 
     /* Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us */
     snprintf(hosthdr, sizeof(hosthdr), "host:%.*s", (int)host_len, host);
@@ -2050,22 +2049,22 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     qsort(sorted_hdrs, num_sorted_hdrs, sizeof(*sorted_hdrs), http_io_strcasecmp_ptr);
 
     /* Request method */
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)io->method, strlen(io->method));
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)io->method, strlen(io->method));
+    EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
 
     /* Canonical URI */
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)uripath, uripath_len);
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)uripath, uripath_len);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
 #endif
 
     /* Canonical query string */
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)query_params, query_params_len);
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)query_params, query_params_len);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
 #endif
@@ -2084,7 +2083,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
                 goto fail;
             }
             lcase = tolower(*s);
-            EVP_DigestUpdate(&hash_ctx, (const u_char *)&lcase, 1);
+            EVP_DigestUpdate(hash_ctx, (const u_char *)&lcase, 1);
 #if DEBUG_AUTHENTICATION
             snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%c", lcase);
 #endif
@@ -2092,13 +2091,13 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
         } while (*s++ != ':');
         while (isspace(*s))
             s++;
-        EVP_DigestUpdate(&hash_ctx, (const u_char *)s, strlen(s));
-        EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+        EVP_DigestUpdate(hash_ctx, (const u_char *)s, strlen(s));
+        EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
         snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", s);
 #endif
     }
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "\n");
 #endif
@@ -2120,20 +2119,20 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     }
     *p++ = '\0';
     assert(p <= header_names + header_names_length);
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)header_names, strlen(header_names));
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)"\n", 1);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)header_names, strlen(header_names));
+    EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", header_names);
 #endif
 
     /* Hashed payload */
-    EVP_DigestUpdate(&hash_ctx, (const u_char *)payload_hash_buf, strlen(payload_hash_buf));
+    EVP_DigestUpdate(hash_ctx, (const u_char *)payload_hash_buf, strlen(payload_hash_buf));
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", payload_hash_buf);
 #endif
 
     /* Get canonical request hash as a string */
-    EVP_DigestFinal_ex(&hash_ctx, creq_hash, &creq_hash_len);
+    EVP_DigestFinal_ex(hash_ctx, creq_hash, &creq_hash_len);
     http_io_prhex(creq_hash_buf, creq_hash, creq_hash_len);
 
 #if DEBUG_AUTHENTICATION
@@ -2144,34 +2143,36 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 /****** Derive Signing Key ******/
 
     /* Do nested HMAC's */
-    HMAC_Init_ex(&hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
+    hmac_ctx = HMAC_CTX_new();
+    assert(NULL != hmac_ctx);
+    HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
 #if DEBUG_AUTHENTICATION
     (*config->log)(LOG_DEBUG, "auth: access_key = \"%s\"", access_key);
 #endif
-    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, 8);
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Update(hmac_ctx, (const u_char *)datebuf, 8);
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
     assert(hmac_len <= sizeof(hmac));
 #if DEBUG_AUTHENTICATION
     http_io_prhex(hmac_buf, hmac, hmac_len);
     (*config->log)(LOG_DEBUG, "auth: HMAC[%.8s] = %s", datebuf, hmac_buf);
 #endif
-    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(&hmac_ctx, (const u_char *)config->region, strlen(config->region));
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
 #if DEBUG_AUTHENTICATION
     http_io_prhex(hmac_buf, hmac, hmac_len);
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", config->region, hmac_buf);
 #endif
-    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(&hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
 #if DEBUG_AUTHENTICATION
     http_io_prhex(hmac_buf, hmac, hmac_len);
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %sn", S3_SERVICE_NAME, hmac_buf);
 #endif
-    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
 #if DEBUG_AUTHENTICATION
     http_io_prhex(hmac_buf, hmac, hmac_len);
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", SIGNATURE_TERMINATOR, hmac_buf);
@@ -2182,34 +2183,34 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
 #endif
-    HMAC_Init_ex(&hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
-    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
+    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
+    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", SIGNATURE_ALGORITHM);
 #endif
-    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
-    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
+    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", datebuf);
 #endif
-    HMAC_Update(&hmac_ctx, (const u_char *)datebuf, 8);
-    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(&hmac_ctx, (const u_char *)config->region, strlen(config->region));
-    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(&hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
-    HMAC_Update(&hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(&hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
-    HMAC_Update(&hmac_ctx, (const u_char *)"\n", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)datebuf, 8);
+    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
+    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
       datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
 #endif
-    HMAC_Update(&hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
+    HMAC_Update(hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", creq_hash_buf);
 #endif
-    HMAC_Final(&hmac_ctx, hmac, &hmac_len);
+    HMAC_Final(hmac_ctx, hmac, &hmac_len);
     http_io_prhex(hmac_buf, hmac, hmac_len);
 
 #if DEBUG_AUTHENTICATION
@@ -2231,8 +2232,8 @@ fail:
     if (sorted_hdrs != NULL)
         free(sorted_hdrs);
     free(header_names);
-    EVP_MD_CTX_cleanup(&hash_ctx);
-    HMAC_CTX_cleanup(&hmac_ctx);
+    EVP_MD_CTX_free(hash_ctx);
+    HMAC_CTX_free(hmac_ctx);
     return r;
 }
 
@@ -2521,7 +2522,7 @@ static u_int
 http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest)
 {
     u_char ivec[EVP_MAX_IV_LENGTH];
-    EVP_CIPHER_CTX ctx;
+    EVP_CIPHER_CTX* ctx;
     u_int total_len;
     char blockbuf[EVP_MAX_IV_LENGTH];
     int clen;
@@ -2536,34 +2537,35 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     assert(EVP_MAX_IV_LENGTH >= MD5_DIGEST_LENGTH);
 
     /* Initialize cipher context */
-    EVP_CIPHER_CTX_init(&ctx);
+    ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX_init(ctx);
 
     /* Generate initialization vector by encrypting the block number using previously generated IV */
     memset(blockbuf, 0, sizeof(blockbuf));
     snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Initialize cipher for IV generation */
-    r = EVP_EncryptInit_ex(&ctx, priv->cipher, NULL, priv->ivkey, priv->ivkey);
+    r = EVP_EncryptInit_ex(ctx, priv->cipher, NULL, priv->ivkey, priv->ivkey);
     assert(r == 1);
-    EVP_CIPHER_CTX_set_padding(&ctx, 0);
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
 
     /* Encrypt block number to get IV for bulk encryption */
-    r = EVP_EncryptUpdate(&ctx, ivec, &clen, (const u_char *)blockbuf, EVP_CIPHER_CTX_block_size(&ctx));
-    assert(r == 1 && clen == EVP_CIPHER_CTX_block_size(&ctx));
-    r = EVP_EncryptFinal_ex(&ctx, NULL, &clen);
+    r = EVP_EncryptUpdate(ctx, ivec, &clen, (const u_char *)blockbuf, EVP_CIPHER_CTX_block_size(ctx));
+    assert(r == 1 && clen == EVP_CIPHER_CTX_block_size(ctx));
+    r = EVP_EncryptFinal_ex(ctx, NULL, &clen);
     assert(r == 1 && clen == 0);
 
     /* Re-initialize cipher for bulk data encryption */
-    assert(EVP_CIPHER_CTX_block_size(&ctx) == EVP_CIPHER_CTX_iv_length(&ctx));
-    r = EVP_CipherInit_ex(&ctx, priv->cipher, NULL, priv->key, ivec, enc);
+    assert(EVP_CIPHER_CTX_block_size(ctx) == EVP_CIPHER_CTX_iv_length(ctx));
+    r = EVP_CipherInit_ex(ctx, priv->cipher, NULL, priv->key, ivec, enc);
     assert(r == 1);
-    EVP_CIPHER_CTX_set_padding(&ctx, 1);
+    EVP_CIPHER_CTX_set_padding(ctx, 1);
 
     /* Encrypt/decrypt */
-    r = EVP_CipherUpdate(&ctx, dest, &clen, src, (int)len);
+    r = EVP_CipherUpdate(ctx, dest, &clen, src, (int)len);
     assert(r == 1 && clen >= 0);
     total_len = (u_int)clen;
-    r = EVP_CipherFinal_ex(&ctx, dest + total_len, &clen);
+    r = EVP_CipherFinal_ex(ctx, dest + total_len, &clen);
     assert(r == 1 && clen >= 0);
     total_len += (u_int)clen;
 
@@ -2578,7 +2580,7 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 #endif
 
     /* Done */
-    EVP_CIPHER_CTX_cleanup(&ctx);
+    EVP_CIPHER_CTX_free(ctx);
     return total_len;
 }
 
@@ -2588,18 +2590,19 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     const char *const ciphername = EVP_CIPHER_name(priv->cipher);
     char blockbuf[64];
     u_int hmac_len;
-    HMAC_CTX ctx;
+    HMAC_CTX* ctx;
 
     /* Sign the block number, the name of the encryption algorithm, and the block data */
     snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-    HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
-    HMAC_Update(&ctx, (const u_char *)blockbuf, strlen(blockbuf));
-    HMAC_Update(&ctx, (const u_char *)ciphername, strlen(ciphername));
-    HMAC_Update(&ctx, (const u_char *)src, len);
-    HMAC_Final(&ctx, (u_char *)hmac, &hmac_len);
+    ctx = HMAC_CTX_new();
+    assert(NULL != ctx);
+    HMAC_Init_ex(ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
+    HMAC_Update(ctx, (const u_char *)blockbuf, strlen(blockbuf));
+    HMAC_Update(ctx, (const u_char *)ciphername, strlen(ciphername));
+    HMAC_Update(ctx, (const u_char *)src, len);
+    HMAC_Final(ctx, (u_char *)hmac, &hmac_len);
     assert(hmac_len == SHA_DIGEST_LENGTH);
-    HMAC_CTX_cleanup(&ctx);
+    HMAC_CTX_free(ctx);
 }
 
 static void
