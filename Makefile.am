@@ -70,6 +70,7 @@ s3backer_SOURCES=   main.c \
 		    reset.c \
 		    s3b_config.c \
 		    test_io.c \
+		    sslcompat.c \
 		    gitrev.c
 
 tester_SOURCES=     tester.c \
@@ -83,6 +84,7 @@ tester_SOURCES=     tester.c \
 		    reset.c \
 		    s3b_config.c \
 		    test_io.c \
+		    sslcompat.c \
 		    gitrev.c
 
 AM_CFLAGS=          $(FUSE_CFLAGS)

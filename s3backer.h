@@ -225,3 +225,10 @@ struct s3backer_store {
 /* gitrev.c */
 extern const char *const s3backer_version;
 
+/* Issue #64 OpenSSL 1.1.0 compatibility - sslcompat.c */
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+HMAC_CTX *HMAC_CTX_new(void);
+void HMAC_CTX_free(HMAC_CTX *ctx);
+EVP_MD_CTX *EVP_MD_CTX_new(void);
+void EVP_MD_CTX_free(EVP_MD_CTX *ctx);
+#endif
