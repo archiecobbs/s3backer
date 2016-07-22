@@ -2,6 +2,7 @@ Version Next
 
     - Add support for STANDARD_IA storage class (issue #59)
     - Set "Accept-Encoding" header appropriately (issue #48)
+    - Fix build issue with OpenSSL 1.1.0 (issue #64)
 
 Version 1.4.2 released September 1, 2015
 
