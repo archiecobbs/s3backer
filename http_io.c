@@ -1520,6 +1520,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
           FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
     }
 
+    /* Add signature header (if encrypting) */
+    if (src != NULL && config->encryption != NULL)
+        io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
+
     /* Add storage class header (if needed) */
     storage_class = config->storage_class != NULL ? config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
     if (storage_class != NULL)
