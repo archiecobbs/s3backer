@@ -1,3 +1,7 @@
+Version Next
+
+    - Added `--defaultContentEncoding' for non-compliant backends (issue #68)
+
 Version 1.4.3 released July 25, 2016
 
     - Add support for STANDARD_IA storage class (issue #59)

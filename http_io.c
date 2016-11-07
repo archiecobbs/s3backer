@@ -1124,6 +1124,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     did_read = io.buf_size - io.bufs.rdremain;
 
     /* Check Content-Encoding and decode if necessary */
+    if (*io.content_encoding == '\0' && config->default_ce != NULL)
+        snprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
     for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
 
         /* Find next encoding layer */

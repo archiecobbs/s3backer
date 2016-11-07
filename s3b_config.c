@@ -365,6 +365,10 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.prefix),
     },
     {
+        .templ=     "--defaultContentEncoding=%s",
+        .offset=    offsetof(struct s3b_config, http_io.default_ce),
+    },
+    {
         .templ=     "--readOnly",
         .offset=    offsetof(struct s3b_config, fuse_ops.read_only),
         .value=     1
@@ -1541,6 +1545,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
+      config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
@@ -1703,6 +1709,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
     fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
+    fprintf(stderr, "\t--%-27s %s\n", "defaultContentEncoding=STRING", "Default HTTP Content-Encoding if none given");
     fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");

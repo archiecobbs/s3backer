@@ -495,6 +495,17 @@ however, the
 FUSE flag implies this flag.
 .It Fl \-debug-http
 Enable printing of HTTP headers to standard output.
+.It Fl \-defaultContentEncoding=VALUE
+Use this to workaround S3 backends that fail to send back the
+.Pa "Content-Encoding"
+header that was sent to them by
+.Nm .
+If a block read response contains no
+.Pa "Content-Encoding"
+header, this value will be substituted.
+.Pp
+If you get errors complaining that the content was expected to be encrypted, try setting this to 
+.Pa deflate,encrypt-AES-128-CBC .
 .It Fl \-encrypt[=CIPHER]
 Enable encryption and authentication of block data.
 See your OpenSSL documentation for a list of supported ciphers;
