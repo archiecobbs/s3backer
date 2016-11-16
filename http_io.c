@@ -233,6 +233,8 @@ static void http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_i
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth2(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
+static size_t url_encode(const char *src, size_t len, char *dst, size_t buflen, int encode_slash);
+static void digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encode_slash);
 
 /* EC2 IAM thread */
 static void *update_iam_credentials_main(void *arg);
@@ -537,6 +539,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
     /* List blocks */
     do {
+        char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
         const time_t now = time(NULL);
 
         /* Reset XML parser state */
@@ -545,16 +548,19 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
+        /* URL-encode prefix */
+        url_encode(config->prefix, strlen(config->prefix), url_encoded_prefix, sizeof(url_encoded_prefix), 1);
+
         /* Format URL */
         snprintf(urlbuf, sizeof(urlbuf), "%s%s?", config->baseURL, config->vhost ? "" : config->bucket);
 
         /* Add URL parameters (note: must be in "canonical query string" format for proper authentication) */
         if (io.list_truncated) {
             snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%0*jx&",
-              LIST_PARAM_MARKER, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
+              LIST_PARAM_MARKER, url_encoded_prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, config->prefix);
+        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, url_encoded_prefix);
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
@@ -2062,7 +2068,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #endif
 
     /* Canonical URI */
-    EVP_DigestUpdate(hash_ctx, (const u_char *)uripath, uripath_len);
+    digest_url_encoded(hash_ctx, uripath, uripath_len, 0);
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
@@ -2241,6 +2247,44 @@ fail:
     EVP_MD_CTX_free(hash_ctx);
     HMAC_CTX_free(hmac_ctx);
     return r;
+}
+
+/*
+ * Add data to digest, but in URL-encoded form.
+ */
+static void
+digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encode_slash)
+{
+    char buf[len * 3 + 1];
+
+    len = url_encode(data, len, buf, sizeof(buf), encode_slash);
+    EVP_DigestUpdate(hash_ctx, (const u_char *)buf, len);
+}
+
+/*
+ * URL-encode the given input.
+ */
+static size_t
+url_encode(const char *src, size_t len, char *dst, size_t buflen, int encode_slash)
+{
+    char *const dst_base = dst;
+    size_t elen;
+
+    while (len-- > 0) {
+        const char ch = *src++;
+        if (isalnum(ch) || ch == '_' || ch == '-' || ch == '~' || ch == '.' || (ch == '/' && !encode_slash)) {
+            snprintf(dst, buflen, "%c", ch);
+            elen = 1;
+        } else {
+            snprintf(dst, buflen, "%%%02X", (int)ch & 0xff);
+            elen = 3;
+        }
+        dst += elen;
+        buflen -= elen;
+    }
+    if (buflen > 0)
+        *dst = '\0';
+    return dst - dst_base;
 }
 
 /*
