@@ -2,6 +2,7 @@ Version Next
 
     - Added `--defaultContentEncoding' for non-compliant backends (issue #68)
     - Fixed auth bug when prefix contains URL-encodable char (issue #69)
+    - Remove restriction preventing streaming encryption modes (issue #70)
 
 Version 1.4.3 released July 25, 2016
 

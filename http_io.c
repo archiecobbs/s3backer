@@ -351,12 +351,6 @@ http_io_create(struct http_io_conf *config)
             r = EINVAL;
             goto fail4;
         }
-        if (EVP_CIPHER_block_size(priv->cipher) != EVP_CIPHER_iv_length(priv->cipher)) {
-            (*config->log)(LOG_ERR, "invalid encryption cipher `%s': block size %d != IV length %d",
-              config->encryption, EVP_CIPHER_block_size(priv->cipher), EVP_CIPHER_iv_length(priv->cipher));
-            r = EINVAL;
-            goto fail4;
-        }
         cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
