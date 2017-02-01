@@ -744,7 +744,7 @@ Deprecated; equivalent to
 Specify the size (in bytes) of the backed file to be exported by the filesystem.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes, or 'Y' for yottabytes.
 .Nm
-will attempt to auto-detect the block size by reading block number zero.
+will attempt to auto-detect the size of the backed file by reading block number zero.
 If this option is not specified, the auto-detected value will be used.
 If this option is specified but disagrees with the auto-detected value,
 .Nm
