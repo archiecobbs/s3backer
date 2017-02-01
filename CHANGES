@@ -1,4 +1,4 @@
-Version Next
+Version 1.4.4 released February 1, 2017
 
     - Added `--defaultContentEncoding' for non-compliant backends (issue #68)
     - Fixed auth bug when prefix contains URL-encodable char (issue #69)
