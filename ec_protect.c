@@ -83,6 +83,10 @@
  * state we don't have the data but we do know its MD5, so therefore we can verify what
  * comes back; if it doesn't verify, we retry as we would with any other error.
  *
+ * There is a special case that occurs when we get an error while WRITING: in this case,
+ * we don't know whether the block was successfully written or not, so we transition to
+ * WRITTEN but with an all zeroes MD5 indicating "don't know".
+ *
  * If we hit the 'cache_size' limit, we sleep a little while and then try again.
  *
  * We keep track of blocks in 'struct block_info' structures. These structures
@@ -157,6 +161,9 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 /* Special all-zeroes MD5 value signifying a zeroed block */
 static const u_char zero_md5[MD5_DIGEST_LENGTH];
 
+/* Special all-onew MD5 value signifying a just-written block whose content is unknown */
+static u_char unknown_md5[MD5_DIGEST_LENGTH];
+
 /*
  * Constructor
  *
@@ -203,6 +210,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail6;
     s3b->data = priv;
+    memset(unknown_md5, 0xff, sizeof(unknown_md5));
 
     /* Done */
     EC_PROTECT_CHECK_INVARIANTS(priv);
@@ -332,6 +340,7 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
 
+again:
     /* Scrub the list of WRITTENs */
     ec_protect_scrub_expired_writtens(priv, ec_protect_get_time());
 
@@ -349,6 +358,22 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
+        }
+
+        /* In WRITTEN state: special case: unknown MD5. Wait for settle time, then try again */
+        if (memcmp(binfo->u.md5, unknown_md5, MD5_DIGEST_LENGTH) == 0) {
+
+            /* Have we waited long enough already? If so, reset block and try again */
+            if (ec_protect_get_time() >= binfo->timestamp + config->min_write_delay) {
+                TAILQ_REMOVE(&priv->list, binfo, link);
+                s3b_hash_remove(priv->hashtable, binfo->block_num);
+                free(binfo);
+                goto again;
+            }
+
+            /* Sleep to allow previous failed write to resolve, and then try again */
+            ec_protect_sleep_until(priv, NULL, binfo->timestamp + config->min_write_delay);
+            goto again;
         }
 
         /* In WRITTEN state: special case: zero block */
@@ -446,15 +471,6 @@ writeit:
         pthread_mutex_lock(&priv->mutex);
         EC_PROTECT_CHECK_INVARIANTS(priv);
 
-        /* If there was an error, just return it and forget */
-        if (r != 0) {
-            s3b_hash_remove(priv->hashtable, block_num);
-            pthread_cond_signal(&priv->space_cond);
-            pthread_mutex_unlock(&priv->mutex);
-            free(binfo);
-            return r;
-        }
-
         /*
          * Wake up at least one thread that might be sleeping indefinitely (see above). This handles an obscure
          * case where the cache is full and every entry is in the WRITING state. The next thread that attempts
@@ -462,16 +478,22 @@ writeit:
          */
         pthread_cond_signal(&priv->space_cond);
 
-        /* Move to state WRITTEN */
+        /*
+         * Move to state WRITTEN.
+         *
+         * If there was an error, we can't assume we know whether the write succeeded or not,
+         * so mark the block as WRITTEN but with a special MD5 value meaning "unknown".
+         * We have to wait for min_write_delay before trying to read the block again.
+         */
         binfo->timestamp = ec_protect_get_time();
-        memcpy(binfo->u.md5, md5, MD5_DIGEST_LENGTH);
+        memcpy(binfo->u.md5, r == 0 ? md5 : unknown_md5, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(&priv->list, binfo, link);
         pthread_mutex_unlock(&priv->mutex);
 
         /* Copy expected MD5 for caller */
-        if (caller_md5 != NULL)
+        if (r == 0 && caller_md5 != NULL)
             memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
-        return 0;
+        return r;
     }
 
     /*
