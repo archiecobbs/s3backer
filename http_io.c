@@ -2378,6 +2378,7 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (long)60);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
