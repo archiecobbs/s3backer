@@ -124,6 +124,10 @@
 #define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
 #define EC2_IAM_META_DATA_TOKEN     "Token"
 
+/* TCP keep-alive */
+#define TCP_KEEP_ALIVE_IDLE         200
+#define TCP_KEEP_ALIVE_INTERVAL     60
+
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
 
@@ -2378,6 +2382,9 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (long)1);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, (long)TCP_KEEP_ALIVE_IDLE);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, (long)TCP_KEEP_ALIVE_INTERVAL);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
