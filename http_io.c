@@ -859,7 +859,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             struct tm tm;
 
             /* Create content for the mounted flag object (timestamp) */
-            gethostname(content, sizeof(content - 1));
+            gethostname(content, sizeof(content) - 1);
             content[sizeof(content) - 1] = '\0';
             strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" AWS_DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
             io.src = content;
