@@ -47,6 +47,9 @@
 #define STORAGE_CLASS_STANDARD_IA           "STANDARD_IA"
 #define STORAGE_CLASS_REDUCED_REDUNDANCY    "REDUCED_REDUNDANCY"
 
+#define S3BACKER_SSE_HEADER                         "x-amz-server-side-encryption"
+#define S3BACKER_DEFAULT_SSE_VALUE                  "AES256"
+
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     char                *accessId;
