@@ -82,6 +82,9 @@
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 
+#define S3BACKER_SSE_HEADER                         "x-amz-server-side-encryption"
+#define S3BACKER_DEFAULT_SSE_VALUE                  "AES256"
+
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
 #ifndef FUSE_MAX_DAEMON_TIMEOUT
@@ -157,6 +160,7 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+        .sse =                  S3BACKER_DEFAULT_SSE
     },
 
     /* "Eventual consistency" protection config */
@@ -237,6 +241,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--region=%s",
         .offset=    offsetof(struct s3b_config, http_io.region),
+    },
+    {
+            .templ=     "--sse=%s",
+            .offset=    offsetof(struct s3b_config, http_io.sse),
     },
     {
         .templ=     "--blockCacheSize=%u",
