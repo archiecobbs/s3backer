@@ -84,6 +84,7 @@ struct http_io_conf {
     u_int               max_retry_pause;
     uintmax_t           max_speed[2];
     log_func_t          *log;
+    const char          *sse;
 };
 
 /* Statistics structure for http_io store */

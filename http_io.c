@@ -193,6 +193,7 @@ struct http_io {
     const char          *method;                // HTTP method
     const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
+    const char          *sse;                   // Server Side Encryption
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
     s3b_block_t         block_num;              // The block we're reading/writing
@@ -883,8 +884,8 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         /* Add storage class header (if needed) */
         storage_class = config->storage_class != NULL ?
           config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
-        if (config.sse != NULL)
-            io.headers = http_io_add_header(io.headers, "%s: %s", S3BACKER_SSE_HEADER, S3BACKER_DEFAULT_SSE_VALUE);
+        if (io.sse != NULL)
+            io.headers = http_io_add_header(io.headers, "%s: %s", S3BACKER_SSE_HEADER, io.sse);
         if (storage_class != NULL)
             io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
 

@@ -160,7 +160,7 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
-        .sse =                  S3BACKER_DEFAULT_SSE
+        .sse =                  NULL
     },
 
     /* "Eventual consistency" protection config */
@@ -1014,6 +1014,13 @@ validate_config(void)
       && strcmp(config.http_io.storage_class, STORAGE_CLASS_REDUCED_REDUNDANCY) != 0) {
         warnx("invalid storage class `%s'", config.http_io.storage_class);
         return -1;
+    }
+
+    /* Check storage class */
+    if (config.http_io.sse != NULL
+        && strcmp(config.http_io.sse, S3BACKER_DEFAULT_SSE_VALUE) != 0) {
+        warnx("invalid sse type `%s'", config.http_io.sse);
+        config.http_io.sse = S3BACKER_DEFAULT_SSE_VALUE;
     }
 
     /* Set default or custom region */
