@@ -97,6 +97,10 @@
 #define FALLOC_FL_PUNCH_HOLE    0x02
 #endif
 
+
+#define S3BACKER_SSE_HEADER                 "x-amz-server-side-encryption"
+#define S3BACKER_DEFAULT_SSE_VALUE          "AES256"
+
 /*
  * Integral type for holding a block number.
  */

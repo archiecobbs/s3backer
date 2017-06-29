@@ -193,6 +193,7 @@ struct http_io {
     const char          *method;                // HTTP method
     const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
+    const char          *sse;                   // Server Side Encryption
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
     s3b_block_t         block_num;              // The block we're reading/writing
@@ -810,6 +811,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     io.url = urlbuf;
     io.method = HTTP_HEAD;
 
+
     /* Construct URL for the mounted flag */
     http_io_get_mounted_flag_url(urlbuf, sizeof(urlbuf), config);
 
@@ -851,6 +853,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         io.url = urlbuf;
         io.method = new_value ? HTTP_PUT : HTTP_DELETE;
 
+
         /* Add Date header */
         http_io_add_date(priv, &io, now);
 
@@ -885,6 +888,10 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
           config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
         if (storage_class != NULL)
             io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
+
+        /* Add Server Side Encryption value (if needed) */
+        if (config->sse != NULL)
+            io.headers = http_io_add_header(io.headers, "%s: %s", S3BACKER_SSE_HEADER, config->sse);
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
@@ -1534,6 +1541,12 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     storage_class = config->storage_class != NULL ? config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
     if (storage_class != NULL)
         io.headers = http_io_add_header(io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
+
+    /* Add Server Side Encryption header (if needed) */
+    if (config->sse != NULL) {
+        io.headers = http_io_add_header(io.headers, "%s: %s", S3BACKER_SSE_HEADER, config->sse);
+        (*config->log)(LOG_INFO, "setting SSE header %s to %s", S3BACKER_SSE_HEADER, config->sse);
+    }
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
