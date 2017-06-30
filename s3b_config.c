@@ -149,6 +149,7 @@ static struct s3b_config config = {
         .baseURL=               NULL,
         .region=                NULL,
         .bucket=                NULL,
+        .sse=                   NULL,
         .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
@@ -237,6 +238,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--region=%s",
         .offset=    offsetof(struct s3b_config, http_io.region),
+    },
+    {
+        .templ=     "--sse=%s",
+        .offset=    offsetof(struct s3b_config, http_io.sse),
     },
     {
         .templ=     "--blockCacheSize=%u",
@@ -1008,6 +1013,12 @@ validate_config(void)
         return -1;
     }
 
+    /* Check server side encryption type */
+    if (config.http_io.sse != NULL && strcmp(config.http_io.sse, REQUIRED_SSE_VALUE) != 0) {
+        warnx("invalid sse type `%s' (only `%s' is supported)", config.http_io.sse, REQUIRED_SSE_VALUE);
+        return -1;
+    }
+
     /* Set default or custom region */
     if (config.http_io.region == NULL)
         config.http_io.region = S3BACKER_DEFAULT_REGION;
@@ -1569,6 +1580,7 @@ dump_config(void)
       config.max_speed_str[HTTP_DOWNLOAD] != NULL ? config.max_speed_str[HTTP_DOWNLOAD] : "-",
       config.http_io.max_speed[HTTP_DOWNLOAD]);
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse", config.http_io.sse);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
@@ -1718,6 +1730,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage (deprecated)");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "sse=" REQUIRED_SSE_VALUE, "Specify server side encryption");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "storageClass=TYPE", "Specify storage class for written blocks");

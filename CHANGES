@@ -2,6 +2,7 @@ Version Next
 
     - Wait for min_write_delay before access after write error (issue #76)
     - Configure TCP keep-alive on HTTP connections (issue #78)
+    - Added support for server side encryption (pull #81)
 
 Version 1.4.4 released February 1, 2017
 

@@ -47,6 +47,9 @@
 #define STORAGE_CLASS_STANDARD_IA           "STANDARD_IA"
 #define STORAGE_CLASS_REDUCED_REDUNDANCY    "REDUCED_REDUNDANCY"
 
+/* Server side encryption types */
+#define REQUIRED_SSE_VALUE                  "AES256"
+
 /* Configuration info structure for http_io store */
 struct http_io_conf {
     char                *accessId;
@@ -81,6 +84,7 @@ struct http_io_conf {
     u_int               max_retry_pause;
     uintmax_t           max_speed[2];
     log_func_t          *log;
+    const char          *sse;
 };
 
 /* Statistics structure for http_io store */

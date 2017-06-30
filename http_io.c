@@ -58,6 +58,7 @@
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
 #define CONTENT_SHA256_HEADER       "x-amz-content-sha256"
+#define SSE_HEADER                  "x-amz-server-side-encryption"
 #define STORAGE_CLASS_HEADER        "x-amz-storage-class"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
@@ -193,6 +194,7 @@ struct http_io {
     const char          *method;                // HTTP method
     const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
+    const char          *sse;                   // Server Side Encryption
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
     s3b_block_t         block_num;              // The block we're reading/writing
@@ -880,6 +882,10 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         if (new_value)
             io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
 
+        /* Add Server Side Encryption value (if needed) */
+        if (config->sse != NULL)
+            io.headers = http_io_add_header(io.headers, "%s: %s", SSE_HEADER, config->sse);
+
         /* Add storage class header (if needed) */
         storage_class = config->storage_class != NULL ?
           config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
@@ -1529,6 +1535,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Add signature header (if encrypting) */
     if (src != NULL && config->encryption != NULL)
         io.headers = http_io_add_header(io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
+
+    /* Add Server Side Encryption header (if needed) */
+    if (config->sse != NULL)
+        io.headers = http_io_add_header(io.headers, "%s: %s", SSE_HEADER, config->sse);
 
     /* Add storage class header (if needed) */
     storage_class = config->storage_class != NULL ? config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
