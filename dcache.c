@@ -83,6 +83,7 @@ struct file_header {
 struct dir_entry {
     s3b_block_t                     block_num;
     u_char                          md5[MD5_DIGEST_LENGTH];
+    u_char                          needs_write;
 } __attribute__ ((packed));
 
 /* Private structure */
@@ -312,7 +313,7 @@ s3b_dcache_alloc_block(struct s3b_dcache *priv, u_int *dslotp)
  * There MUST NOT be a directory entry for the block.
  */
 int
-s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, const u_char *md5)
+s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_char needs_write, const u_char *md5)
 {
     struct dir_entry entry;
     int r;
@@ -329,6 +330,7 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
 
     /* Update directory */
     entry.block_num = block_num;
+    entry.needs_write = needs_write;
     memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
     if ((r = s3b_dcache_write_entry(priv, dslot, &entry)) != 0)
         return r;
@@ -681,7 +683,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
             } else {
                 if (dslot + 1 > num_dslots_used)                    /* keep track of the number of dslots in use */
                     num_dslots_used = dslot + 1;
-                if (visitor != NULL && (r = (*visitor)(arg, dslot, entry->block_num, entry->md5)) != 0)
+                if (visitor != NULL && (r = (*visitor)(arg, dslot, entry->block_num, entry->needs_write, entry->md5)) != 0)
                     return r;
             }
         }

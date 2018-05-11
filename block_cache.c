@@ -350,7 +350,7 @@ fail0:
  * Callback function to pre-load the cache from a pre-existing cache file.
  */
 static int
-block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *md5)
+block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_char needs_write, const u_char *md5)
 {
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
@@ -376,15 +376,22 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
         return r;
     }
     entry->block_num = block_num;
-    entry->verify = !config->no_verify;
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
-    if (entry->verify)
-        memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);
     entry->u.dslot = dslot;
-    TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
-    priv->num_cleans++;
+    if (needs_write == 0) {
+        entry->verify = !config->no_verify;
+        if (entry->verify)
+            memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);
+        TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+        priv->num_cleans++;
+        assert(ENTRY_GET_STATE(entry) == (config->no_verify ? CLEAN : CLEAN2));
+    } else {
+        entry->dirty = 1;
+        TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+        priv->num_dirties++;
+        assert(ENTRY_GET_STATE(entry) == DIRTY);
+    }
     s3b_hash_put_new(priv->hashtable, entry);
-    assert(ENTRY_GET_STATE(entry) == (config->no_verify ? CLEAN : CLEAN2));
     return 0;
 }
 
@@ -697,7 +704,7 @@ read:
     assert(ENTRY_GET_STATE(entry) == READING);
     assert(!entry->verify);
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
+        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 0, md5)) != 0)
             (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
     }
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
@@ -751,6 +758,7 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     int r;
+    u_char md5[MD5_DIGEST_LENGTH];
 
     /* Sanity check */
     assert(off <= config->block_size);
@@ -784,10 +792,10 @@ again:
                 goto again;
             }
 
-            /* Invalidate disk cache entry */
+            /* Record dirty disk cache entry */
             if (config->cache_file != NULL) {
-                if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
-                    (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
+                if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 1, md5)) != 0)
+                    (*config->log)(LOG_ERR, "can't dirty cached block %u! %s", block_num,  strerror(r));
             }
 
             /* Change from CLEAN to DIRTY */
@@ -854,6 +862,12 @@ again:
     TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
     priv->num_dirties++;
     assert(ENTRY_GET_STATE(entry) == DIRTY);
+
+    /* Record dirty disk cache entry */
+    if (config->cache_file != NULL) {
+        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 1, md5)) != 0)
+            (*config->log)(LOG_ERR, "can't dirty cached block %u! %s", block_num,  strerror(r));
+    }
 
     /* Wake up a worker thread to go write it */
     pthread_cond_signal(&priv->worker_work);
@@ -1090,7 +1104,7 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!entry->dirty) {
                 if (config->cache_file != NULL) {
-                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
+                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 0, md5)) != 0)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }
                 priv->num_dirties--;
