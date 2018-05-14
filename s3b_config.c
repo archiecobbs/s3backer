@@ -269,6 +269,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.max_dirty),
     },
     {
+        .templ=     "--blockCacheFlushWritableOnStartup",
+        .offset=    offsetof(struct s3b_config, block_cache.flush_writable_on_startup),
+        .value=     1
+    },
+    {
         .templ=     "--readAhead=%u",
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead),
     },
@@ -1258,6 +1263,10 @@ validate_config(void)
             return -1;
         }
     }
+    if (config.block_cache.cache_file != NULL && config.block_cache.flush_writable_on_startup) {
+        warnx("`--blockCacheFlushWritableOnStartup' requires specifying `--blockCacheFile'");
+        return -1;
+    }
 
     /* Check mount point */
     if (config.erase || config.reset) {
@@ -1592,6 +1601,8 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "block_cache_max_dirty", config.block_cache.max_dirty);
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "flush_writable_on_startup",
+      config.block_cache.flush_writable_on_startup ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
@@ -1693,6 +1704,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheFlushWritableOnStartup", "Flush writable blocks on startup (dangerous!)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
