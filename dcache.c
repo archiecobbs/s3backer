@@ -341,15 +341,15 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
     /* Directory entry should be empty */
     assert(s3b_dcache_entry_is_empty(priv, dslot));
 
-    /* Make sure any new data is written to disk before updating the directory */
-    if ((r = s3b_dcache_fsync(priv)) != 0)
-        return r;
-
     /* If cache file is older format, it doesn't store dirty blocks, so just erase it instead (prior behavior) */
     if (needs_write && (priv->flags & HDRFLG_NEW_DIRENTRY) == 0) {
         s3b_dcache_erase_block(priv, dslot);
         return 0;
     }
+
+    /* Make sure any new data is written to disk before updating the directory */
+    if ((r = s3b_dcache_fsync(priv)) != 0)
+        return r;
 
     /* Update directory */
     entry.block_num = block_num;
