@@ -346,7 +346,7 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
         return r;
 
     /* If cache file is older format, it doesn't store dirty blocks, so just erase it instead (prior behavior) */
-    if ((priv->flags & HDRFLG_NEW_DIRENTRY) == 0) {
+    if (needs_write && (priv->flags & HDRFLG_NEW_DIRENTRY) == 0) {
         s3b_dcache_erase_block(priv, dslot);
         return 0;
     }
