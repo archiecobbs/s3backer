@@ -41,6 +41,7 @@
 #include "http_io.h"
 #include "test_io.h"
 #include "s3b_config.h"
+#include "dcache.h"
 
 /****************************************************************************
  *                          DEFINITIONS                                     *
@@ -633,13 +634,17 @@ s3backer_create_store(struct s3b_config *conf)
     }
 
     /* Set mounted flag and check previous value one last time */
-    r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : 1);
+    srand(time(NULL));
+    int mount_token = 0;
+    while (mount_token == 0 || mount_token == -1)  /* don't generate special values */
+        mount_token = rand();
+    r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : mount_token);
     if (r != 0) {
         (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s", conf->description, strerror(r));
         goto fail;
     }
     if (mounted) {
-        if (!conf->force) {
+        if (!conf->force && !conf->block_cache.perform_flush) {
             (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process", config.description);
             r = EBUSY;
             goto fail;
@@ -1263,7 +1268,7 @@ validate_config(void)
             return -1;
         }
     }
-    if (config.block_cache.cache_file != NULL && config.block_cache.flush_writable_on_startup) {
+    if (config.block_cache.cache_file == NULL && config.block_cache.flush_writable_on_startup) {
         warnx("`--blockCacheFlushWritableOnStartup' requires specifying `--blockCacheFile'");
         return -1;
     }
@@ -1375,25 +1380,63 @@ validate_config(void)
 
     /* Check whether already mounted */
     if (!config.test && !config.erase && !config.reset) {
-        int mounted;
+        int s3_mount_token;
+        int file_mount_token;
 
+        /* get s3 mount token */
         config.http_io.debug = config.debug;
         config.http_io.quiet = config.quiet;
         config.http_io.log = config.log;
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
-        r = (*s3b->set_mounted)(s3b, &mounted, -1);
+        r = (*s3b->set_mounted)(s3b, &s3_mount_token, -1);
         (*s3b->destroy)(s3b);
         if (r != 0) {
             errno = r;
             err(1, "error reading mounted flag");
         }
-        if (mounted) {
-            if (!config.force)
-                errx(1, "error: %s appears to be already mounted", config.description);
-            if (!config.quiet) {
-                warnx("warning: filesystem appears already mounted but you said `--force'\n"
-                  " so I'll proceed anyway even though your data may get corrupted.\n");
+
+        /* get cache file header mount token */
+        if ((r = s3b_dcache_get_mount_token(config.block_cache.cache_file, &file_mount_token)) != 0) {
+            errx(1, "error reading mount token from cache file (%u)", r);
+        }
+
+        /* either mount token can be 0 (not mounted) or
+         * non-zero (mounted with that value).
+         *
+         * If both are 0 (clean unmount) proceed with mount
+         *
+         * If --blockCacheFlushWritableOnStartup is specified
+         * and the values are the same, we have the corresponding
+         * cache file for the last mount. Proceed with mount
+         * and cache writeback.
+         *
+         * If --blockCacheFlushWritableOnStartup specified
+         * and the values are different, we have a dirty cache
+         * which wasn't used the last time s3 was mounted. This
+         * is not recoverable. Fail.
+         *
+         * If --blockCacheFlushWritableOnStartup NOT specified
+         * then fail unless --force (previous behaviour).
+         *
+         */
+        if (s3_mount_token || file_mount_token) {
+            if (config.block_cache.flush_writable_on_startup) {
+                if (file_mount_token == s3_mount_token) {
+                    config.block_cache.perform_flush = 1;
+                } else {
+                    errx(1, "mount token mismatch (%u != %u): dirty blocks in cache file not recoverable\n"
+                            "remount without --blockCacheFlushWritableOnStartup and with --force to repair\n"
+                            "WARNING: dirty blocks in cache will be LOST",
+                            file_mount_token, s3_mount_token);
+                }
+            } else {
+                if (!config.force)
+                    errx(1, "error: %s appears to be already mounted", config.description);
+                if (!config.quiet) {
+                    warnx("warning: filesystem appears already mounted but you said `--force'\n"
+                      " so I'll proceed anyway even though your data may get corrupted.\n");
+                }
             }
         }
     }
@@ -1720,7 +1763,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
-    fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Inital retry pause after stale data or server error");
+    fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Initial retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");

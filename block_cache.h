@@ -47,6 +47,7 @@ struct block_cache_conf {
     u_int               read_ahead_trigger;
     u_int               no_verify;
     u_int               flush_writable_on_startup;
+    u_int               perform_flush;
     const char          *cache_file;
     log_func_t          *log;
 };

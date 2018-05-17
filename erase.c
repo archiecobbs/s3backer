@@ -134,6 +134,8 @@ s3backer_erase(struct s3b_config *config)
         goto fail3;
     }
 
+    // TODO filesystem uuid in resize to prevent use of wrong cache file
+
     /* Success */
     ok = 1;
 

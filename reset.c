@@ -42,6 +42,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "reset.h"
+#include "dcache.h"
 
 int
 s3backer_reset(struct s3b_config *config)
@@ -62,8 +63,17 @@ s3backer_reset(struct s3b_config *config)
 
     /* Clear mounted flag */
     if ((r = (*s3b->set_mounted)(s3b, NULL, 0)) != 0) {
-        warnx("error clearing mounted flag: %s", strerror(r));
+        warnx("error clearing s3 mounted flag: %s", strerror(r));
         goto fail;
+    }
+
+    if (config->block_cache.cache_file != NULL) {
+        if (!config->quiet)
+            warnx("resetting mounted flag for %s", config->block_cache.cache_file);
+        if ((r = s3b_dcache_reset_mount_token(config->block_cache.cache_file)) != 0) {
+            warnx("error clearing cache file mounted flag: %s", strerror(r));
+            goto fail;
+        }
     }
 
     /* Success */

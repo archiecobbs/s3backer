@@ -62,6 +62,7 @@
 #define STORAGE_CLASS_HEADER        "x-amz-storage-class"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
+#define MOUNT_TOKEN_HEADER          "x-amz-meta-s3backer-mount-token"
 #define HMAC_HEADER                 "x-amz-meta-s3backer-hmac"
 #define IF_MATCH_HEADER             "If-Match"
 #define IF_NONE_MATCH_HEADER        "If-None-Match"
@@ -202,6 +203,7 @@ struct http_io {
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
+    u_int               mount_token;            // mount_token from "x-amz-meta-s3backer-mount-token"
     u_int               expect_304;             // a verify request; expect a 304 response
     u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
     u_char              hmac[SHA_DIGEST_LENGTH];// parsed "x-amz-meta-s3backer-hmac" header
@@ -832,7 +834,9 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             r = 0;
             break;
         case 0:
-            *old_valuep = 1;
+            *old_valuep = io.mount_token;
+            if (*old_valuep == 0)
+                *old_valuep = 1;
             break;
         default:
             goto done;
@@ -876,6 +880,9 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             /* Add Content-MD5 header */
             http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
             io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
+
+            /* Add Mount-Token header */
+            io.headers = http_io_add_header(io.headers, "%s: %u", MOUNT_TOKEN_HEADER, new_value);
         }
 
         /* Add ACL header (PUT only) */
@@ -2465,6 +2472,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     /* Check for interesting headers */
     (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
     (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
+    (void)sscanf(buf, MOUNT_TOKEN_HEADER ": %u", &io->mount_token);
 
     /* ETag header requires parsing */
     if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {

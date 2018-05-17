@@ -142,7 +142,7 @@ struct s3backer_store {
      * new_value can be:
      *  -1      Don't change it
      *   0      Clear it
-     *   1      Set it
+     *   other  Set it
      *
      * Returns zero on success or a (positive) errno value on error.
      */

@@ -292,7 +292,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         if ((r = s3b_dcache_open(&priv->dcache, config->log, config->cache_file, config->block_size,
           config->cache_size, block_cache_dcache_load, priv)) != 0)
             goto fail9;
-        priv->stats.initial_size = priv->num_cleans;
+        priv->stats.initial_size = priv->num_cleans + priv->num_dirties;
     }
 
     /* Grab lock */
@@ -350,7 +350,7 @@ fail0:
  * Callback function to pre-load the cache from a pre-existing cache file.
  */
 static int
-block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_char needs_write, const u_char *md5)
+block_cache_dcache_load(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
 {
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
@@ -367,7 +367,18 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_c
         return EINVAL;
     }
 
-    /* Create a new cache entry in state CLEAN[2] */
+    /* throw away dirty cache entry if not journalling */
+    if (!config->flush_writable_on_startup && dirty) {
+        (*config->log)(LOG_WARNING, "throwing away dirty cache block: 0x%0*jx in dslots %ju",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (uintmax_t)dslot);
+        if ((r = s3b_dcache_erase_block(dcache, dslot)) != 0)
+            (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
+        if ((r = s3b_dcache_free_block(dcache, dslot)) != 0)
+            (*config->log)(LOG_ERR, "can't free cached block! %s", strerror(r));
+        return 0;
+    }
+
+    /* Create a new cache entry */
     assert(config->cache_file != NULL);
     if ((entry = calloc(1, sizeof(*entry) + (!config->no_verify ? MD5_DIGEST_LENGTH : 0))) == NULL) {
         r = errno;
@@ -378,18 +389,24 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_c
     entry->block_num = block_num;
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
     entry->u.dslot = dslot;
-    if (needs_write == 0) {
+
+    if (dirty) {
+        /* Sanity check cannot have dirty block if not flushing */
+        if (!config->perform_flush)
+            return EINVAL;
+        /* journalling and have DIRTY cache entry, add to dirty queue */
+        entry->dirty = 1;
+        TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
+        priv->num_dirties++;
+        assert(ENTRY_GET_STATE(entry) == DIRTY);
+    } else {
+        /* any other case, add to clean queue */
         entry->verify = !config->no_verify;
         if (entry->verify)
             memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
         priv->num_cleans++;
         assert(ENTRY_GET_STATE(entry) == (config->no_verify ? CLEAN : CLEAN2));
-    } else {
-        entry->dirty = 1;
-        TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
-        priv->num_dirties++;
-        assert(ENTRY_GET_STATE(entry) == DIRTY);
     }
     s3b_hash_put_new(priv->hashtable, entry);
     return 0;
@@ -407,6 +424,19 @@ static int
 block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
 {
     struct block_cache_private *const priv = s3b->data;
+    int r;
+
+    if (priv->config->cache_file != NULL) {
+        if (new_value == 0) {
+            if ((r = s3b_dcache_set_mount_token(priv->dcache, 0)) != 0) {
+                return r;
+            }
+        } else if (new_value != -1) {
+            if ((r = s3b_dcache_set_mount_token(priv->dcache, new_value)) != 0) {
+                return r;
+            }
+        }
+    }
 
     return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
 }
