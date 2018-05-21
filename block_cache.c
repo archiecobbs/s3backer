@@ -292,6 +292,8 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         if ((r = s3b_dcache_open(&priv->dcache, config->log, config->cache_file, config->block_size,
           config->cache_size, block_cache_dcache_load, priv)) != 0)
             goto fail9;
+        if (config->perform_flush)
+            (*config->log)(LOG_WARNING, "%u dirty blocks in cache file %s will be recovered", priv->num_dirties, config->cache_file);
         priv->stats.initial_size = priv->num_cleans + priv->num_dirties;
     }
 

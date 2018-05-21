@@ -1423,6 +1423,8 @@ validate_config(void)
         if (s3_mount_token || file_mount_token) {
             if (config.block_cache.flush_writable_on_startup) {
                 if (file_mount_token == s3_mount_token) {
+                    if (!config.quiet)
+                        warnx("recovering from unclean shutdown: dirty blocks in cache file will be written back to S3");
                     config.block_cache.perform_flush = 1;
                 } else {
                     errx(1, "mount token mismatch (%u != %u): dirty blocks in cache file not recoverable\n"
