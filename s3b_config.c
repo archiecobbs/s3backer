@@ -1533,8 +1533,11 @@ validate_config(void)
                     warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
                       config.block_cache.cache_file, cache_mount_token, mount_token);
                     conflict = 1;
-                } else if (config.block_cache.recover_dirty_blocks)
+                } else if (config.block_cache.recover_dirty_blocks) {
+                    if (!config.quiet)
+                        warnx("recovering from unclean shutdown: dirty blocks in cache file will be written back to S3");
                     config.block_cache.perform_flush = 1;
+                }
             } else
                 conflict = mount_token != 0;
         } else
