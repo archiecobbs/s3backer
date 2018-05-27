@@ -899,7 +899,7 @@ has finished writing back all dirty blocks.
 Therefore, when using the block cache, attempts to remount the same bucket and prefix
 may fail with an 'already mounted' error while the former
 .Nm
-process finishes flusing its cache.
+process finishes flushing its cache.
 Before assuming a false positive and using
 .Fl \-reset-mounted-flag,
 ensure that any previous
