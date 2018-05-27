@@ -270,8 +270,8 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.max_dirty),
     },
     {
-        .templ=     "--blockCacheFlushWritableOnStartup",
-        .offset=    offsetof(struct s3b_config, block_cache.flush_writable_on_startup),
+        .templ=     "--blockCacheRecoverDirtyBlocks",
+        .offset=    offsetof(struct s3b_config, block_cache.recover_dirty_blocks),
         .value=     1
     },
     {
@@ -599,7 +599,8 @@ struct s3backer_store *
 s3backer_create_store(struct s3b_config *conf)
 {
     struct s3backer_store *store;
-    int mounted;
+    int32_t old_mount_token;
+    int32_t new_mount_token;
     int r;
 
     /* Sanity check */
@@ -633,23 +634,28 @@ s3backer_create_store(struct s3b_config *conf)
         store = block_cache_store;
     }
 
-    /* Set mounted flag and check previous value one last time */
-    srand(time(NULL));
-    int mount_token = 0;
-    while (mount_token == 0 || mount_token == -1)  /* don't generate special values */
-        mount_token = rand();
-    r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : mount_token);
-    if (r != 0) {
-        (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s", conf->description, strerror(r));
+    /* Set mount token and check previous value one last time */
+    new_mount_token = -1;
+    if (!conf->fuse_ops.read_only) {
+        srandom((long)time(NULL) ^ (long)&old_mount_token);
+        do
+            new_mount_token = random();
+        while (new_mount_token <= 0);
+    }
+    if ((r = (*store->set_mount_token)(store, &old_mount_token, new_mount_token)) != 0) {
+        (*conf->log)(LOG_ERR, "error reading mount token on %s: %s", conf->description, strerror(r));
         goto fail;
     }
-    if (mounted) {
+    if (old_mount_token != 0) {
         if (!conf->force && !conf->block_cache.perform_flush) {
-            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process", config.description);
+            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process (using mount token 0x%08x)",
+              config.description, (int)old_mount_token);
             r = EBUSY;
             goto fail;
         }
     }
+    if (new_mount_token != -1)
+        (*conf->log)(LOG_INFO, "established new mount token 0x%08x", (int)new_mount_token);
 
     /* Done */
     return store;
@@ -1268,8 +1274,8 @@ validate_config(void)
             return -1;
         }
     }
-    if (config.block_cache.cache_file == NULL && config.block_cache.flush_writable_on_startup) {
-        warnx("`--blockCacheFlushWritableOnStartup' requires specifying `--blockCacheFile'");
+    if (config.block_cache.cache_file == NULL && config.block_cache.recover_dirty_blocks) {
+        warnx("`--blockCacheRecoverDirtyBlocks' requires specifying `--blockCacheFile'");
         return -1;
     }
 
@@ -1378,69 +1384,6 @@ validate_config(void)
         break;
     }
 
-    /* Check whether already mounted */
-    if (!config.test && !config.erase && !config.reset) {
-        int s3_mount_token;
-        int file_mount_token;
-
-        /* get s3 mount token */
-        config.http_io.debug = config.debug;
-        config.http_io.quiet = config.quiet;
-        config.http_io.log = config.log;
-        if ((s3b = http_io_create(&config.http_io)) == NULL)
-            err(1, "http_io_create");
-        r = (*s3b->set_mounted)(s3b, &s3_mount_token, -1);
-        (*s3b->destroy)(s3b);
-        if (r != 0) {
-            errno = r;
-            err(1, "error reading mounted flag");
-        }
-
-        /* get cache file header mount token */
-        if ((r = s3b_dcache_get_mount_token(config.block_cache.cache_file, &file_mount_token)) != 0) {
-            errx(1, "error reading mount token from cache file (%u)", r);
-        }
-
-        /* either mount token can be 0 (not mounted) or
-         * non-zero (mounted with that value).
-         *
-         * If both are 0 (clean unmount) proceed with mount
-         *
-         * If --blockCacheFlushWritableOnStartup is specified
-         * and the values are the same, we have the corresponding
-         * cache file for the last mount. Proceed with mount
-         * and cache writeback.
-         *
-         * If --blockCacheFlushWritableOnStartup specified
-         * and the values are different, we have a dirty cache
-         * which wasn't used the last time s3 was mounted. This
-         * is not recoverable. Fail.
-         *
-         * If --blockCacheFlushWritableOnStartup NOT specified
-         * then fail unless --force (previous behaviour).
-         *
-         */
-        if (s3_mount_token || file_mount_token) {
-            if (config.block_cache.flush_writable_on_startup) {
-                if (file_mount_token == s3_mount_token) {
-                    config.block_cache.perform_flush = 1;
-                } else {
-                    errx(1, "mount token mismatch (%u != %u): dirty blocks in cache file not recoverable\n"
-                            "remount without --blockCacheFlushWritableOnStartup and with --force to repair\n"
-                            "WARNING: dirty blocks in cache will be LOST",
-                            file_mount_token, s3_mount_token);
-                }
-            } else {
-                if (!config.force)
-                    errx(1, "error: %s appears to be already mounted", config.description);
-                if (!config.quiet) {
-                    warnx("warning: filesystem appears already mounted but you said `--force'\n"
-                      " so I'll proceed anyway even though your data may get corrupted.\n");
-                }
-            }
-        }
-    }
-
     /* Check computed block and file sizes */
     if (config.block_size != (1 << (ffs(config.block_size) - 1))) {
         warnx("block size must be a power of 2");
@@ -1528,6 +1471,87 @@ validate_config(void)
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
     config.fuse_ops.log = config.log;
+
+    /* Check whether already mounted, and if so, compare mount token against on-disk cache (if any) */
+    if (!config.test && !config.erase && !config.reset) {
+        int32_t mount_token;
+        int conflict;
+
+        /* Read s3 mount token */
+        config.http_io.debug = config.debug;
+        config.http_io.quiet = config.quiet;
+        config.http_io.log = config.log;
+        if ((s3b = http_io_create(&config.http_io)) == NULL)
+            err(1, "http_io_create");
+        r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
+        (*s3b->destroy)(s3b);
+        if (r != 0) {
+            errno = r;
+            err(1, "error reading mount token");
+        }
+
+        /*
+         * The disk cache also has a mount token, so we need to do some extra checking.
+         * Either token can be 0 (i.e., not present -> not mounted) or != 0 (mounted).
+         *
+         * If neither token is present, proceed with mount. Note: there should not be
+         * any dirty blocks in the disk cache in this case, because this represents a
+         * clean unmount situation.
+         *
+         * If the cache has a token, but S3 has none, that means someone must have used
+         * `--reset-mounted-flag' to clear it from S3 since the last time the disk cache was
+         * used. In that case, `--force' is required to continue using the disk cache,
+         * or `--reset-mounted-flag' must be used to clear the disk cache flag as well.
+         *
+         * If --blockCacheRecoverDirtyBlocks is specified and the tokens match, we
+         * have the corresponding cache file for the last mount. Proceed with mount and,
+         * if configured, enable cache writeback of dirty blocks.
+         */
+        if (config.block_cache.cache_file != NULL) {
+            int32_t cache_mount_token = -1;
+            struct stat cache_file_stat;
+            struct s3b_dcache *dcache;
+
+            /* Open disk cache file, if any, and read the mount token therein, if any */
+            if (stat(config.block_cache.cache_file, &cache_file_stat) == -1) {
+                if (errno != ENOENT)
+                    err(1, "can't open cache file `%s'", config.block_cache.cache_file);
+            } else {
+                if ((r = s3b_dcache_open(&dcache, config.log, config.block_cache.cache_file,
+                  config.block_cache.block_size, config.block_cache.cache_size, NULL, NULL)) != 0)
+                    errx(1, "error opening cache file `%s': %s", config.block_cache.cache_file, strerror(r));
+                if (s3b_dcache_has_mount_token(dcache) && (r = s3b_dcache_set_mount_token(dcache, &cache_mount_token, -1)) != 0)
+                    errx(1, "error reading mount token from `%s': %s", config.block_cache.cache_file, strerror(r));
+                s3b_dcache_close(dcache);
+            }
+
+            /* If cache file is older format, then cache_mount_token will be -1, otherwise >= 0 */
+            if (cache_mount_token > 0) {
+
+                /* If tokens do not agree, bail out, otherwise enable write-back of dirty blocks if tokens are non-zero */
+                if (cache_mount_token != mount_token) {
+                    warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
+                      config.block_cache.cache_file, cache_mount_token, mount_token);
+                    conflict = 1;
+                } else if (config.block_cache.recover_dirty_blocks)
+                    config.block_cache.perform_flush = 1;
+            } else
+                conflict = mount_token != 0;
+        } else
+            conflict = mount_token != 0;
+
+        /* If there is a conflicting mount, additional `--force' is required */
+        if (conflict) {
+            if (!config.force) {
+                warnx("%s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
+                errx(1, "reset mount token with `--reset-mounted-flag', or use `--force' to override");
+            }
+            if (!config.quiet) {
+                warnx("warning: filesystem appears already mounted but you said `--force'\n"
+                  " so I'll proceed anyway even though your data may get corrupted.\n");
+            }
+        }
+    }
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.erase || config.reset)
@@ -1644,8 +1668,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "block_cache_max_dirty", config.block_cache.max_dirty);
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "flush_writable_on_startup",
-      config.block_cache.flush_writable_on_startup ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "recover_dirty_blocks", config.block_cache.recover_dirty_blocks ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
     (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
@@ -1747,7 +1770,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
-    fprintf(stderr, "\t--%-27s %s\n", "blockCacheFlushWritableOnStartup", "Flush writable blocks on startup (dangerous!)");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheRecoverDirtyBlocks", "Recover dirty cache file blocks on startup");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");

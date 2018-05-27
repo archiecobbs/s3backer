@@ -130,7 +130,7 @@ struct cbinfo {
 
 /* s3backer_store functions */
 static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-static int ec_protect_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
+static int ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -183,7 +183,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
         goto fail0;
     }
     s3b->meta_data = ec_protect_meta_data;
-    s3b->set_mounted = ec_protect_set_mounted;
+    s3b->set_mount_token = ec_protect_set_mount_token;
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
@@ -243,11 +243,11 @@ ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block
 }
 
 static int
-ec_protect_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value)
 {
     struct ec_protect_private *const priv = s3b->data;
 
-    return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
+    return (*priv->inner->set_mount_token)(priv->inner, old_valuep, new_value);
 }
 
 static int

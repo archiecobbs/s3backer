@@ -198,11 +198,11 @@ fuse_op_destroy(void *data)
             (*config->log)(LOG_ERR, "unmount %s: flushing filesystem failed: %s", s3bconf->mount, strerror(r));
     }
 
-    /* Clear mounted flag */
+    /* Clear mount token */
     if (!config->read_only) {
-        (*config->log)(LOG_INFO, "unmount %s: clearing mounted flag", s3bconf->mount);
-        if ((r = (*s3b->set_mounted)(s3b, NULL, 0)) != 0)
-            (*config->log)(LOG_ERR, "unmount %s: clearing mounted flag failed: %s", s3bconf->mount, strerror(r));
+        (*config->log)(LOG_INFO, "unmount %s: clearing mount token", s3bconf->mount);
+        if ((r = (*s3b->set_mount_token)(s3b, NULL, 0)) != 0)
+            (*config->log)(LOG_ERR, "unmount %s: clearing mount token failed: %s", s3bconf->mount, strerror(r));
     }
 
     /* Shutdown */

@@ -70,11 +70,9 @@
 /* MIME type for blocks */
 #define CONTENT_TYPE                "application/x-s3backer-block"
 
-/* MIME type for mounted flag */
-#define MOUNTED_FLAG_CONTENT_TYPE   "text/plain"
-
-/* Mounted file object name */
-#define MOUNTED_FLAG                "s3backer-mounted"
+/* Mount token file */
+#define MOUNT_TOKEN_FILE            "s3backer-mounted"
+#define MOUNT_TOKEN_FILE_MIME_TYPE  "text/plain"
 
 /* HTTP `Date' and `x-amz-date' header formats */
 #define HTTP_DATE_HEADER            "Date"
@@ -203,7 +201,7 @@ struct http_io {
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
-    u_int               mount_token;            // mount_token from "x-amz-meta-s3backer-mount-token"
+    int32_t             mount_token;            // mount_token from "x-amz-meta-s3backer-mount-token"
     u_int               expect_304;             // a verify request; expect a 304 response
     u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
     u_char              hmac[SHA_DIGEST_LENGTH];// parsed "x-amz-meta-s3backer-hmac" header
@@ -217,7 +215,7 @@ typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
 static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-static int http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
+static int http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -237,7 +235,7 @@ static http_io_curl_prepper_t http_io_iamcreds_prepper;
 
 /* S3 REST API functions */
 static void http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
-static void http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config);
+static void http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct http_io_conf *config);
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth2(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
@@ -312,7 +310,7 @@ http_io_create(struct http_io_conf *config)
         goto fail0;
     }
     s3b->meta_data = http_io_meta_data;
-    s3b->set_mounted = http_io_set_mounted;
+    s3b->set_mount_token = http_io_set_mount_token;
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
     s3b->read_block_part = http_io_read_block_part;
@@ -800,11 +798,11 @@ http_io_head_prepper(CURL *curl, struct http_io *io)
 }
 
 static int
-http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    char urlbuf[URL_BUF_SIZE(config) + sizeof(MOUNTED_FLAG)];
+    char urlbuf[URL_BUF_SIZE(config) + sizeof(MOUNT_TOKEN_FILE)];
     const time_t now = time(NULL);
     struct http_io io;
     int r = 0;
@@ -814,8 +812,8 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     io.url = urlbuf;
     io.method = HTTP_HEAD;
 
-    /* Construct URL for the mounted flag */
-    http_io_get_mounted_flag_url(urlbuf, sizeof(urlbuf), config);
+    /* Construct URL for the mount token file */
+    http_io_get_mount_token_file_url(urlbuf, sizeof(urlbuf), config);
 
     /* Get old value */
     if (old_valuep != NULL) {
@@ -835,7 +833,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             break;
         case 0:
             *old_valuep = io.mount_token;
-            if (*old_valuep == 0)
+            if (*old_valuep == 0)                       // backward compatibility
                 *old_valuep = 1;
             break;
         default:
@@ -844,7 +842,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
     }
 
     /* Set new value */
-    if (new_value != -1) {
+    if (new_value >= 0) {
         char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
@@ -861,10 +859,10 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         http_io_add_date(priv, &io, now);
 
         /* To set the flag PUT some content containing current date */
-        if (new_value) {
+        if (new_value != 0) {
             struct tm tm;
 
-            /* Create content for the mounted flag object (timestamp) */
+            /* Create content for the mount token file (timestamp) */
             gethostname(content, sizeof(content) - 1);
             content[sizeof(content) - 1] = '\0';
             strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" AWS_DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
@@ -875,19 +873,18 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
             MD5_Final(md5, &ctx);
 
             /* Add Content-Type header */
-            io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, MOUNTED_FLAG_CONTENT_TYPE);
+            io.headers = http_io_add_header(io.headers, "%s: %s", CTYPE_HEADER, MOUNT_TOKEN_FILE_MIME_TYPE);
 
             /* Add Content-MD5 header */
             http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
             io.headers = http_io_add_header(io.headers, "%s: %s", MD5_HEADER, md5buf);
 
             /* Add Mount-Token header */
-            io.headers = http_io_add_header(io.headers, "%s: %u", MOUNT_TOKEN_HEADER, new_value);
-        }
+            io.headers = http_io_add_header(io.headers, "%s: %08x", MOUNT_TOKEN_HEADER, (int)new_value);
 
-        /* Add ACL header (PUT only) */
-        if (new_value)
+            /* Add ACL header */
             io.headers = http_io_add_header(io.headers, "%s: %s", ACL_HEADER, config->accessType);
+        }
 
         /* Add Server Side Encryption value (if needed) */
         if (config->sse != NULL)
@@ -903,7 +900,7 @@ http_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
             goto done;
 
-        /* Perform operation to set or clear mounted flag */
+        /* Perform operation to set or clear mount token */
         r = http_io_perform_io(priv, &io, http_io_write_prepper);
     }
 
@@ -2321,17 +2318,17 @@ http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b
 }
 
 /*
- * Create URL for the mounted flag, and return pointer to the URL's path not including any "/bucket" prefix.
+ * Create URL for the mount token file, and return pointer to the URL's path not including any "/bucket" prefix.
  */
 static void
-http_io_get_mounted_flag_url(char *buf, size_t bufsiz, struct http_io_conf *config)
+http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct http_io_conf *config)
 {
     int len;
 
     if (config->vhost)
-        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNTED_FLAG);
+        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNT_TOKEN_FILE);
     else
-        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNTED_FLAG);
+        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNT_TOKEN_FILE);
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
 }
@@ -2462,6 +2459,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     const size_t total = size * nmemb;
     char fmtbuf[64];
     char buf[1024];
+    u_int mtoken;
 
     /* Null-terminate header */
     if (total > sizeof(buf) - 1)
@@ -2472,7 +2470,8 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     /* Check for interesting headers */
     (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
     (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
-    (void)sscanf(buf, MOUNT_TOKEN_HEADER ": %u", &io->mount_token);
+    if (sscanf(buf, MOUNT_TOKEN_HEADER ": %x", &mtoken) == 1)
+        io->mount_token = (int32_t)mtoken;
 
     /* ETag header requires parsing */
     if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {

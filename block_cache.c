@@ -182,7 +182,7 @@ struct cbinfo {
 
 /* s3backer_store functions */
 static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-static int block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
+static int block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -244,7 +244,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail0;
     }
     s3b->meta_data = block_cache_meta_data;
-    s3b->set_mounted = block_cache_set_mounted;
+    s3b->set_mount_token = block_cache_set_mount_token;
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
@@ -367,8 +367,8 @@ block_cache_dcache_load(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot,
         return EINVAL;
     }
 
-    /* throw away dirty cache entry if not journalling */
-    if (!config->flush_writable_on_startup && dirty) {
+    /* Discard dirty cache entry if not flushing */
+    if (dirty && !config->perform_flush) {
         (*config->log)(LOG_WARNING, "throwing away dirty cache block: 0x%0*jx in dslots %ju",
           S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (uintmax_t)dslot);
         if ((r = s3b_dcache_erase_block(dcache, dslot)) != 0)
@@ -421,24 +421,21 @@ block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *bloc
 }
 
 static int
-block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value)
 {
     struct block_cache_private *const priv = s3b->data;
     int r;
 
-    if (priv->config->cache_file != NULL) {
-        if (new_value == 0) {
-            if ((r = s3b_dcache_set_mount_token(priv->dcache, 0)) != 0) {
-                return r;
-            }
-        } else if (new_value != -1) {
-            if ((r = s3b_dcache_set_mount_token(priv->dcache, new_value)) != 0) {
-                return r;
-            }
-        }
-    }
+    /* Set flag in lower layer */
+    if ((r = (*priv->inner->set_mount_token)(priv->inner, old_valuep, new_value)) != 0)
+        return r;
 
-    return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
+    /* Update the disk cache file as well, if the value was changed */
+    if (priv->dcache != NULL && new_value >= 0)
+        r = s3b_dcache_set_mount_token(priv->dcache, NULL, new_value);
+
+    /* Done */
+    return 0;
 }
 
 static int

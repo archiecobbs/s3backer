@@ -189,7 +189,7 @@ The block cache is configured by the following command line options:
 .Fl \-blockCacheTimeout ,
 .Fl \-blockCacheWriteDelay ,
 and
-.Fl \-blockCacheFlushWritableOnStartup .
+.Fl \-blockCacheRecoverDirtyBlocks .
 .Ss Read Ahead
 .Nm
 implements a simple read-ahead algorithm in the block cache.
@@ -266,10 +266,6 @@ process was not shutdown cleanly; if so, the
 .Fl \-reset-mounted-flag
 flag can be used to reset the 'already mounted' flag.
 But see also BUGS below.
-.Pp
-There are additional constraints if using the
-.Fl \-blockCacheFlushWritableOnStartup
-option.
 .Ss Statistics File
 .Nm
 populates the filesystem with a human-readable statistics file.
@@ -379,15 +375,15 @@ By default, only clean cache blocks are recoverable after a restart.
 This means a system crash will cause dirty blocks in the cache to be lost (of course, that is the case
 with an in-memory cache as well).
 .Pp
-If your cache file supports journalling, you can use the data in the cache file to recover dirty
-blocks by specifying the
-.Fl \-blockCacheFlushWritableOnStartup
-option. This will write any dirty blocks in the cache file back to S3 on startup.
-If your cache file was created with an older version of
+With the newer cache file format introduced in release 1.4.5, you can recover these dirty blocks by specifying the
+.Fl \-blockCacheRecoverDirtyBlocks
+option.
+This will cause any dirty blocks in the cache file to be made writable again on startup.
+If your cache file was created with a prior release of
 .Nm
-or you do not specify this option, the window of data loss can be limited by 
-.Fl \-blockCacheWriteDelay
-.
+or you do not specify this option, dirty blocks in the cache file are discarded on startup.
+The window of this data loss can be limited by
+.Fl \-blockCacheWriteDelay .
 .Pp
 By default, when having reloaded the cache from a cache file,
 .Nm
@@ -445,16 +441,18 @@ This flag requires
 .Fl \-blockCacheWriteDelay
 to be zero.
 Using this flag is likely to drastically reduce write performance.
-.It Fl \-blockCacheFlushWritableOnStartup
-Following a system crash, this option attempts to recover in-flight writes (data written locally but not synced to S3 at time of crash).
+.It Fl \-blockCacheRecoverDirtyBlocks
+An unclean dismount may leave dirty blocks (blocks written to the local cache file, but not yet flushed to S3) in the cache file.
 .Pp
 If this option is set,
 .Nm
-will write any dirty blocks in the on-disk cache back to S3. If not specified all dirty data in the cache is discarded on startup.
+will recover any such dirty blocks and eventually write them back to S3.
+If this option is not specified, all dirty data in the cache file are discarded on startup.
 .Pp
-If the filesystem has been mounted since the specified cache file was last used,
+If the filesystem has been mounted since the cache file was last used,
 .Nm
-will refuse to mount. This is verified by checking a header in the cache file against the 'already mounted' flag in the data store.
+will refuse to mount.
+This is verified by checking a unique 32-bit mount token in the cache file against the 'already mounted' flag in the data store.
 .Pp
 This flag requires
 .Fl \-blockCacheFile

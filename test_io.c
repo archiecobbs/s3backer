@@ -50,7 +50,7 @@ struct test_io_private {
 
 /* s3backer_store functions */
 static int test_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-static int test_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
+static int test_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -76,7 +76,7 @@ test_io_create(struct http_io_conf *config)
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL)
         return NULL;
     s3b->meta_data = test_io_meta_data;
-    s3b->set_mounted = test_io_set_mounted;
+    s3b->set_mount_token = test_io_set_mount_token;
     s3b->read_block = test_io_read_block;
     s3b->write_block = test_io_write_block;
     s3b->read_block_part = test_io_read_block_part;
@@ -106,7 +106,7 @@ test_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
 }
 
 static int
-test_io_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+test_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value)
 {
     if (old_valuep != NULL)
         *old_valuep = 0;

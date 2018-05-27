@@ -48,7 +48,6 @@
  * File format:
  *
  *  [ struct file_header ]
- *  [ struct file_header_ex (new format only) ]
  *  directory entry for data slot #0
  *  directory entry for data slot #1
  *  ...
@@ -65,18 +64,30 @@
 #define ROUNDUP2(x, y)              (((x) + (y) - 1) & ~((y) - 1))
 #define DIRECTORY_READ_CHUNK        1024
 
-#define HDR_SIZE(flags)             ((((flags) & HDRFLG_NEW_DIRENTRY) == 0 ? 0 : sizeof(struct file_header_ex)) + sizeof(struct file_header))
-#define DIR_ENTSIZE(flags)          (((flags) & HDRFLG_NEW_DIRENTRY) == 0 ? sizeof(struct odir_entry) : sizeof(struct dir_entry))
+#define HDR_SIZE(flags)             (((flags) & HDRFLG_NEW_FORMAT) == 0 ? sizeof(struct ofile_header) : sizeof(struct file_header))
+#define DIR_ENTSIZE(flags)          (((flags) & HDRFLG_NEW_FORMAT) == 0 ? sizeof(struct odir_entry) : sizeof(struct dir_entry))
 #define DIR_OFFSET(flags, dslot)    ((off_t)HDR_SIZE(flags) + (off_t)(dslot) * DIR_ENTSIZE(flags))
 #define DATA_OFFSET(priv, dslot)    ((off_t)(priv)->data + (off_t)(dslot) * (priv)->block_size)
 
 /* Bits for file_header.flags */
-#define HDRFLG_NEW_DIRENTRY         0x00000001
+#define HDRFLG_NEW_FORMAT           0x00000001
 #define HDRFLG_MASK                 0x00000001
 
 /* Bits for dir_entry.flags */
-#define ENTFLG_DIRTY                0x01
-#define ENTFLG_MASK                 0x01
+#define ENTFLG_DIRTY                0x00000001
+#define ENTFLG_MASK                 0x00000001
+
+/* File header (old format) */
+struct ofile_header {
+    uint32_t                        signature;
+    uint32_t                        header_size;
+    uint32_t                        u_int_size;
+    uint32_t                        s3b_block_t_size;
+    uint32_t                        block_size;
+    uint32_t                        data_align;
+    uint32_t                        flags;
+    u_int                           max_blocks;
+} __attribute__ ((packed));
 
 /* File header */
 struct file_header {
@@ -88,24 +99,21 @@ struct file_header {
     uint32_t                        data_align;
     uint32_t                        flags;
     u_int                           max_blocks;
+    int32_t                         mount_token;
+    uint32_t                        spare[7];           /* future expansion */
 } __attribute__ ((packed));
 
-struct file_header_ex {
-    uint32_t                        mount_token;
-    uint32_t                        spare[7];  /* future expansion */
+/* One directory entry (old format) */
+struct odir_entry {
+    s3b_block_t                     block_num;
+    u_char                          md5[MD5_DIGEST_LENGTH];
 } __attribute__ ((packed));
 
-/* One directory entry */
+/* One directory entry (new format) */
 struct dir_entry {
     s3b_block_t                     block_num;
     u_char                          md5[MD5_DIGEST_LENGTH];
     uint32_t                        flags;
-} __attribute__ ((packed));
-
-/* One directory entry (old legacy format) */
-struct odir_entry {
-    s3b_block_t                     block_num;
-    u_char                          md5[MD5_DIGEST_LENGTH];
 } __attribute__ ((packed));
 
 /* Private structure */
@@ -138,7 +146,6 @@ static int s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t
 static int s3b_dcache_push(struct s3b_dcache *priv, u_int dslot);
 static void s3b_dcache_pop(struct s3b_dcache *priv, u_int *dslotp);
 static int s3b_dcache_read(struct s3b_dcache *priv, off_t offset, void *data, size_t len);
-static int s3b_dcache_read2(struct s3b_dcache *priv, int fd, off_t offset, void *data, size_t len);
 static int s3b_dcache_write(struct s3b_dcache *priv, off_t offset, const void *data, size_t len);
 static int s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t offset, const void *data, size_t len);
 
@@ -151,6 +158,7 @@ int
 s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
   u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg)
 {
+    struct ofile_header oheader;
     struct file_header header;
     struct s3b_dcache *priv;
     struct stat sb;
@@ -201,15 +209,31 @@ retry:
         goto fail4;
     }
 
-    /* Read in header */
-    if (sb.st_size < sizeof(header)) {
+    /* Read in header with backward compatible support for older header format */
+    if (sb.st_size < sizeof(oheader)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': file is truncated (size %ju < %u)",
-          priv->filename, (uintmax_t)sb.st_size, (u_int)sizeof(header));
+          priv->filename, (uintmax_t)sb.st_size, (u_int)sizeof(oheader));
         r = EINVAL;
         goto fail4;
     }
-    if ((r = s3b_dcache_read(priv, (off_t)0, &header, sizeof(header))) != 0) {
+    if ((r = s3b_dcache_read(priv, (off_t)0, &oheader, sizeof(oheader))) != 0) {
         (*priv->log)(LOG_ERR, "can't read cache file `%s' header: %s", priv->filename, strerror(r));
+        goto fail4;
+    }
+    switch (oheader.header_size) {
+    case sizeof(oheader):                               /* old format */
+        memset(&header, 0, sizeof(header));
+        memcpy(&header, &oheader, sizeof(oheader));
+        break;
+    case sizeof(header):                                /* new format */
+        if ((r = s3b_dcache_read(priv, (off_t)0, &header, sizeof(header))) != 0) {
+            (*priv->log)(LOG_ERR, "can't read cache file `%s' header: %s", priv->filename, strerror(r));
+            goto fail4;
+        }
+        break;
+    default:
+        (*priv->log)(LOG_ERR, "invalid cache file `%s': %s %d", priv->filename, "invalid header size", (int)oheader.header_size);
+        r = EINVAL;
         goto fail4;
     }
 
@@ -218,6 +242,11 @@ retry:
     if (header.signature != DCACHE_SIGNATURE) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': wrong signature %08x != %08x",
           priv->filename, header.signature, DCACHE_SIGNATURE);
+        goto fail4;
+    }
+    if (header.header_size != HDR_SIZE(header.flags)) {
+        (*priv->log)(LOG_ERR, "invalid cache file `%s': %s %d != %d",
+          priv->filename, "invalid header size", (int)header.header_size, (int)HDR_SIZE(header.flags));
         goto fail4;
     }
     if (header.u_int_size != sizeof(u_int)) {
@@ -246,21 +275,6 @@ retry:
     }
     priv->flags = header.flags;
 
-    if (header.header_size != HDR_SIZE(priv->flags)) {
-        (*priv->log)(LOG_ERR, "invalid cache file `%s': %s", priv->filename, "unrecognized format");
-        goto fail4;
-    }
-
-    if (priv->flags & HDRFLG_NEW_DIRENTRY) {
-        /* Read in header_ex */
-        if (sb.st_size < HDR_SIZE(priv->flags)) {
-            (*priv->log)(LOG_ERR, "invalid cache file `%s': file is truncated (size %ju < %u)",
-              priv->filename, (uintmax_t)sb.st_size, (u_int)HDR_SIZE(priv->flags));
-            r = EINVAL;
-            goto fail4;
-        }
-    }
-
     /* Check number of blocks, shrinking or expanding if necessary */
     if (header.max_blocks != priv->max_blocks) {
         (*priv->log)(LOG_NOTICE, "cache file `%s' was created with capacity %u != %u blocks, automatically %s",
@@ -284,7 +298,7 @@ retry:
     priv->data = ROUNDUP2(DIR_OFFSET(priv->flags, priv->max_blocks), header.data_align);
 
     /* Read the directory to build the free list and visit allocated blocks */
-    if ((r = s3b_dcache_init_free_list(priv, visitor, arg)) != 0)
+    if (visitor != NULL && (r = s3b_dcache_init_free_list(priv, visitor, arg)) != 0)
         goto fail4;
 
     /* Done */
@@ -303,119 +317,36 @@ fail1:
     return r;
 }
 
-int s3b_dcache_get_mount_token(const char *filename, int *mount_token) {
-    struct file_header header;
-    struct file_header_ex header_ex;
-    struct stat sb;
-    int r;
-    int fd;
-
-    /* if cache file doesn't already exist, mount_token is 0 */
-    if (stat(filename, &sb) == -1) {
-        r = errno;
-        if (r == ENOENT) {
-            *mount_token = 0;
-            return 0;
-        }
-        return r;
-    }
-
-    /* Open cache file */
-    if ((fd = open(filename, O_RDONLY, 0)) == -1) {
-        return errno;
-    }
-    if ((r = s3b_dcache_read2(NULL, fd, 0, &header, sizeof(header))) != 0) {
-        goto fail1;
-    }
-
-    /* basic header validation */
-    r = EINVAL;
-    if (header.signature != DCACHE_SIGNATURE) {
-        goto fail1;
-    }
-    if ((header.flags & ~HDRFLG_MASK) != 0) {
-        goto fail1;
-    }
-
-    if (header.flags & HDRFLG_NEW_DIRENTRY) {
-        /* Read in header_ex */
-        if ((r = s3b_dcache_read2(NULL, fd, sizeof(header), &header_ex, sizeof(header_ex))) != 0) {
-            goto fail1;
-        }
-        *mount_token = header_ex.mount_token;
-    } else {
-        *mount_token = 0;
-    }
-
-    r = 0;
-
-fail1:
-    close(fd);
-    return r;
+int
+s3b_dcache_has_mount_token(struct s3b_dcache *priv)
+{
+    return (priv->flags & HDRFLG_NEW_FORMAT) != 0;
 }
 
 int
-s3b_dcache_set_mount_token(struct s3b_dcache *priv, int mount_token) {
+s3b_dcache_set_mount_token(struct s3b_dcache *priv, int32_t *old_valuep, int32_t new_value)
+{
     int r;
-    struct file_header_ex header_ex = {
-        .mount_token = mount_token
-    };
-    if (priv->flags & HDRFLG_NEW_DIRENTRY) {
-        if ((r = s3b_dcache_write(priv, sizeof(struct file_header), &header_ex, sizeof(header_ex))) != 0) {
-            (*priv->log)(LOG_ERR, "failed to update cache file '%s': could not write mount token", priv->filename);
+
+    /* Read old value */
+    if (old_valuep != NULL) {
+        if ((r = s3b_dcache_read(priv, offsetof(struct file_header, mount_token), old_valuep, sizeof(*old_valuep))) != 0)
             return r;
-        }
     }
+
+    /* Write new value */
+    if (new_value >= 0) {
+
+        /* Update file */
+        if ((r = s3b_dcache_write(priv, offsetof(struct file_header, mount_token), &new_value, sizeof(new_value))) != 0)
+            return r;
+
+        /* Sync to disk */
+        s3b_dcache_fsync(priv);
+    }
+
+    /* Done */
     return 0;
-}
-
-int
-s3b_dcache_reset_mount_token(const char *filename) {
-    struct file_header header;
-    struct file_header_ex header_ex;
-    struct stat sb;
-    int r;
-    int fd;
-
-    /* if cache file doesn't exist, do nothing */
-    if (stat(filename, &sb) == -1) {
-        r = errno;
-        if (r == ENOENT) {
-            return 0;
-        }
-        return r;
-    }
-
-    /* Open cache file */
-    if ((fd = open(filename, O_RDWR, 0)) == -1) {
-        return errno;
-    }
-    if ((r = s3b_dcache_read2(NULL, fd, 0, &header, sizeof(header))) != 0) {
-        goto fail1;
-    }
-
-    /* basic header validation */
-    r = EINVAL;
-    if (header.signature != DCACHE_SIGNATURE) {
-        goto fail1;
-    }
-    if ((header.flags & ~HDRFLG_MASK) != 0) {
-        goto fail1;
-    }
-
-    if (header.flags & HDRFLG_NEW_DIRENTRY) {
-        if ((r = s3b_dcache_read2(NULL, fd, sizeof(header), &header_ex, sizeof(header_ex))) != 0) {
-            goto fail1;
-        }
-        header_ex.mount_token = 0;
-        if ((r = s3b_dcache_write2(NULL, fd, NULL, sizeof(header), &header_ex, sizeof(header_ex))) != 0) {
-            goto fail1;
-        }
-    }
-    r = 0;
-fail1:
-    close(fd);
-    return r;
 }
 
 void
@@ -468,13 +399,13 @@ int
 s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
 {
     struct dir_entry entry;
-    int r;
     u_int flags = dirty ? ENTFLG_DIRTY : 0;
+    int r;
 
     /* Sanity check */
     assert(dslot < priv->max_blocks);
 
-    /* Directory entry should be empty */
+    /* Directory entry should be writable */
     assert(s3b_dcache_entry_write_ok(priv, dslot, block_num, flags));
 
     /* If cache file is older format, it doesn't store dirty blocks, so just erase it instead (prior behavior) */
@@ -610,6 +541,7 @@ static int
 s3b_dcache_entry_is_empty(struct s3b_dcache *priv, u_int dslot)
 {
     struct dir_entry entry;
+
     (void)s3b_dcache_read_entry(priv, dslot, &entry);
     return memcmp(&entry, &zero_entry, sizeof(entry)) == 0;
 }
@@ -618,15 +550,15 @@ static int
 s3b_dcache_entry_write_ok(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int flags)
 {
     struct dir_entry entry;
+    u_int old_dirty;
+    u_int new_dirty;
 
     if (s3b_dcache_entry_is_empty(priv, dslot))
         return 1;
     (void)s3b_dcache_read_entry(priv, dslot, &entry);
-    u_int old_dirty = entry.flags & ENTFLG_DIRTY;
-    u_int dirty = flags & ENTFLG_DIRTY;
-    if (entry.block_num == block_num && old_dirty != dirty)
-        return 1;
-    return 0;
+    old_dirty = (entry.flags & ENTFLG_DIRTY) != 0;
+    new_dirty = (flags & ENTFLG_DIRTY) != 0;
+    return entry.block_num == block_num && old_dirty != dirty;
 }
 
 static int
@@ -647,7 +579,7 @@ static int
 s3b_dcache_write_entry(struct s3b_dcache *priv, u_int dslot, const struct dir_entry *entry)
 {
     assert(dslot < priv->max_blocks);
-    assert(((priv->flags & HDRFLG_NEW_DIRENTRY) && !(entry->flags & ~ENTFLG_MASK)) || !entry->flags);
+    assert(entry->flags & ~((priv->flags & HDRFLG_NEW_FORMAT) != 0 ? ENTFLG_MASK : 0) == 0);
     return s3b_dcache_write(priv, DIR_OFFSET(priv->flags, dslot), entry, DIR_ENTSIZE(priv->flags));
 }
 
@@ -788,23 +720,18 @@ static int
 s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, u_int max_blocks, struct file_header *headerp)
 {
     struct file_header header;
-    struct file_header_ex header_ex;
     int r;
-    int flags = HDRFLG_NEW_DIRENTRY;
 
     /* Initialize header */
     memset(&header, 0, sizeof(header));
     header.signature = DCACHE_SIGNATURE;
-    header.header_size = HDR_SIZE(flags);
+    header.flags = HDRFLG_NEW_FORMAT;
+    header.header_size = HDR_SIZE(header.flags);
     header.u_int_size = sizeof(u_int);
     header.s3b_block_t_size = sizeof(s3b_block_t);
     header.block_size = priv->block_size;
     header.max_blocks = priv->max_blocks;
     header.data_align = getpagesize();
-    header.flags = flags;
-
-    memset(&header_ex, 0, sizeof(header_ex));
-    header_ex.mount_token = 0;
 
     /* Create file */
     if ((*fdp = open(filename, O_RDWR|O_CREAT|O_EXCL, 0644)) == -1) {
@@ -815,10 +742,6 @@ s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, 
 
     /* Write header */
     if ((r = s3b_dcache_write2(priv, *fdp, filename, (off_t)0, &header, sizeof(header))) != 0) {
-        (*priv->log)(LOG_ERR, "error initializing cache file `%s': %s", filename, strerror(r));
-        goto fail;
-    }
-    if ((r = s3b_dcache_write2(priv, *fdp, filename, (off_t)sizeof(header), &header_ex, sizeof(header_ex))) != 0) {
         (*priv->log)(LOG_ERR, "error initializing cache file `%s': %s", filename, strerror(r));
         goto fail;
     }
@@ -855,6 +778,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
 
     /* Logging */
     (*priv->log)(LOG_INFO, "reading meta-data from cache file `%s'", priv->filename);
+
     /* Inspect all directory entries */
     for (num_dslots_used = base_dslot = 0; base_dslot < priv->max_blocks; base_dslot += num_entries) {
         char buffer[DIRECTORY_READ_CHUNK * DIR_ENTSIZE(priv->flags)];
@@ -993,30 +917,20 @@ s3b_dcache_pop(struct s3b_dcache *priv, u_int *dslotp)
 static int
 s3b_dcache_read(struct s3b_dcache *priv, off_t offset, void *data, size_t len)
 {
-    return s3b_dcache_read2(priv, priv->fd, offset, data, len);
-}
-
-static int
-s3b_dcache_read2(struct s3b_dcache *priv, int fd, off_t offset, void *data, size_t len)
-{
     size_t sofar;
     ssize_t r;
 
     for (sofar = 0; sofar < len; sofar += r) {
         const off_t posn = offset + sofar;
 
-        if ((r = pread(fd, (char *)data + sofar, len - sofar, offset + sofar)) == -1) {
-            if (priv) {
-                (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: %s",
-                  priv->filename, (uintmax_t)posn, strerror(r));
-            }
+        if ((r = pread(priv->fd, (char *)data + sofar, len - sofar, offset + sofar)) == -1) {
+            (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: %s",
+              priv->filename, (uintmax_t)posn, strerror(r));
             return r;
         }
         if (r == 0) {           /* truncated input */
-            if (priv) {
-                (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: file is truncated",
-                  priv->filename, (uintmax_t)posn);
-            }
+            (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: file is truncated",
+              priv->filename, (uintmax_t)posn);
             return EINVAL;
         }
     }
@@ -1039,9 +953,8 @@ s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t o
         const off_t posn = offset + sofar;
 
         if ((r = pwrite(fd, (const char *)data + sofar, len - sofar, offset + sofar)) == -1) {
-            if (priv)
-                (*priv->log)(LOG_ERR, "error writing cache file `%s' at offset %ju: %s",
-                  filename, (uintmax_t)posn, strerror(r));
+            (*priv->log)(LOG_ERR, "error writing cache file `%s' at offset %ju: %s",
+              filename, (uintmax_t)posn, strerror(r));
             return r;
         }
     }

@@ -38,11 +38,11 @@
  * Simple on-disk persistent cache.
  */
 
-/* Declarations */
-struct s3b_dcache;
-
 /* Definitions */
 typedef int s3b_dcache_visit_t(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int flags, const u_char *md5);
+
+/* Declarations */
+struct s3b_dcache;
 
 /* dcache.c */
 extern int s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
@@ -56,6 +56,6 @@ extern int s3b_dcache_free_block(struct s3b_dcache *dcache, u_int dslot);
 extern int s3b_dcache_read_block(struct s3b_dcache *dcache, u_int dslot, void *dest, u_int off, u_int len);
 extern int s3b_dcache_write_block(struct s3b_dcache *dcache, u_int dslot, const void *src, u_int off, u_int len);
 extern int s3b_dcache_fsync(struct s3b_dcache *dcache);
-extern int s3b_dcache_get_mount_token(const char *filename, int *mount_token);
-extern int s3b_dcache_set_mount_token(struct s3b_dcache *priv, int mount_token);
-extern int s3b_dcache_reset_mount_token(const char *filename);
+extern int s3b_dcache_has_mount_token(struct s3b_dcache *priv);
+extern int s3b_dcache_set_mount_token(struct s3b_dcache *priv, int32_t *old_valuep, int32_t new_value);
+
