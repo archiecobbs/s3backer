@@ -1489,6 +1489,7 @@ validate_config(void)
             errno = r;
             err(1, "error reading mount token");
         }
+        conflict = mount_token != 0;
 
         /*
          * The disk cache also has a mount token, so we need to do some extra checking.
@@ -1532,16 +1533,14 @@ validate_config(void)
                 if (cache_mount_token != mount_token) {
                     warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
                       config.block_cache.cache_file, cache_mount_token, mount_token);
-                    conflict = 1;
                 } else if (config.block_cache.recover_dirty_blocks) {
                     if (!config.quiet)
                         warnx("recovering from unclean shutdown: dirty blocks in cache file will be written back to S3");
                     config.block_cache.perform_flush = 1;
+                    conflict = 0;
                 }
-            } else
-                conflict = mount_token != 0;
-        } else
-            conflict = mount_token != 0;
+            }
+        }
 
         /* If there is a conflicting mount, additional `--force' is required */
         if (conflict) {

@@ -38,11 +38,11 @@
  * Simple on-disk persistent cache.
  */
 
-/* Definitions */
-typedef int s3b_dcache_visit_t(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int flags, const u_char *md5);
-
 /* Declarations */
 struct s3b_dcache;
+
+/* Definitions */
+typedef int s3b_dcache_visit_t(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int flags, const u_char *md5);
 
 /* dcache.c */
 extern int s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
