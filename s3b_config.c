@@ -41,6 +41,7 @@
 #include "http_io.h"
 #include "test_io.h"
 #include "s3b_config.h"
+#include "dcache.h"
 
 /****************************************************************************
  *                          DEFINITIONS                                     *
@@ -1374,32 +1375,6 @@ validate_config(void)
         break;
     }
 
-    /* Check whether already mounted */
-    if (!config.test && !config.erase && !config.reset) {
-        int32_t mount_token;
-
-        /* Read s3 mount token */
-        config.http_io.debug = config.debug;
-        config.http_io.quiet = config.quiet;
-        config.http_io.log = config.log;
-        if ((s3b = http_io_create(&config.http_io)) == NULL)
-            err(1, "http_io_create");
-        r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
-        (*s3b->destroy)(s3b);
-        if (r != 0) {
-            errno = r;
-            err(1, "error reading mount token");
-        }
-        if (mount_token != 0) {
-            if (!config.force)
-                errx(1, "error: %s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
-            if (!config.quiet) {
-                warnx("warning: filesystem appears already mounted but you said `--force'\n"
-                  " so I'll proceed anyway even though your data may get corrupted.\n");
-            }
-        }
-    }
-
     /* Check computed block and file sizes */
     if (config.block_size != (1 << (ffs(config.block_size) - 1))) {
         warnx("block size must be a power of 2");
@@ -1487,6 +1462,74 @@ validate_config(void)
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
     config.fuse_ops.log = config.log;
+
+    /* Check whether already mounted, and if so, compare mount token against on-disk cache (if any) */
+    if (!config.test && !config.erase && !config.reset) {
+        int32_t mount_token;
+
+        /* Read s3 mount token */
+        config.http_io.debug = config.debug;
+        config.http_io.quiet = config.quiet;
+        config.http_io.log = config.log;
+        if ((s3b = http_io_create(&config.http_io)) == NULL)
+            err(1, "http_io_create");
+        r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
+        (*s3b->destroy)(s3b);
+        if (r != 0) {
+            errno = r;
+            err(1, "error reading mount token");
+        }
+
+        /*
+         * The disk cache also has a mount token, so we need to do some extra checking.
+         * Either token can be 0 (i.e., not present -> not mounted) or != 0 (mounted).
+         *
+         * If neither token is present, proceed with mount. Note: there should not be
+         * any dirty blocks in the disk cache in this case, because this represents a
+         * clean unmount situation.
+         *
+         * If the cache has a token, but S3 has none, that means someone must have used
+         * `--reset-mounted-flag' to clear it from S3 since the last time the disk cache was
+         * used. In that case, `--force' is required to continue using the disk cache,
+         * or `--reset-mounted-flag' must be used to clear the disk cache flag as well.
+         */
+        if (config.block_cache.cache_file != NULL) {
+            int32_t cache_mount_token = -1;
+            struct stat cache_file_stat;
+            struct s3b_dcache *dcache;
+
+            /* Open disk cache file, if any, and read the mount token therein, if any */
+            if (stat(config.block_cache.cache_file, &cache_file_stat) == -1) {
+                if (errno != ENOENT)
+                    err(1, "can't open cache file `%s'", config.block_cache.cache_file);
+            } else {
+                if ((r = s3b_dcache_open(&dcache, config.log, config.block_cache.cache_file,
+                  config.block_cache.block_size, config.block_cache.cache_size, NULL, NULL)) != 0)
+                    errx(1, "error opening cache file `%s': %s", config.block_cache.cache_file, strerror(r));
+                if (s3b_dcache_has_mount_token(dcache) && (r = s3b_dcache_set_mount_token(dcache, &cache_mount_token, -1)) != 0)
+                    errx(1, "error reading mount token from `%s': %s", config.block_cache.cache_file, strerror(r));
+                s3b_dcache_close(dcache);
+            }
+
+            /* If tokens do not agree, bail out */
+            if (cache_mount_token != -1 && cache_mount_token != mount_token) {
+                warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
+                  config.block_cache.cache_file, cache_mount_token, mount_token);
+                if (!config.force)
+                    errx(1, "reset mount token with `--reset-mounted-flag', or use `--force' to override");
+            }
+        }
+
+        /* If there is a conflicting mount, additional `--force' is required */
+        if (mount_token != 0) {
+            if (!config.force)
+                errx(1, "error: %s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
+            if (!config.quiet) {
+                warnx("warning: filesystem appears already mounted but you said `--force'\n"
+                  " so I'll proceed anyway even though your data may get corrupted.\n");
+            }
+        }
+    }
 
     /* If `--listBlocks' was given, build non-empty block bitmap */
     if (config.erase || config.reset)

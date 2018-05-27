@@ -48,6 +48,8 @@ int
 s3backer_reset(struct s3b_config *config)
 {
     struct s3backer_store *s3b = NULL;
+    struct s3b_dcache *dcache = NULL;
+    struct stat cache_file_stat;
     int ok = 0;
     int r;
 
@@ -67,6 +69,22 @@ s3backer_reset(struct s3b_config *config)
         goto fail;
     }
 
+    /* Open disk cache file, if any, and clear the mount token there too */
+    if (config->block_cache.cache_file != NULL) {
+        if (stat(config->block_cache.cache_file, &cache_file_stat) == -1) {
+            if (errno != ENOENT) {
+                warnx("error opening cache file `%s'", config->block_cache.cache_file);
+                goto fail;
+            }
+        } else {
+            if ((r = s3b_dcache_open(&dcache, config->log, config->block_cache.cache_file,
+              config->block_cache.block_size, config->block_cache.cache_size, NULL, NULL)) != 0)
+                warnx("error opening cache file `%s': %s", config->block_cache.cache_file, strerror(r));
+            if ((r = s3b_dcache_set_mount_token(dcache, NULL, 0)) != 0)
+                warnx("error reading mount token from `%s': %s", config->block_cache.cache_file, strerror(r));
+        }
+    }
+
     /* Success */
     if (!config->quiet)
         warnx("done");
@@ -74,6 +92,8 @@ s3backer_reset(struct s3b_config *config)
 
 fail:
     /* Clean up */
+    if (dcache != NULL)
+        s3b_dcache_close(dcache);
     if (s3b != NULL)
         (*s3b->destroy)(s3b);
     return ok ? 0 : -1;

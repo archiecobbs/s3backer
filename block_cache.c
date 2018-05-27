@@ -406,6 +406,10 @@ block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int
     if ((r = (*priv->inner->set_mount_token)(priv->inner, old_valuep, new_value)) != 0)
         return r;
 
+    /* Update the disk cache file as well, if the value was changed */
+    if (priv->dcache != NULL && new_value >= 0)
+        r = s3b_dcache_set_mount_token(priv->dcache, NULL, new_value);
+
     /* Done */
     return 0;
 }
