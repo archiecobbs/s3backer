@@ -853,7 +853,7 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         curl_slist_free_all(io.headers);
         memset(&io, 0, sizeof(io));
         io.url = urlbuf;
-        io.method = new_value ? HTTP_PUT : HTTP_DELETE;
+        io.method = new_value != 0 ? HTTP_PUT : HTTP_DELETE;
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
