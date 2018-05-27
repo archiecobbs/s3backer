@@ -1,5 +1,6 @@
 Version Next
 
+    - Replaced boolean 'mounted' flag with a unique 32-bit mount token (issue #87)
     - Wait for min_write_delay before access after write error (issue #76)
     - Configure TCP keep-alive on HTTP connections (issue #78)
     - Added support for server side encryption (pull #81)

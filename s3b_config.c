@@ -593,7 +593,8 @@ struct s3backer_store *
 s3backer_create_store(struct s3b_config *conf)
 {
     struct s3backer_store *store;
-    int mounted;
+    int32_t old_mount_token;
+    int32_t new_mount_token;
     int r;
 
     /* Sanity check */
@@ -627,19 +628,28 @@ s3backer_create_store(struct s3b_config *conf)
         store = block_cache_store;
     }
 
-    /* Set mounted flag and check previous value one last time */
-    r = (*store->set_mounted)(store, &mounted, conf->fuse_ops.read_only ? -1 : 1);
-    if (r != 0) {
-        (*conf->log)(LOG_ERR, "error reading mounted flag on %s: %s", conf->description, strerror(r));
+    /* Set mount token and check previous value one last time */
+    new_mount_token = -1;
+    if (!conf->fuse_ops.read_only) {
+        srandom((long)time(NULL) ^ (long)&old_mount_token);
+        do
+            new_mount_token = random();
+        while (new_mount_token <= 0);
+    }
+    if ((r = (*store->set_mount_token)(store, &old_mount_token, new_mount_token)) != 0) {
+        (*conf->log)(LOG_ERR, "error reading mount token on %s: %s", conf->description, strerror(r));
         goto fail;
     }
-    if (mounted) {
+    if (old_mount_token != 0) {
         if (!conf->force) {
-            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process", config.description);
+            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process (using mount token 0x%08x)",
+              config.description, (int)old_mount_token);
             r = EBUSY;
             goto fail;
         }
     }
+    if (new_mount_token != -1)
+        (*conf->log)(LOG_INFO, "established new mount token 0x%08x", (int)new_mount_token);
 
     /* Done */
     return store;
@@ -1366,22 +1376,23 @@ validate_config(void)
 
     /* Check whether already mounted */
     if (!config.test && !config.erase && !config.reset) {
-        int mounted;
+        int32_t mount_token;
 
+        /* Read s3 mount token */
         config.http_io.debug = config.debug;
         config.http_io.quiet = config.quiet;
         config.http_io.log = config.log;
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
-        r = (*s3b->set_mounted)(s3b, &mounted, -1);
+        r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
         (*s3b->destroy)(s3b);
         if (r != 0) {
             errno = r;
-            err(1, "error reading mounted flag");
+            err(1, "error reading mount token");
         }
-        if (mounted) {
+        if (mount_token != 0) {
             if (!config.force)
-                errx(1, "error: %s appears to be already mounted", config.description);
+                errx(1, "error: %s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
             if (!config.quiet) {
                 warnx("warning: filesystem appears already mounted but you said `--force'\n"
                   " so I'll proceed anyway even though your data may get corrupted.\n");

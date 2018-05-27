@@ -128,9 +128,9 @@ s3backer_erase(struct s3b_config *config)
         goto fail3;
     }
 
-    /* Clear mounted flag */
-    if ((r = (*priv->s3b->set_mounted)(priv->s3b, NULL, 0)) != 0) {
-        warnx("can't clear mounted flag: %s", strerror(r));
+    /* Clear mount token */
+    if ((r = (*priv->s3b->set_mount_token)(priv->s3b, NULL, 0)) != 0) {
+        warnx("can't clear mount token: %s", strerror(r));
         goto fail3;
     }
 

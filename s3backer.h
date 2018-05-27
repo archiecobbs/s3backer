@@ -135,18 +135,19 @@ struct s3backer_store {
     int         (*meta_data)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 
     /*
-     * Read and (optionally) set the mounted flag.
+     * Read and (optionally) set the mount token. The mount token is any 32 bit integer value greater than zero.
      *
-     * Previous value is returned in *old_valuep (if not NULL).
+     * Previous value, if any, is returned in *old_valuep (if not NULL). A returned value of zero means there was
+     * no previous value.
      *
      * new_value can be:
-     *  -1      Don't change it
-     *   0      Clear it
-     *   1      Set it
+     *   < 0    Don't change anything, just read the existing value, if any
+     *   = 0    Clear the flag
+     *   > 0    Set flag to new_value
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*set_mounted)(struct s3backer_store *s3b, int *old_valuep, int new_value);
+    int         (*set_mount_token)(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 
     /*
      * Read one block. Never-written-to blocks will return all zeroes.

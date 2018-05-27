@@ -182,7 +182,7 @@ struct cbinfo {
 
 /* s3backer_store functions */
 static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
-static int block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value);
+static int block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
   u_char *actual_md5, const u_char *expect_md5, int strict);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
@@ -244,7 +244,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail0;
     }
     s3b->meta_data = block_cache_meta_data;
-    s3b->set_mounted = block_cache_set_mounted;
+    s3b->set_mount_token = block_cache_set_mount_token;
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
@@ -397,11 +397,17 @@ block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *bloc
 }
 
 static int
-block_cache_set_mounted(struct s3backer_store *s3b, int *old_valuep, int new_value)
+block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value)
 {
     struct block_cache_private *const priv = s3b->data;
+    int r;
 
-    return (*priv->inner->set_mounted)(priv->inner, old_valuep, new_value);
+    /* Set flag in lower layer */
+    if ((r = (*priv->inner->set_mount_token)(priv->inner, old_valuep, new_value)) != 0)
+        return r;
+
+    /* Done */
+    return 0;
 }
 
 static int

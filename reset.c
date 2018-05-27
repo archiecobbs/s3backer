@@ -42,6 +42,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "reset.h"
+#include "dcache.h"
 
 int
 s3backer_reset(struct s3b_config *config)
@@ -52,7 +53,7 @@ s3backer_reset(struct s3b_config *config)
 
     /* Logging */
     if (!config->quiet)
-        warnx("resetting mounted flag for %s", config->description);
+        warnx("resetting mount token for %s", config->description);
 
     /* Create temporary lower layer */
     if ((s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
@@ -60,9 +61,9 @@ s3backer_reset(struct s3b_config *config)
         goto fail;
     }
 
-    /* Clear mounted flag */
-    if ((r = (*s3b->set_mounted)(s3b, NULL, 0)) != 0) {
-        warnx("error clearing mounted flag: %s", strerror(r));
+    /* Clear mount token */
+    if ((r = (*s3b->set_mount_token)(s3b, NULL, 0)) != 0) {
+        warnx("error clearing s3 mount token: %s", strerror(r));
         goto fail;
     }
 
