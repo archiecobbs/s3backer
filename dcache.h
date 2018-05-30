@@ -42,11 +42,11 @@
 struct s3b_dcache;
 
 /* Definitions */
-typedef int s3b_dcache_visit_t(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int flags, const u_char *md5);
+typedef int s3b_dcache_visit_t(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5);
 
 /* dcache.c */
 extern int s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
-  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg);
+  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty);
 extern void s3b_dcache_close(struct s3b_dcache *dcache);
 extern u_int s3b_dcache_size(struct s3b_dcache *dcache);
 extern int s3b_dcache_alloc_block(struct s3b_dcache *priv, u_int *dslotp);

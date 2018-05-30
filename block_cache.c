@@ -290,10 +290,10 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     /* Initialize on-disk cache and read in directory */
     if (config->cache_file != NULL) {
         if ((r = s3b_dcache_open(&priv->dcache, config->log, config->cache_file, config->block_size,
-          config->cache_size, block_cache_dcache_load, priv)) != 0)
+          config->cache_size, block_cache_dcache_load, priv, config->perform_flush)) != 0)
             goto fail9;
-        if (config->perform_flush)
-            (*config->log)(LOG_WARNING, "%u dirty blocks in cache file %s will be recovered", priv->num_dirties, config->cache_file);
+        if (config->perform_flush && priv->num_dirties > 0)
+            (*config->log)(LOG_INFO, "%u dirty blocks in cache file `%s' will be recovered", priv->num_dirties, config->cache_file);
         priv->stats.initial_size = priv->num_cleans + priv->num_dirties;
     }
 
@@ -352,7 +352,7 @@ fail0:
  * Callback function to pre-load the cache from a pre-existing cache file.
  */
 static int
-block_cache_dcache_load(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
+block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
 {
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
@@ -361,23 +361,13 @@ block_cache_dcache_load(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot,
 
     /* Sanity check */
     assert(config->cache_file != NULL);
+    assert(!dirty || config->perform_flush);            /* we should never see dirty blocks unless we asked for them */
 
     /* Sanity check a block is not listed twice */
     if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
         (*config->log)(LOG_ERR, "corrupted cache file: block 0x%0*jx listed twice (in dslots %ju and %ju)",
           S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (uintmax_t)entry->u.dslot, (uintmax_t)dslot);
         return EINVAL;
-    }
-
-    /* Discard dirty cache entry if not flushing */
-    if (dirty && !config->perform_flush) {
-        (*config->log)(LOG_WARNING, "throwing away dirty cache block: 0x%0*jx in dslots %ju",
-          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (uintmax_t)dslot);
-        if ((r = s3b_dcache_erase_block(dcache, dslot)) != 0)
-            (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
-        if ((r = s3b_dcache_free_block(dcache, dslot)) != 0)
-            (*config->log)(LOG_ERR, "can't free cached block! %s", strerror(r));
-        return 0;
     }
 
     /* Create a new cache entry */
@@ -392,17 +382,13 @@ block_cache_dcache_load(void *arg, struct s3b_dcache *dcache, s3b_block_t dslot,
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
     entry->u.dslot = dslot;
 
+    /* Mark as clean or dirty accordingly */
     if (dirty) {
-        /* Sanity check cannot have dirty block if not flushing */
-        if (!config->perform_flush)
-            return EINVAL;
-        /* journalling and have DIRTY cache entry, add to dirty queue */
         entry->dirty = 1;
         TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
         priv->num_dirties++;
         assert(ENTRY_GET_STATE(entry) == DIRTY);
     } else {
-        /* any other case, add to clean queue */
         entry->verify = !config->no_verify;
         if (entry->verify)
             memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);

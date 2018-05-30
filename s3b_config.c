@@ -1519,7 +1519,7 @@ validate_config(void)
                     err(1, "can't open cache file `%s'", config.block_cache.cache_file);
             } else {
                 if ((r = s3b_dcache_open(&dcache, config.log, config.block_cache.cache_file,
-                  config.block_cache.block_size, config.block_cache.cache_size, NULL, NULL)) != 0)
+                  config.block_cache.block_size, config.block_cache.cache_size, NULL, NULL, 0)) != 0)
                     errx(1, "error opening cache file `%s': %s", config.block_cache.cache_file, strerror(r));
                 if (s3b_dcache_has_mount_token(dcache) && (r = s3b_dcache_set_mount_token(dcache, &cache_mount_token, -1)) != 0)
                     errx(1, "error reading mount token from `%s': %s", config.block_cache.cache_file, strerror(r));

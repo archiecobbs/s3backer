@@ -142,7 +142,7 @@ static int s3b_dcache_read_entry(struct s3b_dcache *priv, u_int dslot, struct di
 static int s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, u_int max_blocks,
             struct file_header *headerp);
 static int s3b_dcache_resize_file(struct s3b_dcache *priv, const struct file_header *header);
-static int s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, void *arg);
+static int s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty);
 static int s3b_dcache_push(struct s3b_dcache *priv, u_int dslot);
 static void s3b_dcache_pop(struct s3b_dcache *priv, u_int *dslotp);
 static int s3b_dcache_read(struct s3b_dcache *priv, off_t offset, void *data, size_t len);
@@ -156,7 +156,7 @@ static const struct dir_entry zero_entry;
 
 int
 s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
-  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg)
+  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
 {
     struct ofile_header oheader;
     struct file_header header;
@@ -298,7 +298,7 @@ retry:
     priv->data = ROUNDUP2(DIR_OFFSET(priv->flags, priv->max_blocks), header.data_align);
 
     /* Read the directory to build the free list and visit allocated blocks */
-    if (visitor != NULL && (r = s3b_dcache_init_free_list(priv, visitor, arg)) != 0)
+    if (visitor != NULL && (r = s3b_dcache_init_free_list(priv, visitor, arg, visit_dirty)) != 0)
         goto fail4;
 
     /* Done */
@@ -766,7 +766,7 @@ fail:
 }
 
 static int
-s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, void *arg)
+s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
 {
     off_t required_size;
     struct stat sb;
@@ -778,6 +778,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
 
     /* Logging */
     (*priv->log)(LOG_INFO, "reading meta-data from cache file `%s'", priv->filename);
+    assert(visitor != NULL);
 
     /* Inspect all directory entries */
     for (num_dslots_used = base_dslot = 0; base_dslot < priv->max_blocks; base_dslot += num_entries) {
@@ -792,7 +793,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
             return r;
         }
 
-        /* For each dslot: if free, add to the free list, else notify visitor */
+        /* For each dslot: if free, add to the free list, else let visitor decide what to do */
         for (i = 0; i < num_entries; i++) {
             const u_int dslot = base_dslot + i;
             struct dir_entry entry;
@@ -802,11 +803,16 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
             if (memcmp(&entry, &zero_entry, sizeof(entry)) == 0) {
                 if ((r = s3b_dcache_push(priv, dslot)) != 0)
                     return r;
+            } else if ((entry.flags & ENTFLG_DIRTY) != 0 && !visit_dirty) {     /* visitor doesn't want dirties, so just nuke it */
+                if ((r = s3b_dcache_write_entry(priv, dslot, &zero_entry)) != 0)
+                    return r;
+                if ((r = s3b_dcache_push(priv, dslot)) != 0)
+                    return r;
             } else {
                 priv->num_alloc++;
                 if (dslot + 1 > num_dslots_used)                    /* keep track of the number of dslots in use */
                     num_dslots_used = dslot + 1;
-                if (visitor != NULL && (r = (*visitor)(arg, priv, dslot, entry.block_num, entry.flags, entry.md5)) != 0)
+                if ((r = (*visitor)(arg, dslot, entry.block_num, (entry.flags & ENTFLG_DIRTY) != 0, entry.md5)) != 0)
                     return r;
             }
         }
