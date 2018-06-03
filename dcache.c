@@ -421,9 +421,11 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
         return r;
 
     /* Update directory */
+    memset(&entry, 0, sizeof(entry));
     entry.block_num = block_num;
     entry.flags = dirty ? ENTFLG_DIRTY : 0;
-    memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
+    if (!dirty)
+        memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
     if ((r = s3b_dcache_write_entry(priv, dslot, &entry)) != 0)
         return r;
 
