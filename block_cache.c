@@ -352,8 +352,9 @@ fail0:
  * Callback function to pre-load the cache from a pre-existing cache file.
  */
 static int
-block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
+block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *md5)
 {
+    const u_int dirty = md5 == NULL;
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;

@@ -814,7 +814,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
                 priv->num_alloc++;
                 if (dslot + 1 > num_dslots_used)                    /* keep track of the number of dslots in use */
                     num_dslots_used = dslot + 1;
-                if ((r = (*visitor)(arg, dslot, entry.block_num, (entry.flags & ENTFLG_DIRTY) != 0, entry.md5)) != 0)
+                if ((r = (*visitor)(arg, dslot, entry.block_num, (entry.flags & ENTFLG_DIRTY) == 0 ? entry.md5 : NULL)) != 0)
                     return r;
             }
         }

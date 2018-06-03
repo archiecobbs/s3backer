@@ -41,8 +41,12 @@
 /* Declarations */
 struct s3b_dcache;
 
-/* Definitions */
-typedef int s3b_dcache_visit_t(void *arg, s3b_block_t dslot, s3b_block_t block_num, u_int dirty, const u_char *md5);
+/*
+ * Startup visitor callback. Each non-empty slot in the disk cache is visited.
+ *
+ * The "md5" pointer is NULL for dirty blocks, and not NULL for clean blocks.
+ */
+typedef int s3b_dcache_visit_t(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *md5);
 
 /* dcache.c */
 extern int s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
