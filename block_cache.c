@@ -719,7 +719,7 @@ read:
     assert(ENTRY_GET_STATE(entry) == READING);
     assert(!entry->verify);
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 0, md5)) != 0)
+        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
             (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
     }
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
@@ -773,7 +773,6 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     int r;
-    u_char md5[MD5_DIGEST_LENGTH];
 
     /* Sanity check */
     assert(off <= config->block_size);
@@ -809,7 +808,7 @@ again:
 
             /* Record dirty disk cache entry */
             if (config->cache_file != NULL) {
-                if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 1, md5)) != 0)
+                if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, NULL)) != 0)
                     (*config->log)(LOG_ERR, "can't dirty cached block %u! %s", block_num,  strerror(r));
             }
 
@@ -880,7 +879,7 @@ again:
 
     /* Record dirty disk cache entry */
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 1, md5)) != 0)
+        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, NULL)) != 0)
             (*config->log)(LOG_ERR, "can't dirty cached block %u! %s", block_num,  strerror(r));
     }
 
@@ -1119,7 +1118,7 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!entry->dirty) {
                 if (config->cache_file != NULL) {
-                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, 0, md5)) != 0)
+                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }
                 priv->num_dirties--;

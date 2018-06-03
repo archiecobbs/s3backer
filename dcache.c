@@ -391,15 +391,17 @@ s3b_dcache_alloc_block(struct s3b_dcache *priv, u_int *dslotp)
  * Record a block's dslot in the directory. After this function is called, the block will
  * be visible in the directory and picked up after a restart.
  *
+ * If md5 != NULL, the block is CLEAN; if md5 == NULL, the block is DIRTY.
+ *
  * This should be called AFTER the data for the block has already been written.
  *
  * There MUST NOT be a directory entry for the block.
  */
 int
-s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int dirty, const u_char *md5)
+s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, const u_char *md5)
 {
+    const u_int dirty = md5 == NULL;
     struct dir_entry entry;
-    u_int flags = dirty ? ENTFLG_DIRTY : 0;
     int r;
 
     /* Sanity check */
@@ -420,7 +422,7 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
 
     /* Update directory */
     entry.block_num = block_num;
-    entry.flags = flags;
+    entry.flags = dirty ? ENTFLG_DIRTY : 0;
     memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
     if ((r = s3b_dcache_write_entry(priv, dslot, &entry)) != 0)
         return r;
