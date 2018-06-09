@@ -1,5 +1,6 @@
 Version Next
 
+    - Add support for recovering dirty blocks in the disk cache (issue #87)
     - Replaced boolean 'mounted' flag with a unique 32-bit mount token (issue #87)
     - Wait for min_write_delay before access after write error (issue #76)
     - Configure TCP keep-alive on HTTP connections (issue #78)
