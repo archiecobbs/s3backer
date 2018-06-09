@@ -375,7 +375,7 @@ By default, only clean cache blocks are recoverable after a restart.
 This means a system crash will cause dirty blocks in the cache to be lost (of course, that is the case
 with an in-memory cache as well).
 .Pp
-With the newer cache file format introduced in release 1.4.5, you can recover these dirty blocks by specifying the
+With the newer cache file format introduced in release 1.5.0, you can recover these dirty blocks by specifying the
 .Fl \-blockCacheRecoverDirtyBlocks
 option.
 This will cause any dirty blocks in the cache file to be made writable again on startup.

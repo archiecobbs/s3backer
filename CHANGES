@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.0 released June 9, 2018
 
     - Add support for recovering dirty blocks in the disk cache (issue #87)
     - Replaced boolean 'mounted' flag with a unique 32-bit mount token (issue #87)
