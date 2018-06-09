@@ -136,7 +136,7 @@ struct s3b_dcache {
 static int s3b_dcache_write_entry(struct s3b_dcache *priv, u_int dslot, const struct dir_entry *entry);
 #ifndef NDEBUG
 static int s3b_dcache_entry_is_empty(struct s3b_dcache *priv, u_int dslot);
-static int s3b_dcache_entry_write_ok(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int flags);
+static int s3b_dcache_entry_write_ok(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int dirty);
 static int s3b_dcache_read_entry(struct s3b_dcache *priv, u_int dslot, struct dir_entry *entryp);
 #endif
 static int s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, u_int max_blocks,
@@ -408,7 +408,7 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
     assert(dslot < priv->max_blocks);
 
     /* Directory entry should be writable */
-    assert(s3b_dcache_entry_write_ok(priv, dslot, block_num, flags));
+    assert(s3b_dcache_entry_write_ok(priv, dslot, block_num, dirty));
 
     /* If cache file is older format, it doesn't store dirty blocks, so just erase it instead (prior behavior) */
     if (dirty && (priv->flags & HDRFLG_NEW_FORMAT) == 0) {
@@ -551,25 +551,21 @@ s3b_dcache_entry_is_empty(struct s3b_dcache *priv, u_int dslot)
 }
 
 static int
-s3b_dcache_entry_write_ok(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int flags)
+s3b_dcache_entry_write_ok(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, u_int dirty)
 {
     struct dir_entry entry;
     u_int old_dirty;
-    u_int new_dirty;
 
     if (s3b_dcache_entry_is_empty(priv, dslot))
         return 1;
     (void)s3b_dcache_read_entry(priv, dslot, &entry);
     old_dirty = (entry.flags & ENTFLG_DIRTY) != 0;
-    new_dirty = (flags & ENTFLG_DIRTY) != 0;
     return entry.block_num == block_num && old_dirty != dirty;
 }
 
 static int
 s3b_dcache_read_entry(struct s3b_dcache *priv, u_int dslot, struct dir_entry *entry)
 {
-    int r;
-
     assert(dslot < priv->max_blocks);
     memset(entry, 0, sizeof(*entry));
     return s3b_dcache_read(priv, DIR_OFFSET(priv->flags, dslot), entry, DIR_ENTSIZE(priv->flags));
@@ -583,7 +579,7 @@ static int
 s3b_dcache_write_entry(struct s3b_dcache *priv, u_int dslot, const struct dir_entry *entry)
 {
     assert(dslot < priv->max_blocks);
-    assert(entry->flags & ~((priv->flags & HDRFLG_NEW_FORMAT) != 0 ? ENTFLG_MASK : 0) == 0);
+    assert((entry->flags & ~((priv->flags & HDRFLG_NEW_FORMAT) != 0 ? ENTFLG_MASK : 0)) == 0);
     return s3b_dcache_write(priv, DIR_OFFSET(priv->flags, dslot), entry, DIR_ENTSIZE(priv->flags));
 }
 
