@@ -72,7 +72,7 @@ In normal operation **s3backer** will log via `syslog(3)`.  When run with the `-
 
 ### OK, Where to Next?
 
-**[Try it out!](https://github.com/archiecobbs/s3backer/wiki/RunningTheDemo)** No Amazon S3 account is required.
+**[Try it out!](https://github.com/archiecobbs/s3backer/wiki/Running-the-Demo)** No Amazon S3 account is required.
 
 See the [ManPage](https://github.com/archiecobbs/s3backer/wiki/ManPage) for further documentation and the [CHANGES](https://github.com/archiecobbs/s3backer/blob/master/CHANGES) file for release notes.
 
