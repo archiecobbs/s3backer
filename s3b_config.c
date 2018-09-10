@@ -1229,7 +1229,7 @@ validate_config(void)
     }
     if (config.file_size_str != NULL) {
         if (parse_size_string(config.file_size_str, &value) == -1 || value == 0) {
-            warnx("invalid file size `%s'", config.block_size_str);
+            warnx("invalid file size `%s'", config.file_size_str);
             return -1;
         }
         config.file_size = value;
