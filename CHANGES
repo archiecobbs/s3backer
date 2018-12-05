@@ -1,3 +1,7 @@
+Version Next
+
+    - Don't claim cache hit if partial write required reading the block (pr #103)
+
 Version 1.5.0 released June 9, 2018
 
     - Add support for recovering dirty blocks in the disk cache (issue #87)
