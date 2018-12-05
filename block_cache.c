@@ -774,6 +774,7 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     int r;
+    u_int cache_miss = 0;
 
     /* Sanity check */
     assert(off <= config->block_size);
@@ -827,7 +828,8 @@ again:
             if ((r = block_cache_write_data(priv, entry, src, off, len)) != 0)
                 (*config->log)(LOG_ERR, "error updating dirty block! %s", strerror(r));
             entry->dirty = 1;
-            priv->stats.write_hits++;
+            if (!cache_miss)
+                priv->stats.write_hits++;
             break;
         default:
             assert(0);
@@ -843,6 +845,8 @@ again:
     if (off != 0 || len != config->block_size) {
         if ((r = block_cache_do_read(priv, block_num, 0, 0, NULL, 0)) != 0)
             goto fail;
+        priv->stats.write_misses++;
+        cache_miss = 1;
         goto again;
     }
 
