@@ -845,7 +845,8 @@ again:
     if (off != 0 || len != config->block_size) {
         if ((r = block_cache_do_read(priv, block_num, 0, 0, NULL, 0)) != 0)
             goto fail;
-        partial_miss = 1;
+        if (partial_miss++ == 0)
+            priv->stats.write_misses++;
         goto again;
     }
 
