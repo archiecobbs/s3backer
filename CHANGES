@@ -1,6 +1,7 @@
 Version Next
 
     - Don't claim cache hit if partial write required reading the block (pr #103)
+    - Exit process with error code if s3backer store setup fails at startup
 
 Version 1.5.0 released June 9, 2018
 

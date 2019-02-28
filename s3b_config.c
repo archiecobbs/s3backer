@@ -593,7 +593,7 @@ s3backer_get_config(int argc, char **argv)
 }
 
 /*
- * Create the s3backer_store used at runtime. This method is invoked by fuse_op_init().
+ * Create the s3backer_store used at runtime.
  */
 struct s3backer_store *
 s3backer_create_store(struct s3b_config *conf)

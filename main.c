@@ -47,6 +47,7 @@ int
 main(int argc, char **argv)
 {
     const struct fuse_operations *fuse_ops;
+    struct s3backer_store *s3b;
     struct s3b_config *config;
 
     /* Get configuration */
@@ -67,8 +68,17 @@ main(int argc, char **argv)
         return 0;
     }
 
-    /* Get FUSE operation hooks */
-    fuse_ops = fuse_ops_create(&config->fuse_ops);
+    /* Create backing store */
+    if ((s3b = s3backer_create_store(config)) == NULL) {
+        (*config->log)(LOG_ERR, "error creating s3backer_store: %s", strerror(errno));
+        return 1;
+    }
+
+    /* Setup FUSE operation hooks */
+    if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
+        (*s3b->destroy)(s3b);
+        return 1;
+    }
 
     /* Start */
     (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
