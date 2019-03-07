@@ -55,4 +55,5 @@ struct ec_protect_stats {
 /* ec_protect.c */
 extern struct s3backer_store *ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner);
 extern void ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats);
+extern void ec_protect_clear_stats(struct s3backer_store *s3b);
 

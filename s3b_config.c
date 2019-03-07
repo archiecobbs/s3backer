@@ -106,6 +106,7 @@ struct list_blocks {
  ****************************************************************************/
 
 static print_stats_t s3b_config_print_stats;
+static clear_stats_t s3b_config_clear_stats;
 
 static int parse_size_string(const char *s, uintmax_t *valp);
 static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
@@ -582,6 +583,7 @@ s3backer_get_config(int argc, char **argv)
 
     /* Set up fuse_ops callbacks */
     config.fuse_ops.print_stats = s3b_config_print_stats;
+    config.fuse_ops.clear_stats = s3b_config_clear_stats;
     config.fuse_ops.s3bconf = &config;
 
     /* Debug */
@@ -776,6 +778,22 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         total_oom += ec_protect_stats.out_of_memory_errors;
     }
     (*printer)(prarg, "%-28s %u\n", "out_of_memory_errors", total_oom);
+}
+
+static void
+s3b_config_clear_stats(void)
+{
+    /* Clear HTTP stats */
+    if (http_io_store != NULL)
+        http_io_clear_stats(http_io_store);
+
+    /* Clear EC protection stats */
+    if (ec_protect_store != NULL)
+        ec_protect_clear_stats(ec_protect_store);
+
+    /* Clear block cache stats */
+    if (block_cache_store != NULL)
+        block_cache_clear_stats(block_cache_store);
 }
 
 static int

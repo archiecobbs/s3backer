@@ -495,6 +495,16 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
     pthread_mutex_unlock(&priv->mutex);
 }
 
+void
+block_cache_clear_stats(struct s3backer_store *s3b)
+{
+    struct block_cache_private *const priv = s3b->data;
+
+    pthread_mutex_lock(&priv->mutex);
+    memset(&priv->stats, 0, sizeof(priv->stats));
+    pthread_mutex_unlock(&priv->mutex);
+}
+
 static int
 block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {

@@ -89,6 +89,7 @@ static int fuse_op_statfs(const char *path, struct statvfs *st);
 static int fuse_op_truncate(const char *path, off_t size);
 static int fuse_op_flush(const char *path, struct fuse_file_info *fi);
 static int fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi);
+static int fuse_op_unlink(const char *path);
 #if FUSE_FALLOCATE
 static int fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi);
 #endif
@@ -121,6 +122,7 @@ const struct fuse_operations s3backer_fuse_ops = {
     .flush      = fuse_op_flush,
     .fsync      = fuse_op_fsync,
     .release    = fuse_op_release,
+    .unlink     = fuse_op_unlink,
 #if FUSE_FALLOCATE
     .fallocate  = fuse_op_fallocate,
 #endif
@@ -542,6 +544,22 @@ fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
 {
     return 0;
 }
+
+static int
+fuse_op_unlink(const char *path)
+{
+    /* Handle stats file */
+    if (*path == '/' && strcmp(path + 1, config->stats_filename) == 0) {
+        if (config->clear_stats == NULL)
+            return -EOPNOTSUPP;
+        (*config->clear_stats)();
+        return 0;
+    }
+
+    /* Not supported */
+    return -EOPNOTSUPP;
+}
+
 
 #if FUSE_FALLOCATE
 static int

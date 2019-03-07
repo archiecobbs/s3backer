@@ -306,6 +306,16 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
     pthread_mutex_unlock(&priv->mutex);
 }
 
+void
+ec_protect_clear_stats(struct s3backer_store *s3b)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    pthread_mutex_lock(&priv->mutex);
+    memset(&priv->stats, 0, sizeof(priv->stats));
+    pthread_mutex_unlock(&priv->mutex);
+}
+
 static int
 ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
