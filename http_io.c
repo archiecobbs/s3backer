@@ -924,7 +924,7 @@ static int
 update_iam_credentials(struct http_io_private *const priv)
 {
     struct http_io_conf *const config = priv->config;
-    char urlbuf[sizeof(EC2_IAM_META_DATA_URLBASE) + 128];
+    char *urlbuf;
     struct http_io io;
     char buf[2048] = { '\0' };
     char *access_id = NULL;
@@ -934,7 +934,10 @@ update_iam_credentials(struct http_io_private *const priv)
     int r;
 
     /* Build URL */
-    snprintf(urlbuf, sizeof(urlbuf), "%s%s", EC2_IAM_META_DATA_URLBASE, config->ec2iam_role);
+    if (asprintf(&urlbuf, "%s%s", EC2_IAM_META_DATA_URLBASE, config->ec2iam_role) == -1) {
+        (*config->log)(LOG_ERR, "%s: asprintf() failed: %s", "update_iam_credentials", strerror(ENOMEM));
+        return ENOMEM;
+    }
 
     /* Initialize I/O info */
     memset(&io, 0, sizeof(io));
@@ -947,8 +950,10 @@ update_iam_credentials(struct http_io_private *const priv)
     (*config->log)(LOG_INFO, "acquiring EC2 IAM credentials from %s", io.url);
     if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
         (*config->log)(LOG_ERR, "failed to acquire EC2 IAM credentials from %s: %s", io.url, strerror(r));
+        free(urlbuf);
         return r;
     }
+    free(urlbuf);
 
     /* Determine how many bytes we read */
     buflen = io.buf_size - io.bufs.rdremain;
@@ -2008,7 +2013,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     char datebuf[DATE_BUF_SIZE];
     char access_id[128];
     char access_key[128];
-    char iam_token[1024];
+    char *iam_token = NULL;
     struct tm tm;
     char *p;
     int r;
@@ -2021,13 +2026,19 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     pthread_mutex_lock(&priv->mutex);
     snprintf(access_id, sizeof(access_id), "%s", config->accessId);
     snprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
-    snprintf(iam_token, sizeof(iam_token), "%s", config->iam_token != NULL ? config->iam_token : "");
+    if (config->iam_token != NULL && (iam_token = strdup(config->iam_token)) == NULL) {
+        r = errno;
+        pthread_mutex_unlock(&priv->mutex);
+        (*config->log)(LOG_ERR, "%s: strdup: %s", "http_io_add_auth4", strerror(r));
+        goto fail;
+    }
     pthread_mutex_unlock(&priv->mutex);
 
     /* Extract host, URI path, and query parameters from URL */
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
       || (host = p + 1) == NULL || (uripath = strchr(host, '/')) == NULL) {
         r = EINVAL;
+        free(iam_token);
         goto fail;
     }
     host_len = uripath - host;
@@ -2056,8 +2067,10 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
 /****** Add IAM security token header (if any) ******/
 
-    if (*iam_token != '\0')
+    if (iam_token != NULL && *iam_token != '\0') {
         io->headers = http_io_add_header(priv, io->headers, "%s: %s", SECURITY_TOKEN_HEADER, iam_token);
+        free(iam_token);
+    }
 
 /****** Create Hashed Canonical Request ******/
 
