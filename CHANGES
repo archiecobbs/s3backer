@@ -1,5 +1,6 @@
 Version Next
 
+    - Fixed a few places where fixed-sized buffers were too small (issue #108)
     - Don't claim cache hit if partial write required reading the block (pr #103)
     - Exit process with error code if s3backer store setup fails at startup
     - Reset statistics if stats file is unlinked (issue #106)
