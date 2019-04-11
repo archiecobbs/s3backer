@@ -43,9 +43,10 @@ AC_PROG_MAKE_SET
 [CFLAGS="-g -O3 -pipe -Wall -Waggregate-return -Wcast-align -Wchar-subscripts -Wcomment -Wformat -Wimplicit -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wno-long-long -Wparentheses -Wpointer-arith -Wredundant-decls -Wreturn-type -Wswitch -Wtrigraphs -Wuninitialized -Wunused -Wwrite-strings -Wshadow -Wstrict-prototypes -Wcast-qual $CFLAGS"]
 AC_SUBST(CFLAGS)
 
-# Compile flags for Linux
+# Compile flags for Linux. See https://stackoverflow.com/a/29201732
 AC_DEFINE(_GNU_SOURCE, 1, GNU functions)
 AC_DEFINE(_BSD_SOURCE, 1, BSD functions)
+AC_DEFINE(_DEFAULT_SOURCE, 1, Default functions)
 
 # Compile flags for Mac OS
 AC_DEFINE(_DARWIN_C_SOURCE, 1, MacOS functions)

@@ -341,6 +341,10 @@ http_io_create(struct http_io_conf *config)
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
 
+    /* Avoid GCC unused-function warnings */
+    (void)http_io_openssl_locker;
+    (void)http_io_openssl_ider;
+
     /* Initialize encryption */
     if (config->encryption != NULL) {
         char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
