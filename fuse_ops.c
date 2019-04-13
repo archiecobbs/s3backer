@@ -140,8 +140,8 @@ const struct fuse_operations *
 fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
 {
     /* Sanity check */
-    assert(config0 != null);
-    assert(s3b != null);
+    assert(config0 != NULL);
+    assert(s3b != NULL);
 
     /* Prevent duplicate invocation */
     if (config != NULL || the_priv != NULL) {
