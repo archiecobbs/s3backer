@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.1 released April 15, 2019
 
     - Fixed a few places where fixed-sized buffers were too small (issue #108)
     - Don't claim cache hit if partial write required reading the block (pr #103)
