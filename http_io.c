@@ -2506,11 +2506,17 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
         io->mount_token = (int32_t)mtoken;
 
     /* ETag header */
-    if (http_io_parse_header(buf, ETAG_HEADER, "\"%16c\"", hashbuf) == 1)
+#if MD5_DIGEST_LENGTH != 16
+#error unexpected MD5_DIGEST_LENGTH
+#endif
+    if (http_io_parse_header(buf, ETAG_HEADER, "\"%32c\"", hashbuf) == 1)
         http_io_parse_hex(hashbuf, io->md5, MD5_DIGEST_LENGTH);
 
     /* "x-amz-meta-s3backer-hmac" header */
-    if (http_io_parse_header(buf, HMAC_HEADER, "\"%20c\"", hashbuf) == 1)
+#if SHA_DIGEST_LENGTH != 20
+#error unexpected MD5_DIGEST_LENGTH
+#endif
+    if (http_io_parse_header(buf, HMAC_HEADER, "\"%40c\"", hashbuf) == 1)
         http_io_parse_hex(hashbuf, io->hmac, SHA_DIGEST_LENGTH);
 
     /* Content encoding(s) */
