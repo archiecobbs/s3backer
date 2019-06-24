@@ -2499,10 +2499,13 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     buf[total] = '\0';
 
     /* Check for interesting headers */
-    (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
-    (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
-    if (sscanf(buf, MOUNT_TOKEN_HEADER ": %x", &mtoken) == 1)
-        io->mount_token = (int32_t)mtoken;
+    if (strncasecmp(buf, FILE_SIZE_HEADER ":", sizeof(FILE_SIZE_HEADER)) == 0)
+        (void)sscanf(buf + strlen(FILE_SIZE_HEADER), ": %ju", &io->file_size);
+    if (strncasecmp(buf, BLOCK_SIZE_HEADER ":", sizeof(BLOCK_SIZE_HEADER)) == 0)
+        (void)sscanf(buf + strlen(BLOCK_SIZE_HEADER), ": %u", &io->block_size);
+    if (strncasecmp(buf, MOUNT_TOKEN_HEADER ":", sizeof(MOUNT_TOKEN_HEADER)) == 0)
+        if (sscanf(buf + strlen(MOUNT_TOKEN_HEADER), ": %x", &mtoken) == 1)
+            io->mount_token = (int32_t)mtoken;
 
     /* ETag header requires parsing */
     if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {
