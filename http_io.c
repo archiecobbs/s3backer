@@ -276,6 +276,7 @@ static int http_io_is_zero_block(const void *data, u_int block_size);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
+static int http_io_parse_header(const char *input, const char *header, const char *fmt, ...);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -2488,7 +2489,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     const size_t total = size * nmemb;
-    char fmtbuf[64];
+    char hashbuf[64];
     char buf[1024];
     u_int mtoken;
 
@@ -2499,28 +2500,18 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     buf[total] = '\0';
 
     /* Check for interesting headers */
-    (void)sscanf(buf, FILE_SIZE_HEADER ": %ju", &io->file_size);
-    (void)sscanf(buf, BLOCK_SIZE_HEADER ": %u", &io->block_size);
-    if (sscanf(buf, MOUNT_TOKEN_HEADER ": %x", &mtoken) == 1)
+    (void)http_io_parse_header(buf, FILE_SIZE_HEADER, "%ju", &io->file_size);
+    (void)http_io_parse_header(buf, BLOCK_SIZE_HEADER, "%u", &io->block_size);
+    if (http_io_parse_header(buf, MOUNT_TOKEN_HEADER, "%x", &mtoken) == 1)
         io->mount_token = (int32_t)mtoken;
 
-    /* ETag header requires parsing */
-    if (strncasecmp(buf, ETAG_HEADER ":", sizeof(ETAG_HEADER)) == 0) {
-        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+    /* ETag header */
+    if (http_io_parse_header(buf, ETAG_HEADER, "\"%16c\"", hashbuf) == 1)
+        http_io_parse_hex(hashbuf, io->md5, MD5_DIGEST_LENGTH);
 
-        snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", MD5_DIGEST_LENGTH * 2);
-        if (sscanf(buf + sizeof(ETAG_HEADER), fmtbuf, md5buf) == 1)
-            http_io_parse_hex(md5buf, io->md5, MD5_DIGEST_LENGTH);
-    }
-
-    /* "x-amz-meta-s3backer-hmac" header requires parsing */
-    if (strncasecmp(buf, HMAC_HEADER ":", sizeof(HMAC_HEADER)) == 0) {
-        char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
-
-        snprintf(fmtbuf, sizeof(fmtbuf), " \"%%%uc\"", SHA_DIGEST_LENGTH * 2);
-        if (sscanf(buf + sizeof(HMAC_HEADER), fmtbuf, hmacbuf) == 1)
-            http_io_parse_hex(hmacbuf, io->hmac, SHA_DIGEST_LENGTH);
-    }
+    /* "x-amz-meta-s3backer-hmac" header */
+    if (http_io_parse_header(buf, HMAC_HEADER, "\"%20c\"", hashbuf) == 1)
+        http_io_parse_hex(hashbuf, io->hmac, SHA_DIGEST_LENGTH);
 
     /* Content encoding(s) */
     if (strncasecmp(buf, CONTENT_ENCODING_HEADER ":", sizeof(CONTENT_ENCODING_HEADER)) == 0) {
@@ -2793,3 +2784,28 @@ http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
     return strcasecmp(str1, str2);
 }
 
+static int
+http_io_parse_header(const char *const input, const char *const header, const char *const fmt, ...)
+{
+
+    va_list args;
+    size_t offset;
+    int rtn;
+
+    /* Initialize */
+    va_start(args, fmt);
+
+    /* Match header (case-insensitively) followed by ':' and optional whitespace */
+    offset = strlen(header);
+    if (strncasecmp(input, header, offset) != 0 || input[offset++] != ':')
+        return -1;
+    while (isspace(input[offset]))
+        offset++;
+
+    /* Parse header value */
+    rtn = vsscanf(input + offset, fmt, args);
+
+    /* Done */
+    va_end(args);
+    return rtn;
+}

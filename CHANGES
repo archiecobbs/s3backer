@@ -1,3 +1,7 @@
+Version Next
+
+    - Fixed bug where we were not parsing HTTP headers case-insensitively (pr #11)
+
 Version 1.5.1 released April 15, 2019
 
     - Fixed a few places where fixed-sized buffers were too small (issue #108)
