@@ -82,8 +82,10 @@
 #define DATE_BUF_SIZE               64
 
 /* Size required for URL buffer */
-#define URL_BUF_SIZE(config)        (strlen((config)->baseURL) + strlen((config)->bucket) \
-                                      + strlen((config)->prefix) + S3B_BLOCK_NUM_DIGITS + 2)
+#define URL_BUF_SIZE(config)        (strlen((config)->baseURL) \
+                                      + strlen((config)->bucket) + 1 \
+                                      + strlen((config)->prefix) \
+                                      + S3B_BLOCK_NUM_DIGITS + 2)
 
 /* Bucket listing API constants */
 #define LIST_PARAM_MARKER           "marker"
@@ -521,8 +523,8 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    char marker[sizeof("&marker=") + strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
-    char urlbuf[URL_BUF_SIZE(config) + sizeof(marker) + 32];
+    char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
+    char urlbuf[URL_BUF_SIZE(config) + sizeof("&marker=") + sizeof(url_encoded_prefix) + S3B_BLOCK_NUM_DIGITS + 36];
     struct http_io io;
     int r;
 
@@ -554,7 +556,6 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
     /* List blocks */
     do {
-        char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
         const time_t now = time(NULL);
 
         /* Reset XML parser state */
