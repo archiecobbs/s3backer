@@ -458,6 +458,13 @@ This is verified by checking a unique 32-bit mount token in the cache file again
 This flag requires
 .Fl \-blockCacheFile
 to be set.
+.It Fl \-blockHashPrefix
+Prepend random prefixes (generated deterministically from the block number) to block object names.
+This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.
+.Pp
+As with
+.Fl \-prefix ,
+this flag must be used consistently once a disk image is established.
 .It Fl \-blockSize=SIZE
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.

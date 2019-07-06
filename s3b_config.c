@@ -152,6 +152,7 @@ static struct s3b_config config = {
         .region=                NULL,
         .bucket=                NULL,
         .sse=                   NULL,
+        .blockHashPrefix=       0,
         .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
@@ -371,6 +372,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--minWriteDelay=%u",
         .offset=    offsetof(struct s3b_config, ec_protect.min_write_delay),
+    },
+    {
+        .templ=     "--blockHashPrefix",
+        .offset=    offsetof(struct s3b_config, http_io.blockHashPrefix),
+        .value=     1
     },
     {
         .templ=     "--prefix=%s",
@@ -1652,6 +1658,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "blockHashPrefix", config.http_io.blockHashPrefix ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
       config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
@@ -1795,6 +1802,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "blockHashPrefix", "Prepend hash to block names for even distribution");
     fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
     fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");

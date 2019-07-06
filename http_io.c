@@ -85,6 +85,7 @@
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL) \
                                       + strlen((config)->bucket) + 1 \
                                       + strlen((config)->prefix) \
+                                      + S3B_BLOCK_NUM_DIGITS + 1 \
                                       + S3B_BLOCK_NUM_DIGITS + 2)
 
 /* Bucket listing API constants */
@@ -275,7 +276,9 @@ static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num,
 static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
   const char *name, int value_only, char *sigbuf, size_t sigbuflen);
 static int http_io_is_zero_block(const void *data, u_int block_size);
+static s3b_block_t http_io_block_hash_prefix(s3b_block_t block_num);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
+static int http_io_parse_hex_block_num(const char *string, s3b_block_t *block_nump);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
 static int http_io_parse_header(const char *input, const char *header, const char *fmt, ...);
@@ -524,7 +527,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
-    char urlbuf[URL_BUF_SIZE(config) + sizeof("&marker=") + sizeof(url_encoded_prefix) + S3B_BLOCK_NUM_DIGITS + 36];
+    char urlbuf[URL_BUF_SIZE(config) + sizeof("&marker=") + sizeof(url_encoded_prefix) + (S3B_BLOCK_NUM_DIGITS * 2) + 36];
     struct http_io io;
     int r;
 
@@ -544,7 +547,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     }
 
     /* Allocate buffers for XML path and tag text content */
-    io.xml_text_max = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 10;
+    io.xml_text_max = strlen(config->prefix) + (S3B_BLOCK_NUM_DIGITS * 2) + 16;
     if ((io.xml_text = malloc(io.xml_text_max + 1)) == NULL) {
         (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
         goto oom;
@@ -572,8 +575,11 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
         /* Add URL parameters (note: must be in "canonical query string" format for proper authentication) */
         if (io.list_truncated) {
-            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%0*jx&",
-              LIST_PARAM_MARKER, url_encoded_prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
+            char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
+
+            http_io_format_block_hash(config, block_hash_buf, sizeof(block_hash_buf), io.last_block);
+            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%s%0*jx&",
+              LIST_PARAM_MARKER, url_encoded_prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
         }
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
         snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, url_encoded_prefix);
@@ -725,37 +731,103 @@ http_io_list_text(void *arg, const XML_Char *s, int len)
 }
 
 /*
- * Parse a block's item name (including prefix) and set the corresponding bit in the bitmap.
+ * Parse a block's item name (including prefix and block hash prefix if any) and returns the result in *block_nump.
  */
 int
 http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_nump)
 {
     const size_t plen = strlen(config->prefix);
+    s3b_block_t hash_value = 0;
     s3b_block_t block_num = 0;
-    int i;
 
-    /* Check prefix */
+    /* Parse prefix */
     if (strncmp(name, config->prefix, plen) != 0)
         return -1;
     name += plen;
 
-    /* Parse block number */
-    for (i = 0; i < S3B_BLOCK_NUM_DIGITS; i++) {
-        char ch = name[i];
-
-        if (!isxdigit(ch))
-            break;
-        block_num <<= 4;
-        block_num |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+    /* Parse block hash prefix followed by dash (if so configured) */
+    if (config->blockHashPrefix) {
+        if (http_io_parse_hex_block_num(name, &hash_value) == -1)
+            return -1;
+        name += S3B_BLOCK_NUM_DIGITS;
+        if (*name++ != '-')
+            return -1;
     }
 
-    /* Was parse successful? */
-    if (i != S3B_BLOCK_NUM_DIGITS || name[i] != '\0' || block_num >= config->num_blocks)
+    /* Parse block number */
+    if (http_io_parse_hex_block_num(name, &block_num) == -1)
+        return -1;
+    name += S3B_BLOCK_NUM_DIGITS;
+    if (*name != '\0' || block_num >= config->num_blocks)
+        return -1;
+
+    /* Verify hash matches what's expected */
+    if (config->blockHashPrefix && hash_value != http_io_block_hash_prefix(block_num))
         return -1;
 
     /* Done */
     *block_nump = block_num;
     return 0;
+}
+
+/*
+ * Parse a hexadecimal block number value, which should be S3B_BLOCK_NUM_DIGITS digits.
+ *
+ * Returns zero on success, -1 on failure.
+ */
+static int
+http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
+{
+    s3b_block_t value = 0;
+    int i;
+
+    /* Parse block number */
+    for (i = 0; i < S3B_BLOCK_NUM_DIGITS; i++) {
+        const char ch = string[i];
+
+        if (!isxdigit(ch))
+            return -1;
+        value <<= 4;
+        value |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+    }
+
+    /* Done */
+    *valuep = value;
+    return 0;
+}
+
+/*
+ * Append deterministic hash value based on block number for even name distribution.
+ *
+ * Ref: https://github.com/archiecobbs/s3backer/issues/80
+ * Ref: https://crypto.stackexchange.com/questions/16219/cryptographic-hash-function-for-32-bit-length-input-keys
+ */
+void
+http_io_format_block_hash(const struct http_io_conf *const config, char *buf, size_t bufsiz, s3b_block_t block_num)
+{
+    assert(bufsiz > S3B_BLOCK_NUM_DIGITS + 2);
+    if (config->blockHashPrefix)
+        snprintf(buf, bufsiz, "%0*jx-", S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num));
+    else
+        *buf = '\0';
+}
+
+/*
+ * Calculate deterministic hash value based on block number for even name distribution.
+ *
+ * Ref: https://github.com/archiecobbs/s3backer/issues/80
+ * Ref: https://crypto.stackexchange.com/questions/16219/cryptographic-hash-function-for-32-bit-length-input-keys
+ */
+s3b_block_t
+http_io_block_hash_prefix(s3b_block_t block_num)
+{
+    s3b_block_t hash;
+    int n;
+
+    hash = block_num;
+    for (n = 12; n > 0; n--)
+        hash = ((hash >> 8) ^ hash) * 0x6b + n;
+    return hash;
 }
 
 static int
@@ -2334,13 +2406,16 @@ url_encode(const char *src, size_t len, char *dst, size_t buflen, int encode_sla
 static void
 http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
+    char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     int len;
 
-    if (config->vhost)
-        len = snprintf(buf, bufsiz, "%s%s%0*jx", config->baseURL, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-    else {
-        len = snprintf(buf, bufsiz, "%s%s/%s%0*jx", config->baseURL,
-          config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    http_io_format_block_hash(config, block_hash_buf, sizeof(block_hash_buf), block_num);
+    if (config->vhost) {
+        len = snprintf(buf, bufsiz, "%s%s%s%0*jx", config->baseURL,
+          config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    } else {
+        len = snprintf(buf, bufsiz, "%s%s/%s%s%0*jx", config->baseURL,
+          config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     }
     (void)len;                  /* avoid compiler warning when NDEBUG defined */
     assert(len < bufsiz);
