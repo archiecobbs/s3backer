@@ -2024,7 +2024,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
     HMAC_Update(hmac_ctx, (const u_char *)resource, resource_len);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, resource_len, resource);
+    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, (int)resource_len, resource);
 #endif
 
     /* Finish up */
@@ -2793,7 +2793,7 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
             if (!value_only) {
                 HMAC_Update(ctx, (const u_char *)header->data, name_len + 1);
 #if DEBUG_AUTHENTICATION
-                snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", name_len + 1, header->data);
+                snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", (int)name_len + 1, header->data);
 #endif
             }
             for (value = header->data + name_len + 1; isspace(*value); value++)
