@@ -114,6 +114,9 @@
 /* Enable to debug authentication stuff */
 #define DEBUG_AUTHENTICATION        0
 
+/* Enable to debug parsing block list response */
+#define DEBUG_BLOCK_LIST            0
+
 /* Version 4 authentication stuff */
 #define SIGNATURE_ALGORITHM         "AWS4-HMAC-SHA256"
 #define ACCESS_KEY_PREFIX           "AWS4"
@@ -288,6 +291,7 @@ static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
 static u_char zero_md5[MD5_DIGEST_LENGTH];
 static u_char zero_hmac[SHA_DIGEST_LENGTH];
+static const s3b_block_t last_possible_block = (s3b_block_t)~0L;
 
 /*
  * Constructor
@@ -686,23 +690,58 @@ http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
     /* Reset buffer */
     io->xml_text_len = 0;
     io->xml_text[0] = '\0';
+
+#if DEBUG_BLOCK_LIST
+    /* Debug */
+    (*io->config->log)(LOG_DEBUG, "list: new path: \"%s\"", io->xml_path);
+#endif
 }
 
 static void
 http_io_list_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
+    struct http_io_conf *const config = io->config;
     s3b_block_t block_num;
 
     /* Handle <Truncated> tag */
-    if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0)
+    if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0) {
         io->list_truncated = strcmp(io->xml_text, LIST_TRUE) == 0;
+#if DEBUG_BLOCK_LIST
+        (*config->log)(LOG_DEBUG, "list: parsed truncated=%d", io->list_truncated);
+#endif
+    }
 
     /* Handle <Key> tag */
     else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
-        if (http_io_parse_block(io->config, io->xml_text, &block_num) == 0) {
+#if DEBUG_BLOCK_LIST
+        (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
+#endif
+
+        /* Attempt to parse key as a block's object name */
+        if (http_io_parse_block(config, io->xml_text, &block_num) == 0) {
+#if DEBUG_BLOCK_LIST
+            (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> block=%0*jx",
+              io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+#endif
             (*io->callback_func)(io->callback_arg, block_num);
             io->last_block = block_num;
+        } else {                                                        /* object is some unrelated junk that we can ignore */
+            char last_block_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
+
+#if DEBUG_BLOCK_LIST
+            (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
+#endif
+
+            /* If the object name is lexicographically after our last possible block name, we are done */
+            snprintf(last_block_path, sizeof(last_block_path), "%s%0*jx",
+              config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)last_possible_block);
+            if (strcmp(io->xml_text, last_block_path) > 0) {
+#if DEBUG_BLOCK_LIST
+                (*config->log)(LOG_DEBUG, "list: key=\"%s\" > last block \"%s\" -> we're done", io->xml_text, last_block_path);
+#endif
+                io->list_truncated = 0;
+            }
         }
     }
 

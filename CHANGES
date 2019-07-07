@@ -1,6 +1,7 @@
 Version Next
 
     - Fixed bug where we were not parsing HTTP headers case-insensitively (pr #11)
+    - Bail out during `--listBlocks' if we see an object name past our block range
     - Added `--blockHashPrefix' flag (issue #80)
 
 Version 1.5.1 released April 15, 2019
