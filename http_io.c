@@ -733,7 +733,11 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
             (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
 #endif
 
-            /* If the object name is lexicographically after our last possible block name, we are done */
+            /*
+             * If the object name is lexicographically after our last possible block name, we are done.
+             * Note that this works whether or not --blockHashPrefix is being used, because the block hash
+             * prefix is in the same format as the block number (i.e., 32 bit unsigned hexadecimal value).
+             */
             snprintf(last_block_path, sizeof(last_block_path), "%s%0*jx",
               config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)last_possible_block);
             if (strcmp(io->xml_text, last_block_path) > 0) {
