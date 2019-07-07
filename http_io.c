@@ -771,7 +771,7 @@ http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *
 }
 
 /*
- * Parse a hexadecimal block number value, which should be S3B_BLOCK_NUM_DIGITS digits.
+ * Parse a hexadecimal block number value, which should be S3B_BLOCK_NUM_DIGITS lowercase digits.
  *
  * Returns zero on success, -1 on failure.
  */
@@ -785,10 +785,13 @@ http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
     for (i = 0; i < S3B_BLOCK_NUM_DIGITS; i++) {
         const char ch = string[i];
 
-        if (!isxdigit(ch))
-            return -1;
         value <<= 4;
-        value |= ch <= '9' ? ch - '0' : tolower(ch) - 'a' + 10;
+        if (ch >= '0' && ch <= '9')
+            value |= ch - '0';
+        else if (ch >= 'a' && ch <= 'f')
+            value |= ch - 'a' + 10;
+        else
+            return -1;
     }
 
     /* Done */
