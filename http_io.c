@@ -805,7 +805,7 @@ http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
 void
 http_io_format_block_hash(const struct http_io_conf *const config, char *buf, size_t bufsiz, s3b_block_t block_num)
 {
-    assert(bufsiz > S3B_BLOCK_NUM_DIGITS + 2);
+    assert(bufsiz >= S3B_BLOCK_NUM_DIGITS + 2);
     if (config->blockHashPrefix)
         snprintf(buf, bufsiz, "%0*jx-", S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num));
     else
