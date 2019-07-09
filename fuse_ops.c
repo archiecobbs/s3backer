@@ -170,15 +170,27 @@ fuse_op_init(struct fuse_conn_info *conn)
 {
     struct s3b_config *const s3bconf = config->s3bconf;
     struct fuse_ops_private *const priv = the_priv;
+    int r;
 
+    /* Sanity check */
     assert(priv != NULL);
     assert(priv->s3b != NULL);
+
+    /* Initialize */
     priv->block_bits = ffs(config->block_size) - 1;
     priv->start_time = time(NULL);
     priv->file_atime = priv->start_time;
     priv->file_mtime = priv->start_time;
     priv->stats_atime = priv->start_time;
     priv->file_size = config->num_blocks * config->block_size;
+
+    /* Startup background threads now that we have fork()'d */
+    if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
+        (*config->log)(LOG_ERR, "fuse_op_init(): can't create threads: %s", strerror(errno));
+        return NULL;
+    }
+
+    /* Done */
     (*config->log)(LOG_INFO, "mounting %s", s3bconf->mount);
     return priv;
 }

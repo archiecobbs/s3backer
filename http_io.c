@@ -220,6 +220,7 @@ struct http_io {
 typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
 /* s3backer_store functions */
+static int http_io_create_threads(struct s3backer_store *s3b);
 static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
@@ -319,6 +320,7 @@ http_io_create(struct http_io_conf *config)
         r = errno;
         goto fail0;
     }
+    s3b->create_threads = http_io_create_threads;
     s3b->meta_data = http_io_meta_data;
     s3b->set_mount_token = http_io_set_mount_token;
     s3b->read_block = http_io_read_block;
@@ -874,6 +876,12 @@ http_io_block_hash_prefix(s3b_block_t block_num)
     for (n = 12; n > 0; n--)
         hash = ((hash >> 8) ^ hash) * 0x6b + n;
     return hash;
+}
+
+static int
+http_io_create_threads(struct s3backer_store *s3b)
+{
+    return 0;
 }
 
 static int

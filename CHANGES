@@ -1,5 +1,6 @@
 Version Next
 
+    - Fixed bug where block cache would not work when run in the background (issue #112)
     - Fixed bug where we were not parsing HTTP headers case-insensitively (pr #11)
     - Bail out during `--listBlocks' if we see an object name past our block range
     - Added `--blockHashPrefix' flag (issue #80)

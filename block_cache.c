@@ -181,6 +181,7 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
+static int block_cache_create_threads(struct s3backer_store *s3b);
 static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
@@ -234,7 +235,6 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     struct s3backer_store *s3b;
     struct block_cache_private *priv;
     struct cache_entry *entry;
-    pthread_t thread;
     int r;
 
     /* Initialize s3backer_store structure */
@@ -243,6 +243,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
+    s3b->create_threads = block_cache_create_threads;
     s3b->meta_data = block_cache_meta_data;
     s3b->set_mount_token = block_cache_set_mount_token;
     s3b->read_block = block_cache_read_block;
@@ -301,22 +302,11 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
-    /* Create threads */
-    for (priv->num_threads = 0; priv->num_threads < config->num_threads; priv->num_threads++) {
-        if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
-            goto fail10;
-    }
-
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
     return s3b;
 
-fail10:
-    priv->stopping = 1;
-    while (priv->num_threads > 0) {
-        pthread_cond_broadcast(&priv->worker_work);
-        pthread_cond_wait(&priv->worker_exit, &priv->mutex);
-    }
+fail9:
     if (config->cache_file != NULL) {
         while ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
             TAILQ_REMOVE(&priv->cleans, entry, link);
@@ -324,7 +314,6 @@ fail10:
         }
         s3b_dcache_close(priv->dcache);
     }
-fail9:
     s3b_hash_destroy(priv->hashtable);
 fail8:
     pthread_cond_destroy(&priv->write_complete);
@@ -399,6 +388,34 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     }
     s3b_hash_put_new(priv->hashtable, entry);
     return 0;
+}
+
+static int
+block_cache_create_threads(struct s3backer_store *s3b)
+{
+    struct block_cache_private *const priv = s3b->data;
+    struct block_cache_conf *const config = priv->config;
+    pthread_t thread;
+    int r;
+
+    /* Create threads in lower layer */
+    if ((r = (*priv->inner->create_threads)(priv->inner)) != 0)
+        return r;
+
+    /* Grab lock */
+    pthread_mutex_lock(&priv->mutex);
+    S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Create threads */
+    while (priv->num_threads < config->num_threads) {
+        if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
+            goto fail;
+        priv->num_threads++;
+    }
+
+fail:
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
 }
 
 static int
@@ -554,6 +571,12 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
+
+    /* Sanity check */
+    if (priv->num_threads == 0) {
+        (*config->log)(LOG_ERR, "block_cache_read(): no threads created yet");
+        return ENOTCONN;
+    }
 
     /* Update count of block(s) read sequentially by the upper layer */
     if (block_num == priv->seq_last + 1) {
@@ -797,6 +820,11 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
 again:
     /* Sanity check */
     S3BCACHE_CHECK_INVARIANTS(priv);
+    if (priv->num_threads == 0) {
+        (*config->log)(LOG_ERR, "block_cache_write(): no threads created yet");
+        r = ENOTCONN;
+        goto fail;
+    }
 
     /* Find cache entry */
     if ((entry = s3b_hash_get(priv->hashtable, block_num)) != NULL) {

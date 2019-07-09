@@ -129,6 +129,7 @@ struct cbinfo {
 };
 
 /* s3backer_store functions */
+static int ec_protect_create_threads(struct s3backer_store *s3b);
 static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
@@ -182,6 +183,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail0;
     }
+    s3b->create_threads = ec_protect_create_threads;
     s3b->meta_data = ec_protect_meta_data;
     s3b->set_mount_token = ec_protect_set_mount_token;
     s3b->read_block = ec_protect_read_block;
@@ -232,6 +234,14 @@ fail0:
     (*config->log)(LOG_ERR, "ec_protect creation failed: %s", strerror(r));
     errno = r;
     return NULL;
+}
+
+static int
+ec_protect_create_threads(struct s3backer_store *s3b)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    return (*priv->inner->create_threads)(priv->inner);
 }
 
 static int
