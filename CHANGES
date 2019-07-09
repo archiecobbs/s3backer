@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.2 released July 9, 2019
 
     - Fixed bug where block cache would not work when run in the background (issue #112)
     - Fixed bug where we were not parsing HTTP headers case-insensitively (pr #11)
