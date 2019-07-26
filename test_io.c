@@ -222,7 +222,17 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
         if (strict) {
             if (!match) {
-                (*config->log)(LOG_ERR, "%s: wrong MD5 checksum?!", path);
+                (*config->log)(LOG_ERR,
+                   "%s: wrong MD5 checksum?! %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
+                   " != %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", path,
+                  (u_int)md5[0], (u_int)md5[1], (u_int)md5[2], (u_int)md5[3],
+                  (u_int)md5[4], (u_int)md5[5], (u_int)md5[6], (u_int)md5[7],
+                  (u_int)md5[8], (u_int)md5[9], (u_int)md5[10], (u_int)md5[11],
+                  (u_int)md5[12], (u_int)md5[13], (u_int)md5[14], (u_int)md5[15],
+                  (u_int)expect_md5[0], (u_int)expect_md5[1], (u_int)expect_md5[2], (u_int)expect_md5[3],
+                  (u_int)expect_md5[4], (u_int)expect_md5[5], (u_int)expect_md5[6], (u_int)expect_md5[7],
+                  (u_int)expect_md5[8], (u_int)expect_md5[9], (u_int)expect_md5[10], (u_int)expect_md5[11],
+                  (u_int)expect_md5[12], (u_int)expect_md5[13], (u_int)expect_md5[14], (u_int)expect_md5[15]);
                 return EINVAL;
             }
         } else if (match)
@@ -231,7 +241,13 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Logging */
     if (config->debug) {
-        (*config->log)(LOG_DEBUG, "test_io: read %0*jx complete%s%s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+        (*config->log)(LOG_DEBUG,
+          "test_io: read %0*jx complete, MD5 %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%s%s",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+          (u_int)md5[0], (u_int)md5[1], (u_int)md5[2], (u_int)md5[3],
+          (u_int)md5[4], (u_int)md5[5], (u_int)md5[6], (u_int)md5[7],
+          (u_int)md5[8], (u_int)md5[9], (u_int)md5[10], (u_int)md5[11],
+          (u_int)md5[12], (u_int)md5[13], (u_int)md5[14], (u_int)md5[15],
           zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
     }
 
@@ -272,8 +288,14 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Logging */
     if (config->debug) {
-        (*config->log)(LOG_DEBUG, "test_io: write %0*jx started%s",
-          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, src == NULL ? " (zero block)" : "");
+        (*config->log)(LOG_DEBUG,
+          "test_io: write %0*jx started, MD5 %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%s",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+          (u_int)md5[0], (u_int)md5[1], (u_int)md5[2], (u_int)md5[3],
+          (u_int)md5[4], (u_int)md5[5], (u_int)md5[6], (u_int)md5[7],
+          (u_int)md5[8], (u_int)md5[9], (u_int)md5[10], (u_int)md5[11],
+          (u_int)md5[12], (u_int)md5[13], (u_int)md5[14], (u_int)md5[15],
+          src == NULL ? " (zero block)" : "");
     }
 
     /* Random delay */
