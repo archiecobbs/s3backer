@@ -218,7 +218,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Check expected MD5 */
     if (expect_md5 != NULL) {
-        const int match = memcmp(md5, expect_md5, MD5_DIGEST_LENGTH);
+        const int match = memcmp(md5, expect_md5, MD5_DIGEST_LENGTH) == 0;
 
         if (strict) {
             if (!match) {
