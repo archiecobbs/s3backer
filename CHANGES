@@ -1,3 +1,7 @@
+Version Next
+
+    - Fixed bug in test mode that was causing bogus I/O errors.
+
 Version 1.5.2 released July 9, 2019
 
     - Fixed bug where block cache would not work when run in the background (issue #112)
