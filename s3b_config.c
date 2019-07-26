@@ -983,7 +983,8 @@ validate_config(void)
         config.http_io.accessId = NULL;
 
     /* If no accessId, only read operations will succeed */
-    if (config.http_io.accessId == NULL && !config.fuse_ops.read_only && !customBaseURL && config.http_io.ec2iam_role == NULL) {
+    if (!config.test && config.http_io.accessId == NULL
+      && !config.fuse_ops.read_only && !customBaseURL && config.http_io.ec2iam_role == NULL) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
