@@ -1,5 +1,6 @@
 Version Next
 
+    - Fixed use-after-free bug in block_cache_verified() (issue #113)
     - Fixed use-after-free bug when updating IAM credentials (pr #114)
     - Fixed bug in test mode that was causing bogus I/O errors
 

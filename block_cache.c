@@ -1321,9 +1321,10 @@ block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry
     assert(entry->verify);
     assert(ENTRY_GET_STATE(entry) == CLEAN2 || ENTRY_GET_STATE(entry) == READING2);
 
-    /* Give back some memory; if we can't no big deal */
-    if ((new_entry = realloc(entry, sizeof(*entry))) == NULL)
+    /* Allocate new, smaller entry; if we can't no big deal */
+    if ((new_entry = malloc(sizeof(*entry))) == NULL)
         goto done;
+    memcpy(new_entry, entry, sizeof(*entry));
 
     /* Update all references that point to the entry */
     s3b_hash_put(priv->hashtable, new_entry);
@@ -1331,6 +1332,7 @@ block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry
         TAILQ_REMOVE(&priv->cleans, entry, link);
         TAILQ_INSERT_TAIL(&priv->cleans, new_entry, link);
     }
+    free(entry);
     entry = new_entry;
 
 done:

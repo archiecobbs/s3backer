@@ -107,6 +107,12 @@ s3b_hash_get(struct s3b_hash *hash, s3b_block_t key)
     }
 }
 
+/*
+ * Add/replace entry.
+ *
+ * Note that the value being replaced (if any) is referenced by this function,
+ * so it should not be free'd until after this function returns.
+ */
 void *
 s3b_hash_put(struct s3b_hash *hash, void *value)
 {
