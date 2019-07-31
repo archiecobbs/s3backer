@@ -1,6 +1,7 @@
 Version Next
 
-    - Fixed bug in test mode that was causing bogus I/O errors.
+    - Fixed use-after-free bug when updating IAM credentials (pr #114)
+    - Fixed bug in test mode that was causing bogus I/O errors
 
 Version 1.5.2 released July 9, 2019
 
