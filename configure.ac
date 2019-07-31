@@ -124,6 +124,10 @@ AC_ARG_ENABLE(Werror,
     AC_HELP_STRING([--enable-Werror],
         [enable compilation with -Werror flag (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -Werror"])
+AC_ARG_ENABLE(sanitize,
+    AC_HELP_STRING([--enable-sanitize],
+        [enable compilation with -fsanitize=address and -fsanitize=undefined (default NO)]),
+    [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -fsanitize=address -fsanitize=undefined"])
 
 # Generated files
 AC_CONFIG_FILES(Makefile)
