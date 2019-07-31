@@ -1085,7 +1085,6 @@ update_iam_credentials(struct http_io_private *const priv)
         free(urlbuf);
         return r;
     }
-    free(urlbuf);
 
     /* Determine how many bytes we read */
     buflen = io.buf_size - io.bufs.rdremain;
@@ -1100,6 +1099,7 @@ update_iam_credentials(struct http_io_private *const priv)
         (*config->log)(LOG_ERR, "failed to extract EC2 IAM credentials from response: %s", strerror(errno));
         free(access_id);
         free(access_key);
+        free(urlbuf);
         return EINVAL;
     }
 
@@ -1113,6 +1113,7 @@ update_iam_credentials(struct http_io_private *const priv)
     config->iam_token = iam_token;
     pthread_mutex_unlock(&priv->mutex);
     (*config->log)(LOG_INFO, "successfully updated EC2 IAM credentials from %s", io.url);
+    free(urlbuf);
 
     /* Done */
     return 0;
