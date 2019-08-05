@@ -413,13 +413,9 @@ http_io_create(struct http_io_conf *config)
     /* Initialize cURL */
     curl_global_init(CURL_GLOBAL_ALL);
 
-    /* Initialize IAM credentials and start updater thread */
-    if (config->ec2iam_role != NULL) {
-        if ((r = update_iam_credentials(priv)) != 0)
-            goto fail5;
-        if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
-            goto fail5;
-    }
+    /* Initialize IAM credentials */
+    if (config->ec2iam_role != NULL && (r = update_iam_credentials(priv)) != 0)
+        goto fail5;
 
     /* Take ownership of non-zero block bitmap */
     priv->non_zero = config->nonzero_bitmap;
@@ -881,6 +877,16 @@ http_io_block_hash_prefix(s3b_block_t block_num)
 static int
 http_io_create_threads(struct s3backer_store *s3b)
 {
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    int r;
+
+    /* Start IAM updater thread if appropriate */
+    if (config->ec2iam_role != NULL
+      && (r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
+        return r;
+
+    /* Done */
     return 0;
 }
 
