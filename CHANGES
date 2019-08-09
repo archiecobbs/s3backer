@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.3 released August 9, 2019
 
     - Fixed bug where IAM update thread was killed after fork (issue #115)
     - Fixed use-after-free bug in block_cache_verified() (issue #113)
