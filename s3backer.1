@@ -236,6 +236,11 @@ Compression is configured via the
 .Fl \-compress
 flag.
 Compression is automatically enabled when encryption is enabled.
+.Ss Server Side Encryption
+.Nm
+supports server side encryption via the
+.Fl \-sse
+flag.
 .Ss Read-Only Access
 An Amazon S3 account is not required in order to use
 .Nm .
@@ -783,6 +788,14 @@ If this option is specified but disagrees with the auto-detected value,
 will exit with an error unless
 .Fl \-force
 is also given.
+.It Fl \-sse=ALGORITHM
+Enable server side encryption.
+This adds the
+.Pa x-amz-server-side-encryption
+header to all PUT requests.
+.Pp
+Currently the only supported encryption algorithm is
+.Pa AES256 .
 .It Fl \-ssl
 Equivalent to
 .Bk -words
