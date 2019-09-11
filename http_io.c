@@ -1035,7 +1035,7 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         }
 
         /* Add Server Side Encryption value (if needed) */
-        if (config->sse != NULL)
+        if (config->sse != NULL && new_value != 0)
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
 
         /* Add storage class header (if needed) */
@@ -1695,7 +1695,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
 
     /* Add Server Side Encryption header (if needed) */
-    if (config->sse != NULL)
+    if (config->sse != NULL && src != NULL)
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
 
     /* Add storage class header (if needed) */
