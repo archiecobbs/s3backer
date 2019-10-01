@@ -155,9 +155,10 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
-    u_int                       *non_zero;      // config->nonzero_bitmap is moved to here
-    pthread_t                   iam_thread;     // IAM credentials refresh thread
-    u_char                      shutting_down;
+    u_int                       *non_zero;                      // config->nonzero_bitmap is moved to here
+    pthread_t                   iam_thread;                     // IAM credentials refresh thread
+    u_char                      iam_thread_alive;               // IAM thread was successfully created
+    u_char                      iam_thread_shutdown;            // Flag to the IAM thread telling it to exit
 
     /* Encryption info */
     const EVP_CIPHER            *cipher;
@@ -463,15 +464,16 @@ http_io_destroy(struct s3backer_store *const s3b)
     int r;
 
     /* Shut down IAM thread */
-    priv->shutting_down = 1;
-    if (config->ec2iam_role != NULL) {
+    if (priv->iam_thread_alive) {
         (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
+        priv->iam_thread_shutdown = 1;
         if ((r = pthread_cancel(priv->iam_thread)) != 0)
             (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
         if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
             (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
         else
             (*config->log)(LOG_DEBUG, "EC2 IAM thread successfully shutdown");
+        priv->iam_thread_alive = 0;
     }
 
     /* Clean up openssl */
@@ -882,9 +884,12 @@ http_io_create_threads(struct s3backer_store *s3b)
     int r;
 
     /* Start IAM updater thread if appropriate */
-    if (config->ec2iam_role != NULL
-      && (r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
-        return r;
+    if (config->ec2iam_role != NULL) {
+        assert(!priv->iam_thread_alive);
+        if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
+            return r;
+        priv->iam_thread_alive = 1;
+    }
 
     /* Done */
     return 0;
@@ -1130,13 +1135,13 @@ update_iam_credentials_main(void *arg)
 {
     struct http_io_private *const priv = arg;
 
-    while (!priv->shutting_down) {
+    while (!priv->iam_thread_shutdown) {
 
-        // Sleep for five minutes
+        // Sleep for five minutes, or until woken up by pthread_cancel()
         sleep(300);
 
         // Shutting down?
-        if (priv->shutting_down)
+        if (priv->iam_thread_shutdown)
             break;
 
         // Attempt to update credentials
