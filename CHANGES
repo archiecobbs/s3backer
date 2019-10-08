@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.4 released October 8, 2019
 
     - Only set "x-amz-server-side-encryption" header with PUT requests (issue #116)
     - Don't kill IAM thread unless actually started (issue #115).
