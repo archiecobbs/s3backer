@@ -759,7 +759,9 @@ and disables the MD5 checksum cache.
 Specify an AWS region.
 This flag changes the default base URL to include the region name and automatically sets the
 .Fl \-vhost
-flag.
+flag, unless the
+.Fl \-no-vhost
+flag is used.
 .It Fl \-reset-mounted-flag
 Reset the 'already mounted' flag on the underlying S3 data store.
 .Pp
@@ -853,7 +855,11 @@ This flag is required when S3 buckets have been created with location constraint
 Put another way, this flag is required for buckets defined outside of the US region.
 This flag is automatically set when the
 .Fl \-region
+flag is used, unless the
+.Fl \-no-vhost
 flag is used.
+.It Fl \-no-vhost
+Disable virtual hosted style requests (the default).
 .El
 .Pp
 In addition,

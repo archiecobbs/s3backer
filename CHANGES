@@ -1,3 +1,7 @@
+Version Next
+
+    - Added `--no-vhost' flag (issue #117)
+
 Version 1.5.4 released October 8, 2019
 
     - Only set "x-amz-server-side-encryption" header with PUT requests (issue #116)

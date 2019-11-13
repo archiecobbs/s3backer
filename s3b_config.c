@@ -344,6 +344,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--no-vhost",
+        .offset=    offsetof(struct s3b_config, http_io.vhost),
+        .value=     -1
+    },
+    {
         .templ=     "--fileMode=%o",
         .offset=    offsetof(struct s3b_config, fuse_ops.file_mode),
     },
@@ -1063,8 +1068,12 @@ validate_config(void)
     /* Set default or custom region */
     if (config.http_io.region == NULL)
         config.http_io.region = S3BACKER_DEFAULT_REGION;
-    if (customRegion)
+    if (customRegion && config.http_io.vhost != -1)
         config.http_io.vhost = 1;
+
+    /* Handle --no-vhost */
+    if (config.http_io.vhost == -1)
+        config.http_io.vhost = 0;
 
     /* Set default base URL */
     if (config.http_io.baseURL == NULL) {
