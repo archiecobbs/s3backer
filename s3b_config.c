@@ -1325,8 +1325,14 @@ validate_config(void)
         if (status != 2) {
             warnx("unable to parse --blockCacheProtectRange, must be in the format 123-456");
             return -1;
-        } else {
-            warnx("range: %d - %d", config.block_cache.protect_start, config.block_cache.protect_end);
+        } else if (! (config.block_cache.protect_end > config.block_cache.protect_start)) {
+            warnx("block cache protect range end (%d) is not after start (%d)",
+                  config.block_cache.protect_end, config.block_cache.protect_start);
+            return -1;
+        } else if ((config.block_cache.protect_end - config.block_cache.protect_start + 1)
+                   >= config.block_cache.cache_size) {
+            warnx("the block cache protected range is equal to or larger than the cache size."
+                  " This may cause reduced performance.");
         }
     }
 

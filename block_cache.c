@@ -1008,6 +1008,7 @@ again:
             }
         }
         protect_start = protect_end = 0;
+        goto again;
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
         block_cache_free_entry(priv, &entry);
         goto again;

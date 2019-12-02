@@ -188,8 +188,9 @@ The block cache is configured by the following command line options:
 .Fl \-blockCacheThreads ,
 .Fl \-blockCacheTimeout ,
 .Fl \-blockCacheWriteDelay ,
+.Fl \-blockCacheRecoverDirtyBlocks ,
 and
-.Fl \-blockCacheRecoverDirtyBlocks .
+.Fl \-blockCacheProtectRange .
 .Ss Read Ahead
 .Nm
 implements a simple read-ahead algorithm in the block cache.
@@ -463,6 +464,15 @@ This is verified by checking a unique 32-bit mount token in the cache file again
 This flag requires
 .Fl \-blockCacheFile
 to be set.
+.It Fl \-blockCacheProtectRange=START-END
+Preferentially retain a range of blocks in the block cache from the range START to END inclusive.
+For example, the range `0-15' will retain the first sixteen blocks.
+.Pp
+This option can be used to improve performance and reduce read activity for certain known regions of the file.
+For example, files hosting filesystems may prefer to retain blocks containing filesystem metadata.
+.Pp
+If the protected range is larger than the cache size, cache pressure may evict blocks within the protected range once the cache is full.
+Therefore, it is recommended that the cache size be larger than the protected range.
 .It Fl \-blockHashPrefix
 Prepend random prefixes (generated deterministically from the block number) to block object names.
 This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.
