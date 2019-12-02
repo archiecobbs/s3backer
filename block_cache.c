@@ -981,7 +981,9 @@ block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **ent
     struct cache_entry *entry;
     void *data = NULL;
     int r;
-
+    s3b_block_t protect_start = config->protect_start;
+    s3b_block_t protect_end = config->protect_end;
+    
 again:
     /*
      * If cache is not full, allocate a new entry. We allocate the structure
@@ -997,6 +999,15 @@ again:
             priv->stats.out_of_memory_errors++;
             return r;
         }
+    } else if (protect_end > protect_start) {
+        /* Try to find a cache entry outside the protected range */
+        for (entry = TAILQ_FIRST(&priv->cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
+            if (entry->block_num > protect_end || entry->block_num < protect_start) {
+                block_cache_free_entry(priv, &entry);
+                goto again;
+            }
+        }
+        protect_start = protect_end = 0;
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
         block_cache_free_entry(priv, &entry);
         goto again;

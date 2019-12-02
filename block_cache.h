@@ -50,6 +50,9 @@ struct block_cache_conf {
     u_int               perform_flush;
     const char          *cache_file;
     log_func_t          *log;
+    const char          *protect_range;
+    s3b_block_t         protect_start;
+    s3b_block_t         protect_end;
 };
 
 /* Statistics structure for block_cache */

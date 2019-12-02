@@ -179,6 +179,9 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
         .read_ahead=            S3BACKER_DEFAULT_READ_AHEAD,
         .read_ahead_trigger=    S3BACKER_DEFAULT_READ_AHEAD_TRIGGER,
+        .protect_range=         NULL,
+        .protect_start=         0,
+        .protect_end=           0,
     },
 
     /* FUSE operations config */
@@ -283,6 +286,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--readAheadTrigger=%u",
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
+    },
+    {
+        .templ=     "--blockCacheProtectRange=%s",
+        .offset=    offsetof(struct s3b_config, block_cache.protect_range),
     },
     {
         .templ=     "--blockCacheFile=%s",
@@ -1311,6 +1318,16 @@ validate_config(void)
     if (config.block_cache.cache_file == NULL && config.block_cache.recover_dirty_blocks) {
         warnx("`--blockCacheRecoverDirtyBlocks' requires specifying `--blockCacheFile'");
         return -1;
+    }
+    if (config.block_cache.protect_range != NULL) {
+        int status = sscanf(config.block_cache.protect_range, "%d-%d",
+                            &config.block_cache.protect_start, &config.block_cache.protect_end);
+        if (status != 2) {
+            warnx("unable to parse --blockCacheProtectRange, must be in the format 123-456");
+            return -1;
+        } else {
+            warnx("range: %d - %d", config.block_cache.protect_start, config.block_cache.protect_end);
+        }
     }
 
     /* Check mount point */

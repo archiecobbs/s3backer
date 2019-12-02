@@ -352,6 +352,7 @@ s3b_dcache_set_mount_token(struct s3b_dcache *priv, int32_t *old_valuep, int32_t
 void
 s3b_dcache_close(struct s3b_dcache *priv)
 {
+    if (priv == NULL) return;
     close(priv->fd);
     free(priv->zero_block);
     free(priv->filename);
