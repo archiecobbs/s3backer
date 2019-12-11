@@ -312,7 +312,8 @@ fail9:
             TAILQ_REMOVE(&priv->cleans, entry, link);
             free(entry);
         }
-        s3b_dcache_close(priv->dcache);
+        if (priv->dcache != NULL)
+            s3b_dcache_close(priv->dcache);
     }
     s3b_hash_destroy(priv->hashtable);
 fail8:
