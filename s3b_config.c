@@ -285,6 +285,10 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, block_cache.read_ahead_trigger),
     },
     {
+        .templ=     "--blockCacheNumProtected=%u",
+        .offset=    offsetof(struct s3b_config, block_cache.num_protected),
+    },
+    {
         .templ=     "--blockCacheFile=%s",
         .offset=    offsetof(struct s3b_config, block_cache.cache_file),
     },
@@ -1310,6 +1314,10 @@ validate_config(void)
     }
     if (config.block_cache.cache_file == NULL && config.block_cache.recover_dirty_blocks) {
         warnx("`--blockCacheRecoverDirtyBlocks' requires specifying `--blockCacheFile'");
+        return -1;
+    }
+    if (config.block_cache.num_protected != 0 && config.block_cache.num_protected >= config.block_cache.cache_size) {
+        warnx("`--blockCacheNumProtected' must be less than the size of the cache");
         return -1;
     }
 

@@ -999,6 +999,13 @@ again:
             return r;
         }
     } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
+        while (entry->block_num < config->num_protected) {
+            if ((entry = TAILQ_NEXT(entry, link)) == NULL) {        // every clean block is a protected block
+                entry = TAILQ_FIRST(&priv->cleans);                 // so go back and pick the first in the list
+                assert(entry != NULL);
+                break;
+            }
+        }
         block_cache_free_entry(priv, &entry);
         goto again;
     } else

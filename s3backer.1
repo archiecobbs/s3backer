@@ -183,6 +183,7 @@ The block cache is configured by the following command line options:
 .Fl \-blockCacheFile ,
 .Fl \-blockCacheMaxDirty ,
 .Fl \-blockCacheNoVerify ,
+.Fl \-blockCacheNumProtected ,
 .Fl \-blockCacheSize ,
 .Fl \-blockCacheSync ,
 .Fl \-blockCacheThreads ,
@@ -463,6 +464,18 @@ This is verified by checking a unique 32-bit mount token in the cache file again
 This flag requires
 .Fl \-blockCacheFile
 to be set.
+.It Fl \-blockCacheNumProtected=NUM
+Preferentially retain the first
+.Ar NUM
+blocks in the block cache.
+.Pp
+Some upper filesystems store highly active data (e.g., write journal) at the beginning of the filesystem.
+This option can be used to improve performance by reducing network reads for these regions of the file.
+With this option enabled, blocks after the first
+.Ar NUM
+blocks will be evicted before any protected blocks are.
+.Pp
+This value must be less than the cache size.
 .It Fl \-blockHashPrefix
 Prepend random prefixes (generated deterministically from the block number) to block object names.
 This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.

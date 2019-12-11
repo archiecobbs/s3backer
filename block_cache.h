@@ -48,6 +48,7 @@ struct block_cache_conf {
     u_int               no_verify;
     u_int               recover_dirty_blocks;
     u_int               perform_flush;
+    u_int               num_protected;
     const char          *cache_file;
     log_func_t          *log;
 };
