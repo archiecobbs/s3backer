@@ -474,8 +474,6 @@ This option can be used to improve performance by reducing network reads for the
 With this option enabled, blocks after the first
 .Ar NUM
 blocks will be evicted before any protected blocks are.
-.Pp
-This value must be less than the cache size.
 .It Fl \-blockHashPrefix
 Prepend random prefixes (generated deterministically from the block number) to block object names.
 This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.

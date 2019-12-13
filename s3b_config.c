@@ -1316,10 +1316,8 @@ validate_config(void)
         warnx("`--blockCacheRecoverDirtyBlocks' requires specifying `--blockCacheFile'");
         return -1;
     }
-    if (config.block_cache.num_protected != 0 && config.block_cache.num_protected >= config.block_cache.cache_size) {
-        warnx("`--blockCacheNumProtected' must be less than the size of the cache");
-        return -1;
-    }
+    if (config.block_cache.num_protected > config.block_cache.cache_size)
+        warnx("`--blockCacheNumProtected' is larger than cache size; this may cause performance problems");
 
     /* Check mount point */
     if (config.erase || config.reset) {
