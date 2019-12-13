@@ -57,6 +57,9 @@
  * used to most recently used (where 'used' means either read or written). CLEAN2 is the
  * same as CLEAN except that the data must be MD5 verified before being used.
  *
+ * The linked list for CLEAN/CLEAN2 blocks is actually two lists, hi_cleans and lo_cleans.
+ * This allows us to evict "low priority" blocks before "high priority" blocks.
+ *
  * Blocks in the DIRTY state are linked in a list in the order they should be written.
  * A pool of worker threads picks them off and writes them through to the underlying
  * s3backer_store; while being written they are in state WRITING, or WRITING2 if another
@@ -153,11 +156,12 @@ struct block_cache_private {
     struct block_cache_conf         *config;        // configuration
     struct s3backer_store           *inner;         // underlying s3backer store
     struct block_cache_stats        stats;          // statistics
-    struct list_head                cleans;         // list of clean blocks (LRU order)
+    struct list_head                lo_cleans;      // list of low priority clean blocks (LRU order)
+    struct list_head                hi_cleans;      // list of high priority clean blocks (LRU order)
     struct list_head                dirties;        // list of dirty blocks (write order)
     struct s3b_hash                 *hashtable;     // hashtable of all cached blocks
     struct s3b_dcache               *dcache;        // on-disk persistent cache
-    u_int                           num_cleans;     // length of the 'cleans' list
+    u_int                           num_cleans;     // combined lengths of 'lo_cleans' and 'hi_cleans'
     u_int                           num_dirties;    // # blocks that are DIRTY, WRITING, or WRITING2
     u_int64_t                       start_time;     // when we started
     u_int32_t                       clean_timeout;  // timeout for clean entries in time units
@@ -211,6 +215,8 @@ static struct cache_entry *block_cache_verified(struct block_cache_private *priv
 static void block_cache_dirty_callback(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
+static struct list_head *block_cache_cleans_list(struct block_cache_private *priv, s3b_block_t block_num);
+static int block_cache_high_prio(struct block_cache_conf *conf, s3b_block_t block_num);
 static uint32_t block_cache_get_time(struct block_cache_private *priv);
 static uint64_t block_cache_get_time_millis(void);
 static int block_cache_read_data(struct block_cache_private *priv, struct cache_entry *entry, void *dest, u_int off, u_int len);
@@ -280,7 +286,8 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail6;
     if ((r = pthread_cond_init(&priv->write_complete, NULL)) != 0)
         goto fail7;
-    TAILQ_INIT(&priv->cleans);
+    TAILQ_INIT(&priv->lo_cleans);
+    TAILQ_INIT(&priv->hi_cleans);
     TAILQ_INIT(&priv->dirties);
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail8;
@@ -311,8 +318,12 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
 
 fail9:
     if (config->cache_file != NULL) {
-        while ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
-            TAILQ_REMOVE(&priv->cleans, entry, link);
+        while ((entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL) {
+            TAILQ_REMOVE(&priv->lo_cleans, entry, link);
+            free(entry);
+        }
+        while ((entry = TAILQ_FIRST(&priv->hi_cleans)) != NULL) {
+            TAILQ_REMOVE(&priv->hi_cleans, entry, link);
             free(entry);
         }
         if (priv->dcache != NULL)
@@ -350,6 +361,7 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     const u_int dirty = md5 == NULL;
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
+    struct list_head *const cleans_list = block_cache_cleans_list(priv, block_num);
     struct cache_entry *entry;
     int r;
 
@@ -386,7 +398,7 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
         entry->verify = !config->no_verify;
         if (entry->verify)
             memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);
-        TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+        TAILQ_INSERT_TAIL(cleans_list, entry, link);
         priv->num_cleans++;
         assert(ENTRY_GET_STATE(entry) == (config->no_verify ? CLEAN : CLEAN2));
     }
@@ -614,6 +626,7 @@ static int
 block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats)
 {
     struct block_cache_conf *const config = priv->config;
+    struct list_head *const cleans_list = block_cache_cleans_list(priv, block_num);
     struct cache_entry *entry;
     u_char md5[MD5_DIGEST_LENGTH];
     int verified_but_not_read = 0;
@@ -651,7 +664,7 @@ again:
                 if ((r = s3b_dcache_erase_block(priv->dcache, entry->u.dslot)) != 0)
                     (*config->log)(LOG_ERR, "can't erase cached block! %s", strerror(r));
             }
-            TAILQ_REMOVE(&priv->cleans, entry, link);
+            TAILQ_REMOVE(cleans_list, entry, link);
             ENTRY_RESET_LINK(entry);
             priv->num_cleans--;
             entry->timeout = READING_TIMEOUT;
@@ -661,8 +674,8 @@ again:
             /* Now go read/verify the data */
             goto read;
         case CLEAN:         /* Update timestamp and move to the end of the list to maintain LRU ordering */
-            TAILQ_REMOVE(&priv->cleans, entry, link);
-            TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+            TAILQ_REMOVE(cleans_list, entry, link);
+            TAILQ_INSERT_TAIL(cleans_list, entry, link);
             entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
             // FALLTHROUGH
         case DIRTY:         /* Copy the cached data */
@@ -761,7 +774,7 @@ read:
             (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
     }
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
-    TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+    TAILQ_INSERT_TAIL(cleans_list, entry, link);
     priv->num_cleans++;
     assert(ENTRY_GET_STATE(entry) == CLEAN);
 
@@ -809,6 +822,7 @@ static int
 block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, const void *src)
 {
     struct block_cache_conf *const config = priv->config;
+    struct list_head *const cleans_list = block_cache_cleans_list(priv, block_num);
     struct cache_entry *entry;
     int partial_miss = 0;
     int r;
@@ -857,7 +871,7 @@ again:
             }
 
             /* Change from CLEAN to DIRTY */
-            TAILQ_REMOVE(&priv->cleans, entry, link);
+            TAILQ_REMOVE(cleans_list, entry, link);
             priv->num_cleans--;
             TAILQ_INSERT_TAIL(&priv->dirties, entry, link);
             priv->num_dirties++;
@@ -992,7 +1006,8 @@ again:
      * and the data separately in hopes that the malloc() implementation will
      * put the data into its own page of virtual memory.
      *
-     * If the cache is full, try to evict a clean entry.
+     * If the cache is full, try to evict a clean entry. Evict low priority
+     * blocks before high priority blocks.
      */
     if (s3b_hash_size(priv->hashtable) < config->cache_size) {
         if ((entry = calloc(1, sizeof(*entry))) == NULL) {
@@ -1001,14 +1016,10 @@ again:
             priv->stats.out_of_memory_errors++;
             return r;
         }
-    } else if ((entry = TAILQ_FIRST(&priv->cleans)) != NULL) {
-        while (entry->block_num < config->num_protected) {
-            if ((entry = TAILQ_NEXT(entry, link)) == NULL) {        // every clean block is a protected block
-                entry = TAILQ_FIRST(&priv->cleans);                 // so go back and pick the first in the list
-                assert(entry != NULL);
-                break;
-            }
-        }
+    } else if ((entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL) {
+        block_cache_free_entry(priv, &entry);
+        goto again;
+    } else if ((entry = TAILQ_FIRST(&priv->hi_cleans)) != NULL) {
         block_cache_free_entry(priv, &entry);
         goto again;
     } else
@@ -1053,6 +1064,7 @@ block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **en
 {
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *const entry = *entryp;
+    struct list_head *const cleans_list = block_cache_cleans_list(priv, entry->block_num);
     int r;
 
     /* Sanity check */
@@ -1071,7 +1083,7 @@ block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **en
         free(entry->u.data);
 
     /* Remove entry from the clean list */
-    TAILQ_REMOVE(&priv->cleans, entry, link);
+    TAILQ_REMOVE(cleans_list, entry, link);
     s3b_hash_remove(priv->hashtable, entry->block_num);
     priv->num_cleans--;
 
@@ -1089,6 +1101,7 @@ block_cache_worker_main(void *arg)
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     struct cache_entry *clean_entry = NULL;
+    struct list_head *cleans_list;
     u_char md5[MD5_DIGEST_LENGTH];
     uint32_t adjusted_now;
     uint32_t now;
@@ -1120,9 +1133,13 @@ block_cache_worker_main(void *arg)
         /* Get current time */
         now = block_cache_get_time(priv);
 
-        /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
+        /* Evict low priority any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
-            while ((clean_entry = TAILQ_FIRST(&priv->cleans)) != NULL && now >= clean_entry->timeout) {
+            while ((clean_entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL && now >= clean_entry->timeout) {
+                block_cache_free_entry(priv, &clean_entry);
+                pthread_cond_signal(&priv->space_avail);
+            }
+            while ((clean_entry = TAILQ_FIRST(&priv->hi_cleans)) != NULL && now >= clean_entry->timeout) {
                 block_cache_free_entry(priv, &clean_entry);
                 pthread_cond_signal(&priv->space_avail);
             }
@@ -1176,7 +1193,8 @@ block_cache_worker_main(void *arg)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }
                 priv->num_dirties--;
-                TAILQ_INSERT_TAIL(&priv->cleans, entry, link);
+                cleans_list = block_cache_cleans_list(priv, entry->block_num);
+                TAILQ_INSERT_TAIL(cleans_list, entry, link);
                 entry->verify = 0;
                 entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
                 priv->num_cleans++;
@@ -1297,6 +1315,26 @@ block_cache_get_time(struct block_cache_private *priv)
 }
 
 /*
+ * Get the head of the appropriate clean list, based on whether the block is low or high priority.
+ */
+static struct list_head *
+block_cache_cleans_list(struct block_cache_private *const priv, s3b_block_t block_num)
+{
+    return block_cache_high_prio(priv->config, block_num) ? &priv->hi_cleans : &priv->lo_cleans;
+}
+
+/*
+ * Classify a block as either low or high priority.
+ *
+ * NOTE: this function must always return the same value for any given block number.
+ */
+static int
+block_cache_high_prio(struct block_cache_conf *const config, s3b_block_t block_num)
+{
+    return block_num < config->num_protected;
+}
+
+/*
  * Return current time in milliseconds.
  */
 static uint64_t
@@ -1326,6 +1364,7 @@ block_cache_free_one(void *arg, void *value)
 static struct cache_entry *
 block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry)
 {
+    struct list_head *const cleans_list = block_cache_cleans_list(priv, entry->block_num);
     struct cache_entry *new_entry;
 
     /* Sanity check */
@@ -1340,8 +1379,8 @@ block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry
     /* Update all references that point to the entry */
     s3b_hash_put(priv->hashtable, new_entry);
     if (ENTRY_IN_LIST(entry)) {
-        TAILQ_REMOVE(&priv->cleans, entry, link);
-        TAILQ_INSERT_TAIL(&priv->cleans, new_entry, link);
+        TAILQ_REMOVE(cleans_list, entry, link);
+        TAILQ_INSERT_TAIL(cleans_list, new_entry, link);
     }
     free(entry);
     entry = new_entry;
@@ -1457,9 +1496,16 @@ block_cache_check_invariants(struct block_cache_private *priv)
     int dirty_len = 0;
 
     /* Check CLEANs and CLEAN2s */
-    for (entry = TAILQ_FIRST(&priv->cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
+    for (entry = TAILQ_FIRST(&priv->lo_cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
         assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
         assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
+        assert(!block_cache_high_prio(priv, entry->block_num));
+        clean_len++;
+    }
+    for (entry = TAILQ_FIRST(&priv->hi_cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
+        assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
+        assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
+        assert(block_cache_high_prio(priv, entry->block_num));
         clean_len++;
     }
     assert(clean_len == priv->num_cleans);
