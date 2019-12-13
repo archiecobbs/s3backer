@@ -145,13 +145,16 @@ struct cache_entry {
 /* Special timeout value for entries in state READING and READING2 */
 #define READING_TIMEOUT             ((uint32_t)0x3fffffff)
 
+/* Declare the list "head" struct */
+TAILQ_HEAD(list_head, cache_entry);
+
 /* Private data */
 struct block_cache_private {
     struct block_cache_conf         *config;        // configuration
     struct s3backer_store           *inner;         // underlying s3backer store
     struct block_cache_stats        stats;          // statistics
-    TAILQ_HEAD(, cache_entry)       cleans;         // list of clean blocks (LRU order)
-    TAILQ_HEAD(, cache_entry)       dirties;        // list of dirty blocks (write order)
+    struct list_head                cleans;         // list of clean blocks (LRU order)
+    struct list_head                dirties;        // list of dirty blocks (write order)
     struct s3b_hash                 *hashtable;     // hashtable of all cached blocks
     struct s3b_dcache               *dcache;        // on-disk persistent cache
     u_int                           num_cleans;     // length of the 'cleans' list
