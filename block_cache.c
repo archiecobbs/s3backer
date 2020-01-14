@@ -1499,13 +1499,13 @@ block_cache_check_invariants(struct block_cache_private *priv)
     for (entry = TAILQ_FIRST(&priv->lo_cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
         assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
         assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
-        assert(!block_cache_high_prio(priv, entry->block_num));
+        assert(!block_cache_high_prio(config, entry->block_num));
         clean_len++;
     }
     for (entry = TAILQ_FIRST(&priv->hi_cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
         assert(ENTRY_GET_STATE(entry) == CLEAN || ENTRY_GET_STATE(entry) == CLEAN2);
         assert(s3b_hash_get(priv->hashtable, entry->block_num) == entry);
-        assert(block_cache_high_prio(priv, entry->block_num));
+        assert(block_cache_high_prio(config, entry->block_num));
         clean_len++;
     }
     assert(clean_len == priv->num_cleans);
