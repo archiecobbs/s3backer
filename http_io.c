@@ -363,6 +363,8 @@ http_io_create(struct http_io_conf *config)
     if (config->encryption != NULL) {
         char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
         u_int cipher_key_len;
+        u_int cipher_block_size;
+        u_int cipher_iv_length;
 
         /* Sanity checks */
         assert(config->password != NULL);
@@ -379,6 +381,16 @@ http_io_create(struct http_io_conf *config)
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
             (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
+            r = EINVAL;
+            goto fail4;
+        }
+
+        /* Sanity check cipher is a block cipher */
+        cipher_block_size = EVP_CIPHER_block_size(priv->cipher);
+        cipher_iv_length = EVP_CIPHER_iv_length(priv->cipher);
+        if (cipher_block_size <= 1 || cipher_block_size != cipher_iv_length) {
+            (*config->log)(LOG_ERR, "invalid cipher `%s' (block size %u, IV length %u); only block ciphers are supported",
+              config->encryption, cipher_block_size, cipher_iv_length);
             r = EINVAL;
             goto fail4;
         }

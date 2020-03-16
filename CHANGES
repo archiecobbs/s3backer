@@ -2,6 +2,7 @@ Version Next
 
     - Added `--no-vhost' flag (issue #117)
     - Added `--blockCacheNumProtected' flag (pr #119)
+    - Disallow stream encryption ciphers (issue #123)
 
 Version 1.5.4 released October 8, 2019
 
