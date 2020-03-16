@@ -276,7 +276,8 @@ static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
 static u_long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
-static u_int http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst);
+static u_int http_io_crypt(struct http_io_private *priv,
+    s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst, u_int dmax);
 static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
 static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
   const char *name, int value_only, char *sigbuf, size_t sigbuflen);
@@ -1315,6 +1316,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         if (strncasecmp(layer, CONTENT_ENCODING_ENCRYPT "-", sizeof(CONTENT_ENCODING_ENCRYPT)) == 0) {
             const char *const block_cipher = layer + sizeof(CONTENT_ENCODING_ENCRYPT);
             u_char hmac[SHA_DIGEST_LENGTH];
+            u_int decrypt_buflen;
             u_char *buf;
 
             /* Encryption must be enabled */
@@ -1349,7 +1351,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             }
 
             /* Allocate buffer for the decrypted data */
-            if ((buf = malloc(did_read + EVP_MAX_IV_LENGTH)) == NULL) {
+            decrypt_buflen = did_read + EVP_MAX_IV_LENGTH;
+            if ((buf = malloc(decrypt_buflen)) == NULL) {
                 (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.out_of_memory_errors++;
@@ -1359,7 +1362,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             }
 
             /* Decrypt the block */
-            did_read = http_io_crypt(priv, block_num, 0, io.dest, did_read, buf);
+            did_read = http_io_crypt(priv, block_num, 0, io.dest, did_read, buf, decrypt_buflen);
             memcpy(io.dest, buf, did_read);
             free(buf);
 
@@ -1617,9 +1620,11 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (src != NULL && config->encryption != NULL) {
         void *encrypt_buf;
         u_int encrypt_len;
+        u_int encrypt_buflen;
 
         /* Allocate buffer */
-        if ((encrypt_buf = malloc(io.buf_size + EVP_MAX_IV_LENGTH)) == NULL) {
+        encrypt_buflen = io.buf_size + EVP_MAX_IV_LENGTH;
+        if ((encrypt_buf = malloc(encrypt_buflen)) == NULL) {
             (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
             pthread_mutex_lock(&priv->mutex);
             priv->stats.out_of_memory_errors++;
@@ -1629,7 +1634,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         }
 
         /* Encrypt the block */
-        encrypt_len = http_io_crypt(priv, block_num, 1, io.src, io.buf_size, encrypt_buf);
+        encrypt_len = http_io_crypt(priv, block_num, 1, io.src, io.buf_size, encrypt_buf, encrypt_buflen);
 
         /* Compute block signature */
         http_io_authsig(priv, block_num, encrypt_buf, encrypt_len, hmac);
@@ -2757,7 +2762,7 @@ http_io_is_zero_block(const void *data, u_int block_size)
  * Encrypt or decrypt one block
  */
 static u_int
-http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest)
+http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dest, u_int dmax)
 {
     u_char ivec[EVP_MAX_IV_LENGTH];
     EVP_CIPHER_CTX* ctx;
@@ -2816,6 +2821,12 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     (*config->log)(LOG_DEBUG, "%sCRYPT: block=%s ivec=0x%s len: %d -> %d", (enc ? "EN" : "DE"), blockbuf, ivecbuf, len, total_len);
 }
 #endif
+
+    /* Sanity check */
+    if (total_len > dmax) {
+        (*priv->config->log)(LOG_ERR, "encryption buffer overflow! %u > %u", total_len, dmax);
+        abort();
+    }
 
     /* Done */
     EVP_CIPHER_CTX_free(ctx);
