@@ -142,6 +142,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 {
     struct test_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
+    char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     u_char md5[MD5_DIGEST_LENGTH];
     char path[PATH_MAX];
     int zero_block;
@@ -163,7 +164,9 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Generate path */
-    snprintf(path, sizeof(path), "%s/%s%0*jx", config->bucket, config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    http_io_format_block_hash(config, block_hash_buf, sizeof(block_hash_buf), block_num);
+    snprintf(path, sizeof(path), "%s/%s%s%0*jx",
+      config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Read block */
     if ((fd = open(path, O_RDONLY)) != -1) {
