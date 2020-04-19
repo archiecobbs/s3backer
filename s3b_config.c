@@ -1838,6 +1838,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheThreads=NUM", "Block cache write-back thread pool size");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheTimeout=MILLIS", "Block cache entry timeout (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheWriteDelay=MILLIS", "Block cache maximum write-back delay");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheNumProtected=NUM", "Preferentially retain NUM blocks in the block cache");
     fprintf(stderr, "\t--%-27s %s\n", "blockSize=SIZE", "Block size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "blockHashPrefix", "Prepend hash to block names for even distribution");
     fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
@@ -1861,6 +1862,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
+    fprintf(stderr, "\t--%-27s %s\n", "no-vhost", "Disable virtual hosted style requests");
     fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
     fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "prefix=STRING", "Prefix for resource names within bucket");
@@ -1878,6 +1880,9 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "storageClass=TYPE", "Specify storage class for written blocks");
     fprintf(stderr, "\t--%-27s %s\n", "test", "Run in local test mode (bucket is a directory)");
+    fprintf(stderr, "\t--%-27s %s\n", "test-delays", "In test mode, introduce random I/O delays");
+    fprintf(stderr, "\t--%-27s %s\n", "test-discard", "In test mode, discard data and perform no I/O operations");
+    fprintf(stderr, "\t--%-27s %s\n", "test-errors", "In test mode, introduce random I/O errors");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
     fprintf(stderr, "\t--%-27s %s\n", "version", "Show version information and exit");
