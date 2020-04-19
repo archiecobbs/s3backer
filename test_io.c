@@ -44,7 +44,7 @@
 
 /* Internal state */
 struct test_io_private {
-    struct http_io_conf         *config;
+    struct test_io_conf         *config;
     u_char                      zero_block[0];
 };
 
@@ -68,7 +68,7 @@ static void test_io_destroy(struct s3backer_store *s3b);
  * On error, returns NULL and sets `errno'.
  */
 struct s3backer_store *
-test_io_create(struct http_io_conf *config)
+test_io_create(struct test_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct test_io_private *priv;
@@ -141,7 +141,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
   u_char *actual_md5, const u_char *expect_md5, int strict)
 {
     struct test_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
+    struct test_io_conf *const config = priv->config;
     char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     u_char md5[MD5_DIGEST_LENGTH];
     char path[PATH_MAX];
@@ -164,7 +164,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Generate path */
-    http_io_format_block_hash(config, block_hash_buf, sizeof(block_hash_buf), block_num);
+    http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
     snprintf(path, sizeof(path), "%s/%s%s%0*jx",
       config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
@@ -263,7 +263,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct test_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
+    struct test_io_conf *const config = priv->config;
     char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     u_char md5[MD5_DIGEST_LENGTH];
     char temp[PATH_MAX];
@@ -311,7 +311,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Generate path */
-    http_io_format_block_hash(config, block_hash_buf, sizeof(block_hash_buf), block_num);
+    http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
     snprintf(path, sizeof(path), "%s/%s%s%0*jx",
       config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
@@ -363,7 +363,7 @@ static int
 test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
 {
     struct test_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
+    struct test_io_conf *const config = priv->config;
 
     return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
 }
@@ -372,7 +372,7 @@ static int
 test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
 {
     struct test_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
+    struct test_io_conf *const config = priv->config;
 
     return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
@@ -381,7 +381,7 @@ static int
 test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct test_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
+    struct test_io_conf *const config = priv->config;
     s3b_block_t block_num;
     struct dirent *dent;
     DIR *dir;
@@ -393,7 +393,7 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
     /* Scan directory */
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
-        if (http_io_parse_block(config, dent->d_name, &block_num) == 0)
+        if (http_io_parse_block(config->prefix, config->num_blocks, config->blockHashPrefix, dent->d_name, &block_num) == 0)
             (*callback)(arg, block_num);
     }
 
@@ -403,4 +403,3 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     /* Done */
     return 0;
 }
-

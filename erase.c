@@ -117,7 +117,7 @@ s3backer_erase(struct s3b_config *config)
     }
 
     /* Create temporary lower layer */
-    if ((priv->s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
+    if ((priv->s3b = config->test ? test_io_create(&config->test_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
         goto fail3;
     }

@@ -58,7 +58,7 @@ s3backer_reset(struct s3b_config *config)
         warnx("resetting mount token for %s", config->description);
 
     /* Create temporary lower layer */
-    if ((s3b = config->test ? test_io_create(&config->http_io) : http_io_create(&config->http_io)) == NULL) {
+    if ((s3b = config->test ? test_io_create(&config->test_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
         goto fail;
     }

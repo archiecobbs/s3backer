@@ -34,6 +34,17 @@
  * also delete it here.
  */
 
+/* Configuration info structure for test_io store */
+struct test_io_conf {
+    u_int               block_size;
+    off_t               num_blocks;
+    const char          *bucket;
+    const char          *prefix;
+    log_func_t          *log;
+    int                 blockHashPrefix;
+    int                 debug;
+};
+
 /* test_io.c */
-extern struct s3backer_store *test_io_create(struct http_io_conf *config);
+extern struct s3backer_store *test_io_create(struct test_io_conf *config);
 

@@ -150,10 +150,7 @@ static struct s3b_config config = {
         .accessKey=             NULL,
         .baseURL=               NULL,
         .region=                NULL,
-        .bucket=                NULL,
         .sse=                   NULL,
-        .blockHashPrefix=       0,
-        .prefix=                S3BACKER_DEFAULT_PREFIX,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
         .user_agent=            user_agent_buf,
@@ -191,6 +188,9 @@ static struct s3b_config config = {
     /* Common stuff */
     .block_size=            0,
     .file_size=             0,
+    .bucket=                NULL,
+    .prefix=                S3BACKER_DEFAULT_PREFIX,
+    .blockHashPrefix=       0,
     .quiet=                 0,
     .erase=                 0,
     .no_auto_detect=        0,
@@ -384,12 +384,12 @@ static const struct fuse_opt option_list[] = {
     },
     {
         .templ=     "--blockHashPrefix",
-        .offset=    offsetof(struct s3b_config, http_io.blockHashPrefix),
+        .offset=    offsetof(struct s3b_config, blockHashPrefix),
         .value=     1
     },
     {
         .templ=     "--prefix=%s",
-        .offset=    offsetof(struct s3b_config, http_io.prefix),
+        .offset=    offsetof(struct s3b_config, prefix),
     },
     {
         .templ=     "--defaultContentEncoding=%s",
@@ -628,7 +628,7 @@ s3backer_create_store(struct s3b_config *conf)
 
     /* Create HTTP (or test) layer */
     if (conf->test) {
-        if ((test_io_store = test_io_create(&conf->http_io)) == NULL)
+        if ((test_io_store = test_io_create(&conf->test_io)) == NULL)
             return NULL;
         store = test_io_store;
     } else {
@@ -900,8 +900,8 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
     }
 
     /* Get bucket parameter */
-    if (config.http_io.bucket == NULL) {
-        if ((config.http_io.bucket = strdup(arg)) == NULL)
+    if (config.bucket == NULL) {
+        if ((config.bucket = strdup(arg)) == NULL)
             err(1, "strdup");
         return 0;
     }
@@ -1030,26 +1030,26 @@ validate_config(void)
 
     /* Check bucket/testdir */
     if (!config.test) {
-        if (config.http_io.bucket == NULL) {
+        if (config.bucket == NULL) {
             warnx("no S3 bucket specified");
             return -1;
         }
-        if (*config.http_io.bucket == '\0' || *config.http_io.bucket == '/' || strchr(config.http_io.bucket, '/') != 0) {
-            warnx("invalid S3 bucket `%s'", config.http_io.bucket);
+        if (*config.bucket == '\0' || *config.bucket == '/' || strchr(config.bucket, '/') != 0) {
+            warnx("invalid S3 bucket `%s'", config.bucket);
             return -1;
         }
     } else {
-        if (config.http_io.bucket == NULL) {
+        if (config.bucket == NULL) {
             warnx("no test directory specified");
             return -1;
         }
-        if (stat(config.http_io.bucket, &sb) == -1) {
-            warn("%s", config.http_io.bucket);
+        if (stat(config.bucket, &sb) == -1) {
+            warn("%s", config.bucket);
             return -1;
         }
         if (!S_ISDIR(sb.st_mode)) {
             errno = ENOTDIR;
-            warn("%s", config.http_io.bucket);
+            warn("%s", config.bucket);
             return -1;
         }
     }
@@ -1123,11 +1123,10 @@ validate_config(void)
         char *buf;
 
         schemelen = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
-        buflen = strlen(config.http_io.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
+        buflen = strlen(config.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
         if ((buf = malloc(buflen)) == NULL)
             err(1, "malloc(%u)", (u_int)buflen);
-        snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL,
-          config.http_io.bucket, config.http_io.baseURL + schemelen);
+        snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL, config.bucket, config.http_io.baseURL + schemelen);
         config.http_io.baseURL = buf;
     }
 
@@ -1333,15 +1332,12 @@ validate_config(void)
     }
 
     /* Format descriptive string of what we're mounting */
-    if (config.test) {
-        snprintf(config.description, sizeof(config.description), "%s%s/%s",
-          "file://", config.http_io.bucket, config.http_io.prefix);
-    } else if (config.http_io.vhost)
-        snprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.http_io.prefix);
-    else {
-        snprintf(config.description, sizeof(config.description), "%s%s/%s",
-          config.http_io.baseURL, config.http_io.bucket, config.http_io.prefix);
-    }
+    if (config.test)
+        snprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
+    else if (config.http_io.vhost)
+        snprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
+    else
+        snprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
 
     /*
      * Read the first block (if any) to determine existing file and block size,
@@ -1501,6 +1497,9 @@ validate_config(void)
     /* Copy common stuff into sub-module configs */
     config.block_cache.block_size = config.block_size;
     config.block_cache.log = config.log;
+    config.http_io.prefix = config.prefix;
+    config.http_io.bucket = config.bucket;
+    config.http_io.blockHashPrefix = config.blockHashPrefix;
     config.http_io.debug = config.debug;
     config.http_io.quiet = config.quiet;
     config.http_io.block_size = config.block_size;
@@ -1511,6 +1510,13 @@ validate_config(void)
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
     config.fuse_ops.log = config.log;
+    config.test_io.debug = config.debug;
+    config.test_io.log = config.log;
+    config.test_io.block_size = config.block_size;
+    config.test_io.num_blocks = config.num_blocks;
+    config.test_io.prefix = config.prefix;
+    config.test_io.bucket = config.bucket;
+    config.test_io.blockHashPrefix = config.blockHashPrefix;
 
     /* Check whether already mounted, and if so, compare mount token against on-disk cache (if any) */
     if (!config.test && !config.erase && !config.reset) {
@@ -1610,7 +1616,7 @@ validate_config(void)
         }
 
         /* Create temporary lower layer */
-        if ((temp_store = config.test ? test_io_create(&config.http_io) : http_io_create(&config.http_io)) == NULL)
+        if ((temp_store = config.test ? test_io_create(&config.test_io) : http_io_create(&config.http_io)) == NULL)
             err(1, config.test ? "test_io_create" : "http_io_create");
 
         /* Initialize bitmap */
@@ -1672,9 +1678,9 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %s", "authVersion", config.http_io.authVersion);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.http_io.bucket);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.http_io.prefix);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "blockHashPrefix", config.http_io.blockHashPrefix ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.bucket);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.prefix);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "blockHashPrefix", config.blockHashPrefix ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
       config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");

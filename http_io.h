@@ -140,6 +140,6 @@ struct http_io_stats {
 extern struct s3backer_store *http_io_create(struct http_io_conf *config);
 extern void http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats);
 extern void http_io_clear_stats(struct s3backer_store *s3b);
-extern int http_io_parse_block(struct http_io_conf *config, const char *name, s3b_block_t *block_num);
-extern void http_io_format_block_hash(const struct http_io_conf *config, char *block_hash_buf, size_t bufsiz, s3b_block_t block_num);
+extern int http_io_parse_block(const char *prefix, off_t num_blocks, int blockHashPrefix, const char *name, s3b_block_t *block_num);
+extern void http_io_format_block_hash(int blockHashPrefix, char *block_hash_buf, size_t bufsiz, s3b_block_t block_num);
 

@@ -39,6 +39,7 @@
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"
+#include "test_io.h"
 #include "s3b_config.h"
 #include "erase.h"
 #include "reset.h"

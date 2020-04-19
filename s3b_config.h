@@ -42,6 +42,7 @@ struct s3b_config {
     struct fuse_ops_conf        fuse_ops;
     struct ec_protect_conf      ec_protect;
     struct http_io_conf         http_io;
+    struct test_io_conf         test_io;
 
     /* Common/global stuff */
     const char                  *accessFile;
@@ -50,6 +51,9 @@ struct s3b_config {
     u_int                       block_size;
     off_t                       file_size;
     off_t                       num_blocks;
+    const char                  *bucket;
+    const char                  *prefix;
+    int                         blockHashPrefix;
     int                         debug;
     int                         erase;
     int                         reset;
