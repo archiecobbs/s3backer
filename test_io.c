@@ -95,7 +95,8 @@ test_io_create(struct test_io_conf *config)
     s3b->data = priv;
 
     /* Random initialization */
-    srandom((u_int)time(NULL));
+    if (config->random_delays || config->random_errors)
+        srandom((u_int)time(NULL));
 
     /* Done */
     return s3b;
@@ -155,46 +156,53 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         (*config->log)(LOG_DEBUG, "test_io: read %0*jx started", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Random delay */
-    usleep((random() % 200) * 1000);
+    if (config->random_delays)
+        usleep((random() % 200) * 1000);
 
     /* Random error */
-    if ((random() % 100) < RANDOM_ERROR_PERCENT) {
+    if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure reading %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         return EAGAIN;
     }
 
-    /* Generate path */
-    http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
-    snprintf(path, sizeof(path), "%s/%s%s%0*jx",
-      config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-
     /* Read block */
-    if ((fd = open(path, O_RDONLY)) != -1) {
-        int total;
+    if (config->discard_data)
+        r = ENOENT;
+    else {
 
-        /* Read file */
-        for (total = 0; total < config->block_size; total += r) {
-            if ((r = read(fd, (char *)dest + total, config->block_size - total)) == -1) {
-                r = errno;
-                (*config->log)(LOG_ERR, "can't read %s: %s", path, strerror(r));
-                close(fd);
-                return r;
+        /* Generate path */
+        http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
+        snprintf(path, sizeof(path), "%s/%s%s%0*jx",
+          config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+
+        /* Open and read file */
+        if ((fd = open(path, O_RDONLY)) != -1) {
+            int total;
+
+            /* Read file */
+            for (total = 0; total < config->block_size; total += r) {
+                if ((r = read(fd, (char *)dest + total, config->block_size - total)) == -1) {
+                    r = errno;
+                    (*config->log)(LOG_ERR, "can't read %s: %s", path, strerror(r));
+                    close(fd);
+                    return r;
+                }
+                if (r == 0)
+                    break;
             }
-            if (r == 0)
-                break;
-        }
-        close(fd);
+            close(fd);
 
-        /* Check for short read */
-        if (total != config->block_size) {
-            (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
-            return EIO;
-        }
+            /* Check for short read */
+            if (total != config->block_size) {
+                (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
+                return EIO;
+            }
 
-        /* Done */
-        r = 0;
-    } else
-        r = errno;
+            /* Done */
+            r = 0;
+        } else
+            r = errno;
+    }
 
     /* Convert ENOENT into a read of all zeroes */
     if ((zero_block = (r == ENOENT))) {
@@ -302,12 +310,20 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Random delay */
-    usleep((random() % 200) * 1000);
+    if (config->random_delays)
+        usleep((random() % 200) * 1000);
 
     /* Random error */
-    if ((random() % 100) < RANDOM_ERROR_PERCENT) {
+    if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure writing %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         return EAGAIN;
+    }
+
+    /* Discarding data? */
+    if (config->discard_data) {
+        if (config->debug)
+            (*config->log)(LOG_DEBUG, "test_io: discard %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        return 0;
     }
 
     /* Generate path */
@@ -386,6 +402,10 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     struct dirent *dent;
     DIR *dir;
     int i;
+
+    /* Discarding data? */
+    if (config->discard_data)
+        return 0;
 
     /* Open directory */
     if ((dir = opendir(config->bucket)) == NULL)

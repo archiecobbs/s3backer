@@ -42,6 +42,9 @@ struct test_io_conf {
     const char          *prefix;
     log_func_t          *log;
     int                 blockHashPrefix;
+    int                 random_errors;
+    int                 random_delays;
+    int                 discard_data;
     int                 debug;
 };
 

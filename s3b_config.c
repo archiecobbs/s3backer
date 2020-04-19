@@ -467,6 +467,21 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--test-errors",
+        .offset=    offsetof(struct s3b_config, test_io.random_errors),
+        .value=     1
+    },
+    {
+        .templ=     "--test-delays",
+        .offset=    offsetof(struct s3b_config, test_io.random_delays),
+        .value=     1
+    },
+    {
+        .templ=     "--test-discard",
+        .offset=    offsetof(struct s3b_config, test_io.discard_data),
+        .value=     1
+    },
+    {
         .templ=     "--timeout=%u",
         .offset=    offsetof(struct s3b_config, http_io.timeout),
     },
