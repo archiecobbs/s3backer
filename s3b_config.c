@@ -1542,9 +1542,6 @@ validate_config(void)
         int conflict;
 
         /* Read s3 mount token */
-        config.http_io.debug = config.debug;
-        config.http_io.quiet = config.quiet;
-        config.http_io.log = config.log;
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
         r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
