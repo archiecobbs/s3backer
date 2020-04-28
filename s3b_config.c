@@ -1363,6 +1363,9 @@ validate_config(void)
     if (config.no_auto_detect)
         r = ENOENT;
     else {
+        config.http_io.prefix = config.prefix;
+        config.http_io.bucket = config.bucket;
+        config.http_io.blockHashPrefix = config.blockHashPrefix;
         config.http_io.debug = config.debug;
         config.http_io.quiet = config.quiet;
         config.http_io.log = config.log;
