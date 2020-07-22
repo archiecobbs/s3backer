@@ -133,7 +133,7 @@ struct cache_entry {
 #define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_prev != NULL)
 #define ENTRY_RESET_LINK(entry)             do { (entry)->link.tqe_prev = NULL; } while (0)
 #define ENTRY_GET_STATE(entry)              (ENTRY_IN_LIST(entry) ?                             \
-                                                ((entry)->dirty ? DIRTY :                \
+                                                ((entry)->dirty ? DIRTY :                       \
                                                   ((entry)->verify ? CLEAN2 : CLEAN)) :         \
                                                 ((entry)->timeout == READING_TIMEOUT ?          \
                                                   ((entry)->verify ? READING2 : READING) :      \
