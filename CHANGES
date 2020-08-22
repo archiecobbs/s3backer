@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.5 released August 22, 2020
 
     - Added `--no-vhost' flag (issue #117)
     - Added `--blockCacheNumProtected' flag (pr #119)
