@@ -1,6 +1,7 @@
 Version Next
 
     - Allow bucket names with "subdirectory" for prefix (issue #130)
+    - Added `--configFile' flag (issue #129)
 
 Version 1.5.5 released August 22, 2020
 

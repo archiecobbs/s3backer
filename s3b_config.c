@@ -108,6 +108,10 @@ struct list_blocks {
 static print_stats_t s3b_config_print_stats;
 static clear_stats_t s3b_config_clear_stats;
 
+static void insert_fuse_arg(int pos, const char *arg);
+static void append_fuse_arg(const char *arg);
+static void remove_fuse_arg(int pos);
+static void read_fuse_args(const char *filename, int pos);
 static int parse_size_string(const char *s, uintmax_t *valp);
 static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
@@ -568,6 +572,7 @@ s3backer_get_config(int argc, char **argv)
 {
     const int num_options = sizeof(option_list) / sizeof(*option_list);
     struct fuse_opt dup_option_list[2 * sizeof(option_list) + 1];
+    int num_subst = 0;
     char buf[1024];
     int i;
 
@@ -578,17 +583,49 @@ s3backer_get_config(int argc, char **argv)
     /* Set user-agent */
     snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
 
-    /* Copy passed args */
+    /* Copy program name */
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
-    for (i = 0; i < argc; i++) {
-        if (fuse_opt_insert_arg(&config.fuse_args, i, argv[i]) != 0)
-            err(1, "fuse_opt_insert_arg");
-    }
+    append_fuse_arg(argv[0]);
 
-    /* Insert our default FUSE options */
-    for (i = 0; i < sizeof(s3backer_fuse_defaults) / sizeof(*s3backer_fuse_defaults); i++) {
-        if (fuse_opt_insert_arg(&config.fuse_args, i + 1, s3backer_fuse_defaults[i]) != 0)
-            err(1, "fuse_opt_insert_arg");
+    /* Add our default FUSE options so they are seen first */
+    for (i = 0; i < sizeof(s3backer_fuse_defaults) / sizeof(*s3backer_fuse_defaults); i++)
+        append_fuse_arg(s3backer_fuse_defaults[i]);
+
+    /* Append command line args */
+    for (i = 1; i < argc; i++)
+        append_fuse_arg(argv[i]);
+
+    /* Find and substitute "--configFile=FILE" flags, recursing if necessary */
+    for (i = 1; i < config.fuse_args.argc; ) {
+        const char *optfile;
+        int num_args;
+
+        /* Check for "--configFile=FILE" flag and variants */
+        if (strncmp(config.fuse_args.argv[i], "--configFile=", 13) == 0
+          || strncmp(config.fuse_args.argv[i], "-oconfigFile=", 13) == 0) {
+            optfile = config.fuse_args.argv[i] + 13;
+            num_args = 1;
+        } else if (strcmp(argv[i], "-o") == 0
+          && i + 1 < config.fuse_args.argc
+          && strncmp(argv[i + 1], "configFile=", 11) == 0) {
+            optfile = argv[i + 1] + 11;
+            num_args = 2;
+        } else if (strcmp(argv[i], "-F") == 0 && i + 1 < config.fuse_args.argc) {
+            optfile = argv[i + 1];
+            num_args = 2;
+        } else {
+            i++;
+            continue;
+        }
+
+        /* Check for infinite loops */
+        if (++num_subst > 100)
+            errx(1, "too many levels of `--configFile' nesting");
+
+        /* Replace the `--configFile' flag with arguments read from file */
+        read_fuse_args(optfile, i + num_args);
+        while (num_args-- > 0)
+            remove_fuse_arg(i);
     }
 
     /* Create the equivalent fstab options (without the "--") for each option in the option list */
@@ -608,8 +645,7 @@ s3backer_get_config(int argc, char **argv)
 
     /* Set fsname based on configuration */
     snprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
-    if (fuse_opt_insert_arg(&config.fuse_args, 1, buf) != 0)
-        err(1, "fuse_opt_insert_arg");
+    insert_fuse_arg(1, buf);
 
     /* Set up fuse_ops callbacks */
     config.fuse_ops.print_stats = s3b_config_print_stats;
@@ -824,6 +860,66 @@ s3b_config_clear_stats(void)
     /* Clear block cache stats */
     if (block_cache_store != NULL)
         block_cache_clear_stats(block_cache_store);
+}
+
+static void
+insert_fuse_arg(int pos, const char *arg)
+{
+    const char *copy;
+
+    assert(pos >= 0 && pos <= config.fuse_args.argc);
+    if ((copy = strdup(arg)) == NULL)
+        err(1, "malloc");
+    if (fuse_opt_insert_arg(&config.fuse_args, pos, copy) != 0)
+        err(1, "fuse_opt_insert_arg");
+}
+
+static void
+append_fuse_arg(const char *arg)
+{
+    insert_fuse_arg(config.fuse_args.argc, arg);
+}
+
+static void
+remove_fuse_arg(int pos)
+{
+    assert(pos >= 0 && pos < config.fuse_args.argc);
+    if (config.fuse_args.allocated)
+        free(config.fuse_args.argv[pos]);
+    memmove(config.fuse_args.argv + pos, config.fuse_args.argv + pos + 1,
+      (config.fuse_args.argc-- - pos) * sizeof(*config.fuse_args.argv));        // include trailing NULL
+}
+
+static void
+read_fuse_args(const char *filename, int pos)
+{
+    char buf[1024];
+    int lineno;
+    char *arg;
+    FILE *fp;
+
+    if ((fp = fopen(filename, "r")) == NULL)
+        err(1, "%s", filename);
+    for (lineno = 1; fgets(buf, sizeof(buf), fp) != NULL; lineno++) {
+
+        /* Check for buffer overflow */
+        if (*buf != '\0' && buf[strlen(buf) - 1] != '\n' && !feof(fp))
+            errx(1, "%s: %d: line too long", filename, lineno);
+
+        /* Trim whitespace fore & aft */
+        arg = buf;
+        while (isspace(*arg))
+            arg++;
+        while (*arg != '\0' && isspace(arg[strlen(arg) - 1]))
+            arg[strlen(arg) - 1] = '\0';
+
+        /* Ignore blank lines and comments */
+        if (*arg != '\0' && *arg != '#')
+            insert_fuse_arg(pos++, arg);
+    }
+    if (ferror(fp))
+        err(1, "%s", filename);
+    fclose(fp);
 }
 
 static int

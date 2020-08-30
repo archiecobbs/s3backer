@@ -528,6 +528,20 @@ is used, though you may also specify
 to set a non-default compression level.
 .Pp
 When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
+.It Fl \-configFile=FILE
+Insert command line flags and arguments read from the specified file in place of this flag.
+.Pp
+Leading and trailing whitespace is trimmed from each line, and blank lines and lines starting with
+.Ar #
+are ignored.
+Each line contains exactly one command line argument (including internal whitespace, if any).
+.Pp
+Nested
+.Fl \-configFile
+flags are allowed.
+.Pp
+This option may also be specified as
+.Fl F Ar FILE .
 .It Fl \-directIO
 Disable kernel caching of the backed file.
 This will force the kernel to always pass reads and writes directly to
