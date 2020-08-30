@@ -605,13 +605,13 @@ s3backer_get_config(int argc, char **argv)
           || strncmp(config.fuse_args.argv[i], "-oconfigFile=", 13) == 0) {
             optfile = config.fuse_args.argv[i] + 13;
             num_args = 1;
-        } else if (strcmp(argv[i], "-o") == 0
+        } else if (strcmp(config.fuse_args.argv[i], "-o") == 0
           && i + 1 < config.fuse_args.argc
-          && strncmp(argv[i + 1], "configFile=", 11) == 0) {
-            optfile = argv[i + 1] + 11;
+          && strncmp(config.fuse_args.argv[i + 1], "configFile=", 11) == 0) {
+            optfile = config.fuse_args.argv[i + 1] + 11;
             num_args = 2;
-        } else if (strcmp(argv[i], "-F") == 0 && i + 1 < config.fuse_args.argc) {
-            optfile = argv[i + 1];
+        } else if (strcmp(config.fuse_args.argv[i], "-F") == 0 && i + 1 < config.fuse_args.argc) {
+            optfile = config.fuse_args.argv[i + 1];
             num_args = 2;
         } else {
             i++;
@@ -904,7 +904,7 @@ read_fuse_args(const char *filename, int pos)
 
         /* Check for buffer overflow */
         if (*buf != '\0' && buf[strlen(buf) - 1] != '\n' && !feof(fp))
-            errx(1, "%s: %d: line too long", filename, lineno);
+            errx(1, "%s:%d: line too long", filename, lineno);
 
         /* Trim whitespace fore & aft */
         arg = buf;
