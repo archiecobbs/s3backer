@@ -1,3 +1,7 @@
+Version Next
+
+    - Allow bucket names with "subdirectory" for prefix (issue #130)
+
 Version 1.5.5 released August 22, 2020
 
     - Added `--no-vhost' flag (issue #117)

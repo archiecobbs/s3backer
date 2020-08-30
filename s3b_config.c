@@ -979,6 +979,8 @@ validate_config(void)
     char fileSizeBuf[64];
     struct stat sb;
     char urlbuf[512];
+    char *pbuf;
+    char *p;
     int i;
     int r;
 
@@ -1043,15 +1045,41 @@ validate_config(void)
         return -1;
     }
 
-    /* Check bucket/testdir */
+    /* Check bucket/testdir; extract prefix from bucket if slash is present */
     if (!config.test) {
         if (config.bucket == NULL) {
             warnx("no S3 bucket specified");
             return -1;
         }
-        if (*config.bucket == '\0' || *config.bucket == '/' || strchr(config.bucket, '/') != 0) {
+        if (*config.bucket == '\0' || *config.bucket == '/') {
             warnx("invalid S3 bucket `%s'", config.bucket);
             return -1;
+        }
+        if ((p = strchr(config.bucket, '/')) != NULL) {
+
+            /* Can't use bucket+prefix and --prefix at the same time */
+            if (config.prefix != NULL) {
+                warnx("S3 bucket/prefix `%s' conflicts with `--prefix' flag", config.bucket);
+                return -1;
+            }
+
+            /* Disallow empty string, or initial, trailing, or duplicate slashes in directory name */
+            p++;
+            if (*p == '\0' || *p == '/' || p[strlen(p) - 1] == '/' || strstr(p, "//") != NULL) {
+                warnx("invalid S3 bucket/prefix `%s'", config.bucket);
+                return -1;
+            }
+
+            /* Terminate bucket name at the slash */
+            p[-1] = '\0';
+
+            /* Copy what follows the slash, with another slash added on, as the new prefix */
+            if ((pbuf = malloc(strlen(p) + 2)) == NULL) {
+                warn("malloc");
+                return -1;
+            }
+            snprintf(pbuf, strlen(p) + 2, "%s/", p);
+            config.prefix = pbuf;
         }
     } else {
         if (config.bucket == NULL) {

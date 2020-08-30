@@ -43,7 +43,7 @@
 .Nm s3backer
 .Bk -words
 .Op options
-.Ar bucket
+.Ar bucket[/dir]
 .Ar /mount/point
 .Ek
 .Pp
@@ -744,10 +744,24 @@ Supply the password for encryption and authentication as a command-line paramete
 .It Fl \-passwordFile=FILE
 Read the password for encryption and authentication from (the first line of) the specified file.
 .It Fl \-prefix=STRING
-Specify a prefix to prepend to the resource names within bucket that identify each block.
+Specify a prefix to prepend to the resource names within
+.Ar bucket
+that identify each block.
 By using different prefixes, multiple independent
 .Nm
 disks can live in the same S3 bucket.
+.Pp
+Instead of using this flag, you can specify a prefix by appending a slash and a ``subdirectory name'' to the bucket name.
+The prefix then becomes the subdirectory name followed by slash (the S3 bucket namespace is flat, so the notion of a subdirectory is not real).
+Extraneous slash characters in the subdirectory name are disallowed.
+.Pp
+For example, specifying bucket
+.Ar mybucket/foo/bar
+is equivalent to specifying bucket
+.Ar mybucket
+along with the flag
+.Fl \-prefix=foo/bar/
+(note the additional trailing slash).
 .Pp
 The default prefix is the empty string.
 .It Fl \-quiet
