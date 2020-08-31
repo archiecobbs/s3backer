@@ -53,6 +53,7 @@ struct s3b_config {
     off_t                       num_blocks;
     const char                  *bucket;
     const char                  *prefix;
+    const char                  *accessKeyEnv;
     int                         blockHashPrefix;
     int                         debug;
     int                         erase;

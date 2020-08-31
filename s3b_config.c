@@ -189,11 +189,12 @@ static struct s3b_config config = {
         .file_mode=             -1,             /* default depends on 'read_only' */
     },
 
-    /* Common stuff */
+    /* Common/global stuff */
     .block_size=            0,
     .file_size=             0,
     .bucket=                NULL,
     .prefix=                S3BACKER_DEFAULT_PREFIX,
+    .accessKeyEnv=          NULL,
     .blockHashPrefix=       0,
     .quiet=                 0,
     .erase=                 0,
@@ -220,6 +221,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--accessKey=%s",
         .offset=    offsetof(struct s3b_config, http_io.accessKey),
+    },
+    {
+        .templ=     "--accessKeyEnv=%s",
+        .offset=    offsetof(struct s3b_config, accessKeyEnv),
     },
     {
         .templ=     "--accessType=%s",
@@ -1111,6 +1116,20 @@ validate_config(void)
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
 
+    /* Read accessKey from environment variable if specified */
+    if (config.accessKeyEnv != NULL) {
+        if (config.http_io.accessKey != NULL) {
+            warnx("flags `accessKey' and `accessKeyEnv' are mutually exclusive");
+            return -1;
+        }
+        if ((p = getenv(config.accessKeyEnv)) == NULL) {
+            warnx("`accessKeyEnv' environment variable `%s' not found", config.accessKeyEnv);
+            return -1;
+        }
+        if ((config.http_io.accessKey = strdup(p)) == NULL)
+            err(1, "strdup");
+    }
+
     /* Find key in file if not specified explicitly */
     if (config.http_io.accessId == NULL && config.http_io.accessKey != NULL) {
         warnx("an `accessKey' was specified but no `accessId' was specified");
@@ -1941,6 +1960,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
     fprintf(stderr, "\t--%-27s %s\n", "accessKey=KEY", "S3 secret access key");
+    fprintf(stderr, "\t--%-27s %s\n", "accessKeyEnv=VARNAME", "S3 secret access key from environment variable");
     fprintf(stderr, "\t--%-27s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
     fprintf(stderr, "\t  %-27s ", "");
     for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)

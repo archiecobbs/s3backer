@@ -309,11 +309,11 @@ Specify a file containing `accessID:accessKey' pairs, one per-line.
 Blank lines and lines beginning with a `#' are ignored.
 If no
 .Fl \-accessKey
+or
+.Fl \-accessKeyEnv
 is specified, this file will be searched for the entry matching the access ID specified via
 .Fl \-accessId;
-if neither
-.Fl \-accessKey
-nor
+if no
 .Fl \-accessId
 is specified, the first entry in this file will be used.
 Default value is
@@ -325,9 +325,15 @@ If no access ID is specified (and none is found in the access file) then
 .Nm
 will still function, but only reads of publicly available filesystems will work.
 .It Fl \-accessKey=KEY
-Specify Amazon S3 access key. To avoid publicizing this secret via the command line, use
+Specify Amazon S3 access key.
+.Pp
+To avoid publicizing this secret via the command line, use
+.Fl \-accessKeyEnv
+or
 .Fl \-accessFile
 instead of this flag.
+.It Fl \-accessKeyEnv=VARNAME
+Specify an environment variable containing the Amazon S3 access key.
 .It Fl \-accessType=TYPE
 Specify the Amazon S3 access privilege ACL type for newly written blocks.
 The value must be one of `private', `public-read', `public-read-write', or `authenticated-read'.
