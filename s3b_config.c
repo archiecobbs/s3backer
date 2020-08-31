@@ -1967,6 +1967,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockHashPrefix", "Prepend hash to block names for even distribution");
     fprintf(stderr, "\t--%-27s %s\n", "cacert=FILE", "Specify SSL certificate authority file");
     fprintf(stderr, "\t--%-27s %s\n", "compress[=LEVEL]", "Enable block compression, with 1=fast up to 9=small");
+    fprintf(stderr, "\t--%-27s %s\n", "configFile=FILE", "Substitute command line flags and arguments read from FILE");
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
     fprintf(stderr, "\t--%-27s %s\n", "directIO", "Disable kernel caching of the backed file");
