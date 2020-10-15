@@ -1216,6 +1216,7 @@ validate_config(void)
     if (config.http_io.storage_class != NULL
       && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD) != 0
       && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD_IA) != 0
+      && strcmp(config.http_io.storage_class, STORAGE_CLASS_ONEZONE_IA) != 0
       && strcmp(config.http_io.storage_class, STORAGE_CLASS_REDUCED_REDUNDANCY) != 0) {
         warnx("invalid storage class `%s'", config.http_io.storage_class);
         return -1;
