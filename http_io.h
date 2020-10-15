@@ -45,6 +45,7 @@
 /* Storage classes */
 #define STORAGE_CLASS_STANDARD              "STANDARD"
 #define STORAGE_CLASS_STANDARD_IA           "STANDARD_IA"
+#define STORAGE_CLASS_ONEZONE_IA            "ONEZONE_IA"
 #define STORAGE_CLASS_REDUCED_REDUNDANCY    "REDUCED_REDUNDANCY"
 
 /* Server side encryption types */
