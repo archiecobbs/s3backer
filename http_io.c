@@ -288,6 +288,7 @@ static int http_io_parse_hex_block_num(const char *string, s3b_block_t *block_nu
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
 static int http_io_parse_header(const char *input, const char *header, const char *fmt, ...);
+static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -549,10 +550,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     int r;
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = HTTP_GET;
-    io.config = config;
+    http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.xml_error = XML_ERROR_NONE;
     io.callback_func = callback;
     io.callback_arg = arg;
@@ -919,9 +917,7 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     int r;
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = HTTP_HEAD;
+    http_io_init_io(priv, &io, HTTP_HEAD, urlbuf);
 
     /* Construct URL for the first block */
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, 0);
@@ -974,9 +970,7 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
     int r = 0;
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = HTTP_HEAD;
+    http_io_init_io(priv, &io, HTTP_HEAD, urlbuf);
 
     /* Construct URL for the mount token file */
     http_io_get_mount_token_file_url(urlbuf, sizeof(urlbuf), config);
@@ -1017,9 +1011,7 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
 
         /* Reset I/O info */
         curl_slist_free_all(io.headers);
-        memset(&io, 0, sizeof(io));
-        io.url = urlbuf;
-        io.method = new_value != 0 ? HTTP_PUT : HTTP_DELETE;
+        http_io_init_io(priv, &io, new_value != 0 ? HTTP_PUT : HTTP_DELETE, urlbuf);
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
@@ -1096,9 +1088,7 @@ update_iam_credentials(struct http_io_private *const priv)
     }
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = HTTP_GET;
+    http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.dest = buf;
     io.buf_size = sizeof(buf);
 
@@ -1255,9 +1245,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = HTTP_GET;
+    http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.block_num = block_num;
 
     /* Allocate a buffer in case compressed and/or encrypted data is larger */
@@ -1580,9 +1568,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Initialize I/O info */
-    memset(&io, 0, sizeof(io));
-    io.url = urlbuf;
-    io.method = src != NULL ? HTTP_PUT : HTTP_DELETE;
+    http_io_init_io(priv, &io, src != NULL ? HTTP_PUT : HTTP_DELETE, urlbuf);
     io.src = src;
     io.buf_size = config->block_size;
     io.block_num = block_num;
@@ -2768,6 +2754,15 @@ http_io_is_zero_block(const void *data, u_int block_size)
             return 0;
     }
     return 1;
+}
+
+static void
+http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url)
+{
+    memset(io, 0, sizeof(*io));
+    io->config = priv->config;
+    io->method = method;
+    io->url = url;
 }
 
 /*
