@@ -289,6 +289,7 @@ static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
 static int http_io_parse_header(const char *input, const char *header, const char *fmt, ...);
 static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
+static void http_io_curl_header_reset(struct http_io *const io);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -957,6 +958,7 @@ http_io_head_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    http_io_curl_header_reset(io);
 }
 
 static int
@@ -1515,6 +1517,7 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     curl_easy_setopt(curl, CURLOPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
+    http_io_curl_header_reset(io);
 }
 
 /*
@@ -2680,6 +2683,18 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 
     /* Done */
     return total;
+}
+
+/* Reset fields that contain HTTP response information populated by http_io_curl_header() */
+static void
+http_io_curl_header_reset(struct http_io *const io)
+{
+    io->file_size = 0;
+    io->block_size = 0;
+    io->mount_token = 0;
+    memset(io->md5, 0, sizeof(io->md5));
+    memset(io->hmac, 0, sizeof(io->hmac));
+    memset(io->content_encoding, 0, sizeof(io->content_encoding));
 }
 
 static void
