@@ -1173,7 +1173,7 @@ validate_config(void)
         if ((p = strchr(config.bucket, '/')) != NULL) {
 
             /* Can't use bucket+prefix and --prefix at the same time */
-            if (config.prefix != NULL) {
+            if (*config.prefix != '\0') {
                 warnx("S3 bucket/prefix `%s' conflicts with `--prefix' flag", config.bucket);
                 return -1;
             }
