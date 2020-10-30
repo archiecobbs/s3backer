@@ -1,4 +1,4 @@
-Version Next
+Version 1.5.6 released October 30, 220
 
     - Fixed phantom write error when server-side-encryption used (issue #135)
     - Allow bucket names with "subdirectory" for prefix (issue #130)
