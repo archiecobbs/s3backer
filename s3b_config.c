@@ -579,6 +579,9 @@ struct s3backer_store *ec_protect_store;
 struct s3backer_store *http_io_store;
 struct s3backer_store *test_io_store;
 
+/* stderr logging mutex */
+static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
@@ -1951,9 +1954,11 @@ stderr_logger(int level, const char *fmt, ...)
     time(&now);
     strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
     va_start(args, fmt);
+    pthread_mutex_lock(&stderr_log_mutex);
     fprintf(stderr, "%s %s: ", timebuf, levelstr);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
+    pthread_mutex_unlock(&stderr_log_mutex);
     va_end(args);
 }
 
