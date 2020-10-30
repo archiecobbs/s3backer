@@ -43,7 +43,7 @@
 .Nm s3backer
 .Bk -words
 .Op options
-.Ar bucket[/dir]
+.Ar bucket[/subdir]
 .Ar /mount/point
 .Ek
 .Pp
@@ -684,10 +684,11 @@ however, a value of zero is allowed and is equivalent to not specifying anything
 Perform a query at startup to determine which blocks already exist.
 This enables optimizations whereby, for each block that does not yet exist, reads return zeroes and zeroed writes are omitted,
 thereby eliminating any network access.
+.Pp
 This flag is useful when creating a new backed file, or any time it is expected that a large number of zeroed
 blocks will be read or written, such as when initializing a new filesystem.
 .Pp
-This flag will slow down startup in direct proportion to the number of blocks that already exist.
+In general, use of this flag is recommended, but it will slow down startup in direct proportion to the number of blocks that already exist.
 .It Fl \-maxUploadSpeed=BITSPERSEC
 .It Fl \-maxDownloadSpeed=BITSPERSEC
 These flags set a limit on the bandwidth utilized for individual block uploads and downloads (i.e.,
@@ -771,9 +772,9 @@ By using different prefixes, multiple independent
 .Nm
 disks can live in the same S3 bucket.
 .Pp
-Instead of using this flag, you can specify a prefix by appending a slash and a ``subdirectory name'' to the bucket name.
-The prefix then becomes the subdirectory name followed by slash (the S3 bucket namespace is flat, so the notion of a subdirectory is not real).
-Extraneous slash characters in the subdirectory name are disallowed.
+Instead of using this flag, it is recommended to specify a prefix implicitly by appending a slash and a subdirectory name to the bucket name (the S3 bucket namespace is flat, so the notion of a subdirectory is not real).
+The configured prefix then becomes the given subdirectory name, followed by slash.
+The AWS web console will then display the virtual disk's blocks grouped into a subfolder.
 .Pp
 For example, specifying bucket
 .Ar mybucket/foo/bar
@@ -782,6 +783,8 @@ is equivalent to specifying bucket
 along with the flag
 .Fl \-prefix=foo/bar/
 (note the additional trailing slash).
+.Pp
+Extraneous slash characters in a subdirectory name are disallowed.
 .Pp
 The default prefix is the empty string.
 .It Fl \-quiet
@@ -1043,4 +1046,4 @@ Filesystem size is limited by the maximum allowable size of a single file.
 The default block size of 4k is non-optimal from a compression and cost perspective.
 Typically, users will want a larger value to maximize compression and minimize transaction costs, e.g., 1m.
 .Sh AUTHOR
-.An Archie L. Cobbs Aq archie@dellroad.org
+.An Archie L. Cobbs Aq archie.cobbs@gmail.com
