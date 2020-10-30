@@ -2,7 +2,7 @@
 #
 # s3backer - FUSE-based single file backing store via Amazon S3
 #
-# Copyright 2008-2011 Archie L. Cobbs <archie@dellroad.org>
+# Copyright 2008-2020 Archie L. Cobbs <archie.cobbs@gmail.com>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
