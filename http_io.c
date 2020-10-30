@@ -1569,6 +1569,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             if ((priv->non_zero[word] & bit) == 0) {
                 priv->stats.empty_blocks_written++;
                 pthread_mutex_unlock(&priv->mutex);
+                if (caller_etag != NULL)
+                    memset(caller_etag, 0, MD5_DIGEST_LENGTH);
                 return 0;
             }
         } else
