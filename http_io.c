@@ -136,6 +136,12 @@
 
 /* Misc */
 #define WHITESPACE                  " \t\v\f\r\n"
+#if MD5_DIGEST_LENGTH != 16
+#error unexpected MD5_DIGEST_LENGTH
+#endif
+#if SHA_DIGEST_LENGTH != 20
+#error unexpected MD5_DIGEST_LENGTH
+#endif
 
 /*
  * HTTP-based implementation of s3backer_store.
@@ -2654,16 +2660,10 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
         io->mount_token = (int32_t)mtoken;
 
     /* ETag header */
-#if MD5_DIGEST_LENGTH != 16
-#error unexpected MD5_DIGEST_LENGTH
-#endif
     if (http_io_parse_header(buf, ETAG_HEADER, "\"%32c\"", hashbuf) == 1)
         http_io_parse_hex(hashbuf, io->etag, MD5_DIGEST_LENGTH);
 
     /* "x-amz-meta-s3backer-hmac" header */
-#if SHA_DIGEST_LENGTH != 20
-#error unexpected MD5_DIGEST_LENGTH
-#endif
     if (http_io_parse_header(buf, HMAC_HEADER, "\"%40c\"", hashbuf) == 1)
         http_io_parse_hex(hashbuf, io->hmac, SHA_DIGEST_LENGTH);
 
