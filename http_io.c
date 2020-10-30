@@ -1016,7 +1016,6 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
-        const char *storage_class;
         MD5_CTX ctx;
 
         /* Reset I/O info */
@@ -1059,10 +1058,8 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
 
         /* Add storage class header (if needed) */
-        storage_class = config->storage_class != NULL ?
-          config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
-        if (storage_class != NULL)
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
+        if (config->storage_class != NULL)
+            io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
@@ -1547,7 +1544,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     u_char md5[MD5_DIGEST_LENGTH];
     const time_t now = time(NULL);
     void *encoded_buf = NULL;
-    const char *storage_class;
     struct http_io io;
     int compressed = 0;
     int encrypted = 0;
@@ -1720,9 +1716,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
 
     /* Add storage class header (if needed) */
-    storage_class = config->storage_class != NULL ? config->storage_class : config->rrs ? STORAGE_CLASS_REDUCED_REDUNDANCY : NULL;
-    if (storage_class != NULL)
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, storage_class);
+    if (config->storage_class != NULL)
+        io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)

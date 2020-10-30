@@ -434,11 +434,6 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
     },
     {
-        .templ=     "--rrs",
-        .offset=    offsetof(struct s3b_config, http_io.rrs),
-        .value=     1
-    },
-    {
         .templ=     "--storageClass=%s",
         .offset=    offsetof(struct s3b_config, http_io.storage_class),
     },
@@ -2034,7 +2029,6 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
-    fprintf(stderr, "\t--%-27s %s\n", "rrs", "Target written blocks for Reduced Redundancy Storage (deprecated)");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "sse=" REQUIRED_SSE_VALUE, "Specify server side encryption");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
