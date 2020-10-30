@@ -53,8 +53,8 @@ static int test_io_create_threads(struct s3backer_store *s3b);
 static int test_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int test_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict);
-static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  u_char *actual_etag, const u_char *expect_etag, int strict);
+static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -139,7 +139,7 @@ test_io_destroy(struct s3backer_store *const s3b)
 
 static int
 test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict)
+  u_char *actual_etag, const u_char *expect_etag, int strict)
 {
     struct test_io_private *const priv = s3b->data;
     struct test_io_conf *const config = priv->config;
@@ -224,12 +224,12 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         MD5_Update(&ctx, dest, config->block_size);
         MD5_Final(md5, &ctx);
     }
-    if (actual_md5 != NULL)
-        memcpy(actual_md5, md5, MD5_DIGEST_LENGTH);
+    if (actual_etag != NULL)
+        memcpy(actual_etag, md5, MD5_DIGEST_LENGTH);
 
     /* Check expected MD5 */
-    if (expect_md5 != NULL) {
-        const int match = memcmp(md5, expect_md5, MD5_DIGEST_LENGTH) == 0;
+    if (expect_etag != NULL) {
+        const int match = memcmp(md5, expect_etag, MD5_DIGEST_LENGTH) == 0;
 
         if (strict) {
             if (!match) {
@@ -240,10 +240,10 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                   (u_int)md5[4], (u_int)md5[5], (u_int)md5[6], (u_int)md5[7],
                   (u_int)md5[8], (u_int)md5[9], (u_int)md5[10], (u_int)md5[11],
                   (u_int)md5[12], (u_int)md5[13], (u_int)md5[14], (u_int)md5[15],
-                  (u_int)expect_md5[0], (u_int)expect_md5[1], (u_int)expect_md5[2], (u_int)expect_md5[3],
-                  (u_int)expect_md5[4], (u_int)expect_md5[5], (u_int)expect_md5[6], (u_int)expect_md5[7],
-                  (u_int)expect_md5[8], (u_int)expect_md5[9], (u_int)expect_md5[10], (u_int)expect_md5[11],
-                  (u_int)expect_md5[12], (u_int)expect_md5[13], (u_int)expect_md5[14], (u_int)expect_md5[15]);
+                  (u_int)expect_etag[0], (u_int)expect_etag[1], (u_int)expect_etag[2], (u_int)expect_etag[3],
+                  (u_int)expect_etag[4], (u_int)expect_etag[5], (u_int)expect_etag[6], (u_int)expect_etag[7],
+                  (u_int)expect_etag[8], (u_int)expect_etag[9], (u_int)expect_etag[10], (u_int)expect_etag[11],
+                  (u_int)expect_etag[12], (u_int)expect_etag[13], (u_int)expect_etag[14], (u_int)expect_etag[15]);
                 return EINVAL;
             }
         } else if (match)
@@ -267,7 +267,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 }
 
 static int
-test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_etag,
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct test_io_private *const priv = s3b->data;
@@ -294,8 +294,8 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
     /* Return MD5 to caller */
-    if (caller_md5 != NULL)
-        memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
+    if (caller_etag != NULL)
+        memcpy(caller_etag, md5, MD5_DIGEST_LENGTH);
 
     /* Logging */
     if (config->debug) {

@@ -210,7 +210,7 @@ struct http_io {
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
     int32_t             mount_token;            // mount_token from "x-amz-meta-s3backer-mount-token"
     u_int               expect_304;             // a verify request; expect a 304 response
-    u_char              md5[MD5_DIGEST_LENGTH]; // parsed ETag header
+    u_char              etag[MD5_DIGEST_LENGTH];// parsed ETag header (must look like an MD5 hash)
     u_char              hmac[SHA_DIGEST_LENGTH];// parsed "x-amz-meta-s3backer-hmac" header
     char                content_encoding[32];   // received content encoding
     check_cancel_t      *check_cancel;          // write check-for-cancel callback
@@ -225,8 +225,8 @@ static int http_io_create_threads(struct s3backer_store *s3b);
 static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict);
-static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  u_char *actual_etag, const u_char *expect_etag, int strict);
+static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -294,7 +294,7 @@ static void http_io_curl_header_reset(struct http_io *const io);
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
-static u_char zero_md5[MD5_DIGEST_LENGTH];
+static u_char zero_etag[MD5_DIGEST_LENGTH];
 static u_char zero_hmac[SHA_DIGEST_LENGTH];
 static const s3b_block_t last_possible_block = (s3b_block_t)~0L;
 
@@ -1211,7 +1211,7 @@ http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
 
 static int
 http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict)
+  u_char *actual_etag, const u_char *expect_etag, int strict)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
@@ -1239,8 +1239,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             priv->stats.empty_blocks_read++;
             pthread_mutex_unlock(&priv->mutex);
             memset(dest, 0, config->block_size);
-            if (actual_md5 != NULL)
-                memset(actual_md5, 0, MD5_DIGEST_LENGTH);
+            if (actual_etag != NULL)
+                memset(actual_etag, 0, MD5_DIGEST_LENGTH);
             return 0;
         }
         pthread_mutex_unlock(&priv->mutex);
@@ -1267,8 +1267,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     http_io_add_date(priv, &io, now);
 
     /* Add If-Match or If-None-Match header as required */
-    if (expect_md5 != NULL && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0) {
-        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+    if (expect_etag != NULL && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0) {
+        char etagbuf[MD5_DIGEST_LENGTH * 2 + 1];
         const char *header;
 
         if (strict)
@@ -1277,8 +1277,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             header = IF_NONE_MATCH_HEADER;
             io.expect_304 = 1;
         }
-        http_io_prhex(md5buf, expect_md5, MD5_DIGEST_LENGTH);
-        io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", header, md5buf);
+        http_io_prhex(etagbuf, expect_etag, MD5_DIGEST_LENGTH);
+        io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", header, etagbuf);
     }
 
     /* Set Accept-Encoding header */
@@ -1448,9 +1448,9 @@ bad_encoding:
     }
     pthread_mutex_unlock(&priv->mutex);
 
-    /* Check expected MD5 */
-    if (expect_md5 != NULL) {
-        const int expected_not_found = memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) == 0;
+    /* Check expected ETag */
+    if (expect_etag != NULL) {
+        const int expected_not_found = memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) == 0;
 
         /* Compare result with expectation */
         switch (r) {
@@ -1491,9 +1491,9 @@ bad_encoding:
         r = 0;
     }
 
-    /* Copy actual MD5 */
-    if (actual_md5 != NULL)
-        memcpy(actual_md5, io.md5, MD5_DIGEST_LENGTH);
+    /* Copy actual ETag */
+    if (actual_etag != NULL)
+        memcpy(actual_etag, io.etag, MD5_DIGEST_LENGTH);
 
 fail:
     /*  Clean up */
@@ -1524,13 +1524,12 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
  * Write block if src != NULL, otherwise delete block.
  */
 static int
-http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_etag,
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
     char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
     u_char hmac[SHA_DIGEST_LENGTH];
     u_char md5[MD5_DIGEST_LENGTH];
@@ -1670,8 +1669,8 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
     /* Report MD5 back to caller */
-    if (caller_md5 != NULL)
-        memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
+    if (caller_etag != NULL)
+        memcpy(caller_etag, md5, MD5_DIGEST_LENGTH);
 
     /* Construct URL for this block */
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
@@ -1681,6 +1680,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Add PUT-only headers */
     if (src != NULL) {
+        char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
 
         /* Add Content-Type header */
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
@@ -2658,7 +2658,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
 #error unexpected MD5_DIGEST_LENGTH
 #endif
     if (http_io_parse_header(buf, ETAG_HEADER, "\"%32c\"", hashbuf) == 1)
-        http_io_parse_hex(hashbuf, io->md5, MD5_DIGEST_LENGTH);
+        http_io_parse_hex(hashbuf, io->etag, MD5_DIGEST_LENGTH);
 
     /* "x-amz-meta-s3backer-hmac" header */
 #if SHA_DIGEST_LENGTH != 20
@@ -2692,7 +2692,7 @@ http_io_curl_header_reset(struct http_io *const io)
     io->file_size = 0;
     io->block_size = 0;
     io->mount_token = 0;
-    memset(io->md5, 0, sizeof(io->md5));
+    memset(io->etag, 0, sizeof(io->etag));
     memset(io->hmac, 0, sizeof(io->hmac));
     memset(io->content_encoding, 0, sizeof(io->content_encoding));
 }

@@ -41,9 +41,10 @@
  * This file implements a simple on-disk storage area for cached blocks.
  * The file contains a header, a directory, and a data area. Each directory
  * entry indicates which block is stored in the corresponding "data slot"
- * in the data area and that block's MD5 checksum. Note the MD5 checksum is
- * the checksum of the stored data, which will differ from the actual block
- * data's MD5 if the block was compressed, encrypted, etc. when stored.
+ * in the data area and that block's ETag, which is often the MD5 checksum
+ * of the actual block data, but will differ if the block was compressed,
+ * encrypted, etc. when stored. It's up to the server to produce the ETag,
+ * but we require that it be exactly 32 hex digits like an MD5 checksum.
  *
  * File format:
  *
@@ -106,13 +107,13 @@ struct file_header {
 /* One directory entry (old format) */
 struct odir_entry {
     s3b_block_t                     block_num;
-    u_char                          md5[MD5_DIGEST_LENGTH];
+    u_char                          etag[MD5_DIGEST_LENGTH];
 } __attribute__ ((packed));
 
 /* One directory entry (new format) */
 struct dir_entry {
     s3b_block_t                     block_num;
-    u_char                          md5[MD5_DIGEST_LENGTH];
+    u_char                          etag[MD5_DIGEST_LENGTH];
     uint32_t                        flags;
 } __attribute__ ((packed));
 
@@ -391,16 +392,16 @@ s3b_dcache_alloc_block(struct s3b_dcache *priv, u_int *dslotp)
  * Record a block's dslot in the directory. After this function is called, the block will
  * be visible in the directory and picked up after a restart.
  *
- * If md5 != NULL, the block is CLEAN; if md5 == NULL, the block is DIRTY.
+ * If etag != NULL, the block is CLEAN; if etag == NULL, the block is DIRTY.
  *
  * This should be called AFTER the data for the block has already been written.
  *
  * There MUST NOT be a directory entry for the block.
  */
 int
-s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, const u_char *md5)
+s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_num, const u_char *etag)
 {
-    const u_int dirty = md5 == NULL;
+    const u_int dirty = etag == NULL;
     struct dir_entry entry;
     int r;
 
@@ -425,7 +426,7 @@ s3b_dcache_record_block(struct s3b_dcache *priv, u_int dslot, s3b_block_t block_
     entry.block_num = block_num;
     entry.flags = dirty ? ENTFLG_DIRTY : 0;
     if (!dirty)
-        memcpy(&entry.md5, md5, MD5_DIGEST_LENGTH);
+        memcpy(&entry.etag, etag, MD5_DIGEST_LENGTH);
     if ((r = s3b_dcache_write_entry(priv, dslot, &entry)) != 0)
         return r;
 
@@ -812,7 +813,7 @@ s3b_dcache_init_free_list(struct s3b_dcache *priv, s3b_dcache_visit_t *visitor, 
                 priv->num_alloc++;
                 if (dslot + 1 > num_dslots_used)                    /* keep track of the number of dslots in use */
                     num_dslots_used = dslot + 1;
-                if ((r = (*visitor)(arg, dslot, entry.block_num, (entry.flags & ENTFLG_DIRTY) == 0 ? entry.md5 : NULL)) != 0)
+                if ((r = (*visitor)(arg, dslot, entry.block_num, (entry.flags & ENTFLG_DIRTY) == 0 ? entry.etag : NULL)) != 0)
                     return r;
             }
         }

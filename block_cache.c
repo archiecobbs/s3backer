@@ -46,7 +46,7 @@
  * Blocks in the cache are in one of these states:
  *
  *  CLEAN       Data is consistent with underlying s3backer_store
- *  CLEAN2      Data is belived consistent with underlying s3backer_store, but need to verify MD5
+ *  CLEAN2      Data is belived consistent with underlying s3backer_store, but need to verify ETag
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
  *  READING     Data is being read from the underlying s3backer_store
  *  READING2    Data is being read/verified from the underlying s3backer_store
@@ -55,7 +55,7 @@
  *
  * Blocks in the CLEAN and CLEAN2 states are linked in a list in order from least recently
  * used to most recently used (where 'used' means either read or written). CLEAN2 is the
- * same as CLEAN except that the data must be MD5 verified before being used.
+ * same as CLEAN except that the data must be ETag verified before being used.
  *
  * The linked list for CLEAN/CLEAN2 blocks is actually two lists, hi_cleans and lo_cleans.
  * This allows us to evict "low priority" blocks before "high priority" blocks.
@@ -116,7 +116,7 @@
  * This is so we can jam them into 30 bits instead of 64. It's possible for the time value
  * to wrap after about two years; the effect would be mis-timed writes and evictions.
  *
- * In state CLEAN2 only, the MD5 to verify immediately follows the structure.
+ * In state CLEAN2 only, the ETag to verify immediately follows the structure.
  */
 struct cache_entry {
     s3b_block_t                     block_num;      // block number - MUST BE FIRST
@@ -128,7 +128,7 @@ struct cache_entry {
         void                        *data;          // data buffer in memory
         u_int                       dslot;          // disk cache data slot
     }                               u;
-    u_char                          md5[0];         // MD5 checksum (CLEAN2)
+    u_char                          etag[0];        // ETag (looks like an MD5 checksum) (CLEAN2)
 };
 #define ENTRY_IN_LIST(entry)                ((entry)->link.tqe_prev != NULL)
 #define ENTRY_RESET_LINK(entry)             do { (entry)->link.tqe_prev = NULL; } while (0)
@@ -192,8 +192,8 @@ static int block_cache_create_threads(struct s3backer_store *s3b);
 static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict);
-static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  u_char *actual_etag, const u_char *expect_etag, int strict);
+static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -356,9 +356,9 @@ fail0:
  * Callback function to pre-load the cache from a pre-existing cache file.
  */
 static int
-block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *md5)
+block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *etag)
 {
-    const u_int dirty = md5 == NULL;
+    const u_int dirty = etag == NULL;
     struct block_cache_private *const priv = arg;
     struct block_cache_conf *const config = priv->config;
     struct list_head *const cleans_list = block_cache_cleans_list(priv, block_num);
@@ -397,7 +397,7 @@ block_cache_dcache_load(void *arg, s3b_block_t dslot, s3b_block_t block_num, con
     } else {
         entry->verify = !config->no_verify;
         if (entry->verify)
-            memcpy(&entry->md5, md5, MD5_DIGEST_LENGTH);
+            memcpy(&entry->etag, etag, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(cleans_list, entry, link);
         priv->num_cleans++;
         assert(ENTRY_GET_STATE(entry) == (config->no_verify ? CLEAN : CLEAN2));
@@ -557,13 +557,13 @@ block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback,
 
 static int
 block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict)
+  u_char *actual_etag, const u_char *expect_etag, int strict)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
 
-    assert(expect_md5 == NULL);
-    assert(actual_md5 == NULL);
+    assert(expect_etag == NULL);
+    assert(actual_etag == NULL);
     return block_cache_read(priv, block_num, 0, config->block_size, dest);
 }
 
@@ -628,7 +628,7 @@ block_cache_do_read(struct block_cache_private *const priv, s3b_block_t block_nu
     struct block_cache_conf *const config = priv->config;
     struct list_head *const cleans_list = block_cache_cleans_list(priv, block_num);
     struct cache_entry *entry;
-    u_char md5[MD5_DIGEST_LENGTH];
+    u_char etag[MD5_DIGEST_LENGTH];
     int verified_but_not_read = 0;
     void *data = NULL;
     int r;
@@ -716,7 +716,7 @@ read:
     /* Read the block from the underlying s3backer_store */
     assert(ENTRY_GET_STATE(entry) == READING || ENTRY_GET_STATE(entry) == READING2);
     pthread_mutex_unlock(&priv->mutex);
-    r = (*priv->inner->read_block)(priv->inner, block_num, data, md5, entry->verify ? entry->md5 : NULL, 0);
+    r = (*priv->inner->read_block)(priv->inner, block_num, data, etag, entry->verify ? entry->etag : NULL, 0);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
 
@@ -739,7 +739,7 @@ read:
 
     /* Handle READING2 blocks that were verified (revert to READING) */
     if (entry->verify) {
-        if (r == EEXIST) {                  /* MD5 matched our expectation, download avoided */
+        if (r == EEXIST) {                  /* ETag matched our expectation, download avoided */
             priv->stats.read_hits++;
             priv->stats.verified++;
             verified_but_not_read = 1;
@@ -770,7 +770,7 @@ read:
     assert(ENTRY_GET_STATE(entry) == READING);
     assert(!entry->verify);
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
+        if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, etag)) != 0)
             (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
     }
     entry->timeout = block_cache_get_time(priv) + priv->clean_timeout;
@@ -797,13 +797,13 @@ fail:
 }
 
 static int
-block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *md5,
+block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
 
-    assert(md5 == NULL);
+    assert(etag == NULL);
     return block_cache_write(priv, block_num, 0, config->block_size, src);
 }
 
@@ -1102,7 +1102,7 @@ block_cache_worker_main(void *arg)
     struct cache_entry *entry;
     struct cache_entry *clean_entry = NULL;
     struct list_head *cleans_list;
-    u_char md5[MD5_DIGEST_LENGTH];
+    u_char etag[MD5_DIGEST_LENGTH];
     uint32_t adjusted_now;
     uint32_t now;
     u_int thread_id;
@@ -1172,7 +1172,7 @@ block_cache_worker_main(void *arg)
 
             /* Attempt to write the block */
             pthread_mutex_unlock(&priv->mutex);
-            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, md5, block_cache_check_cancel, priv);
+            r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, etag, block_cache_check_cancel, priv);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv);
 
@@ -1189,7 +1189,7 @@ block_cache_worker_main(void *arg)
             /* If block was not modified while being written (WRITING), it is now CLEAN */
             if (!entry->dirty) {
                 if (config->cache_file != NULL) {
-                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, md5)) != 0)
+                    if ((r = s3b_dcache_record_block(priv->dcache, entry->u.dslot, entry->block_num, etag)) != 0)
                         (*config->log)(LOG_ERR, "can't record cached block! %s", strerror(r));
                 }
                 priv->num_dirties--;
@@ -1359,7 +1359,7 @@ block_cache_free_one(void *arg, void *value)
 }
 
 /*
- * Mark an entry verified and free the extra bytes we allocated for the MD5 checksum.
+ * Mark an entry verified and free the extra bytes we allocated for the ETag.
  */
 static struct cache_entry *
 block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry)

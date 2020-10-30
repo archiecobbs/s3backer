@@ -46,9 +46,11 @@
  * by S3's "eventual consistency". We do this by:
  *
  *  (a) Enforcing a minimum delay between the completion of one PUT/DELETE
- *      of a block and the initiation of the next PUT/DELETE of the same block
- *  (b) Caching the MD5 checksum of every block written for some minimum time
- *      and verifying that data returned from subsequent GETs is correct.
+ *      of a block and the initiation of the next PUT/DELETE of the same block.
+ *      This is to allow the PUT/DELETE to be propagated across the S3 network.
+ *  (b) Caching the ETag (which is usually just the MD5 checksum) of every block
+ *      written for some minimum time and verifying that data returned from subsequent
+ *      GETs matches, allowing us to verify we are not reading back stale data.
  *
  * These are the relevant configuration parameters:
  *
@@ -56,8 +58,8 @@
  *      Minimum time delay after a PUT/DELETE completes before the next PUT/DELETE
  *      can be initiated.
  *  cache_time
- *      How long after writing a block we'll remember its MD5 checksum. This
- *      must be at least as long as min_write_delay. Zero means infinity.
+ *      How long after writing a block we'll remember its ETag. This must be
+ *      at least as long as min_write_delay. Zero means infinity.
  *  cache_size
  *      Maximum number of blocks we'll track at one time. When table
  *      is full, additional writes will block.
@@ -69,7 +71,7 @@
  *
  * CLEAN    initial state            No          No
  * WRITING  currently being written  Yes         No    timestamp == 0, u.data valid
- * WRITTEN  written and MD5 cached   Yes         Yes   timestamp != 0, u.md5 valid
+ * WRITTEN  written and ETag cached  Yes         Yes   timestamp != 0, u.etag valid
  *
  * The steady state for a block is CLEAN. WRITING means the block is currently
  * being sent; concurrent attempts to write will simply sleep until the first one
@@ -77,15 +79,15 @@
  * state will timeout (and the entry revert to CLEAN) after cache_time.
  *
  * If another attempt to write a block in the WRITTEN state occurs occurs before
- * min_write_delay has elapsed, the second attempt will sleep.
+ * min_write_delay has elapsed, the second attempt will sleep until it has.
  *
  * In the WRITING state, we have the data still so any reads are local. In the WRITTEN
- * state we don't have the data but we do know its MD5, so therefore we can verify what
- * comes back; if it doesn't verify, we retry as we would with any other error.
+ * state we don't have the data but we do know its ETag, so therefore we can verify what
+ * comes back from the read; if it doesn't verify, we retry as we would with any other error.
  *
  * There is a special case that occurs when we get an error while WRITING: in this case,
  * we don't know whether the block was successfully written or not, so we transition to
- * WRITTEN but with an all zeroes MD5 indicating "don't know".
+ * WRITTEN but with an all zeroes ETag indicating "don't know".
  *
  * If we hit the 'cache_size' limit, we sleep a little while and then try again.
  *
@@ -104,7 +106,7 @@ struct block_info {
     TAILQ_ENTRY(block_info) link;               // list entry link
     union {
         const void      *data;                  // blocks actual content (if WRITING)
-        u_char          md5[MD5_DIGEST_LENGTH]; // block's content MD5 (if WRITTEN)
+        u_char          etag[MD5_DIGEST_LENGTH];// block's ETag (if WRITTEN)
     } u;
 };
 
@@ -133,8 +135,8 @@ static int ec_protect_create_threads(struct s3backer_store *s3b);
 static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict);
-static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+  u_char *actual_etag, const u_char *expect_etag, int strict);
+static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -160,10 +162,10 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 #endif
 
 /* Special all-zeroes MD5 value signifying a zeroed block */
-static const u_char zero_md5[MD5_DIGEST_LENGTH];
+static const u_char zero_etag[MD5_DIGEST_LENGTH];
 
 /* Special all-onew MD5 value signifying a just-written block whose content is unknown */
-static u_char unknown_md5[MD5_DIGEST_LENGTH];
+static u_char unknown_etag[MD5_DIGEST_LENGTH];
 
 /*
  * Constructor
@@ -212,7 +214,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
         goto fail6;
     s3b->data = priv;
-    memset(unknown_md5, 0xff, sizeof(unknown_md5));
+    memset(unknown_etag, 0xff, sizeof(unknown_etag));
 
     /* Done */
     EC_PROTECT_CHECK_INVARIANTS(priv);
@@ -345,11 +347,11 @@ ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, 
 
 static int
 ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void *dest,
-  u_char *actual_md5, const u_char *expect_md5, int strict)
+  u_char *actual_etag, const u_char *expect_etag, int strict)
 {
     struct ec_protect_private *const priv = s3b->data;
     struct ec_protect_conf *const config = priv->config;
-    u_char md5[MD5_DIGEST_LENGTH];
+    u_char etag[MD5_DIGEST_LENGTH];
     struct block_info *binfo;
 
     /* Sanity check */
@@ -373,15 +375,15 @@ again:
                 memset(dest, 0, config->block_size);
             else
                 memcpy(dest, binfo->u.data, config->block_size);
-            if (actual_md5 != NULL)
-                memset(actual_md5, 0, MD5_DIGEST_LENGTH);           // we don't know it yet!
+            if (actual_etag != NULL)
+                memset(actual_etag, 0, MD5_DIGEST_LENGTH);          // we don't know it yet!
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
         }
 
-        /* In WRITTEN state: special case: unknown MD5. Wait for settle time, then try again */
-        if (memcmp(binfo->u.md5, unknown_md5, MD5_DIGEST_LENGTH) == 0) {
+        /* In WRITTEN state: special case: unknown ETag. Wait for settle time, then try again */
+        if (memcmp(binfo->u.etag, unknown_etag, MD5_DIGEST_LENGTH) == 0) {
 
             /* Have we waited long enough already? If so, reset block and try again */
             if (ec_protect_get_time() >= binfo->timestamp + config->min_write_delay) {
@@ -397,22 +399,22 @@ again:
         }
 
         /* In WRITTEN state: special case: zero block */
-        if (memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) == 0) {
-            if (expect_md5 != NULL && strict && memcmp(expect_md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
-                (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected MD5?");
+        if (memcmp(binfo->u.etag, zero_etag, MD5_DIGEST_LENGTH) == 0) {
+            if (expect_etag != NULL && strict && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
+                (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected ETag?");
             memset(dest, 0, config->block_size);
-            if (actual_md5 != NULL)
-                memset(actual_md5, 0, MD5_DIGEST_LENGTH);
+            if (actual_etag != NULL)
+                memset(actual_etag, 0, MD5_DIGEST_LENGTH);
             priv->stats.cache_data_hits++;
             pthread_mutex_unlock(&priv->mutex);
             return 0;
         }
 
-        /* In WRITTEN state: we know the expected MD5 */
-        memcpy(md5, binfo->u.md5, MD5_DIGEST_LENGTH);
-        if (expect_md5 != NULL && strict && memcmp(md5, expect_md5, MD5_DIGEST_LENGTH) != 0)
-            (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected MD5?");
-        expect_md5 = md5;
+        /* In WRITTEN state: we know the expected ETag */
+        memcpy(etag, binfo->u.etag, MD5_DIGEST_LENGTH);
+        if (expect_etag != NULL && strict && memcmp(etag, expect_etag, MD5_DIGEST_LENGTH) != 0)
+            (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected ETag?");
+        expect_etag = etag;
         strict = 1;
     }
 
@@ -420,16 +422,16 @@ again:
     pthread_mutex_unlock(&priv->mutex);
 
     /* Read block normally */
-    return (*priv->inner->read_block)(priv->inner, block_num, dest, actual_md5, expect_md5, strict);
+    return (*priv->inner->read_block)(priv->inner, block_num, dest, actual_etag, expect_etag, strict);
 }
 
 static int
-ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_md5,
+ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, const void *src, u_char *caller_etag,
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct ec_protect_private *const priv = s3b->data;
     struct ec_protect_conf *const config = priv->config;
-    u_char md5[MD5_DIGEST_LENGTH];
+    u_char etag[MD5_DIGEST_LENGTH];
     struct block_info *binfo;
     uint64_t current_time;
     uint64_t delay;
@@ -487,7 +489,7 @@ again:
 writeit:
         /* Write the block */
         pthread_mutex_unlock(&priv->mutex);
-        r = (*priv->inner->write_block)(priv->inner, block_num, src, md5, check_cancel, check_cancel_arg);
+        r = (*priv->inner->write_block)(priv->inner, block_num, src, etag, check_cancel, check_cancel_arg);
         pthread_mutex_lock(&priv->mutex);
         EC_PROTECT_CHECK_INVARIANTS(priv);
 
@@ -502,17 +504,17 @@ writeit:
          * Move to state WRITTEN.
          *
          * If there was an error, we can't assume we know whether the write succeeded or not,
-         * so mark the block as WRITTEN but with a special MD5 value meaning "unknown".
+         * so mark the block as WRITTEN but with a special ETag value meaning "unknown".
          * We have to wait for min_write_delay before trying to read the block again.
          */
         binfo->timestamp = ec_protect_get_time();
-        memcpy(binfo->u.md5, r == 0 ? md5 : unknown_md5, MD5_DIGEST_LENGTH);
+        memcpy(binfo->u.etag, r == 0 ? etag : unknown_etag, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(&priv->list, binfo, link);
         pthread_mutex_unlock(&priv->mutex);
 
-        /* Copy expected MD5 for caller */
-        if (r == 0 && caller_md5 != NULL)
-            memcpy(caller_md5, md5, MD5_DIGEST_LENGTH);
+        /* Copy expected ETag for caller */
+        if (r == 0 && caller_etag != NULL)
+            memcpy(caller_etag, etag, MD5_DIGEST_LENGTH);
         return r;
     }
 
@@ -656,7 +658,7 @@ ec_protect_dirty_callback(void *arg, void *value)
     struct cbinfo *const cbinfo = arg;
     struct block_info *const binfo = value;
 
-    if (binfo->timestamp == 0 ? binfo->u.data != NULL : memcmp(binfo->u.md5, zero_md5, MD5_DIGEST_LENGTH) != 0)
+    if (binfo->timestamp == 0 ? binfo->u.data != NULL : memcmp(binfo->u.etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
         (*cbinfo->callback)(cbinfo->arg, binfo->block_num);
 }
 

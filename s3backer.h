@@ -171,24 +171,24 @@ struct s3backer_store {
     /*
      * Read one block. Never-written-to blocks will return all zeroes.
      *
-     * If not NULL, 'actual_md5' should be filled in with a value suitable for the 'expect_md5' parameter,
+     * If not NULL, 'actual_etag' should be filled in with a value suitable for the 'expect_etag' parameter,
      * or all zeroes if unknown.
      *
-     * If 'expect_md5' is not NULL:
-     *  - expect_md5 should be the value returned from a previous call to read_block() or write_block().
-     *  - If strict != 0, expect_md5 must be the value returned from the most recent call to write_block()
+     * If 'expect_etag' is not NULL:
+     *  - expect_etag should be the value returned from a previous call to read_block() or write_block().
+     *  - If strict != 0, expect_etag must be the value returned from the most recent call to write_block()
      *    and the data must match it or else an error is returned. Aside from this check, read normally.
      *  - If strict == 0:
-     *    - If block's MD5 does not match expect_md5, expect_md5 is ignored and the block is read normally
-     *    - If block's MD5 matches expect_md5, the implementation may either:
-     *      - Ignore expect_md5 and read the block normally; OR
+     *    - If block's ETag does not match expect_etag, expect_etag is ignored and the block is read normally
+     *    - If block's ETag matches expect_etag, the implementation may either:
+     *      - Ignore expect_etag and read the block normally; OR
      *      - Return EEXIST; the block may or may not also be read normally into *dest
      *
      * Returns zero on success or a (positive) errno value on error.
      * May return ENOTCONN if create_threads() has not yet been invoked.
      */
     int         (*read_block)(struct s3backer_store *s3b, s3b_block_t block_num, void *dest,
-                  u_char *actual_md5, const u_char *expect_md5, int strict);
+                  u_char *actual_etag, const u_char *expect_etag, int strict);
 
     /*
      * Read part of one block.
@@ -206,13 +206,13 @@ struct s3backer_store {
      * If check_cancel != NULL, then it may be invoked periodically during the write. If so, and it ever
      * returns a non-zero value, then this function may choose to abort the write and return ECONNABORTED.
      *
-     * Upon successful return, md5 (if not NULL) will get updated with a value suitable for the 'expect_md5'
-     * parameter of read_block(); if the block is all zeroes, md5 will be zeroed.
+     * Upon successful return, etag (if not NULL) will get updated with a value suitable for the 'expect_etag'
+     * parameter of read_block(); if the block is all zeroes, etag will be zeroed.
      *
      * Returns zero on success or a (positive) errno value on error.
      * May return ENOTCONN if create_threads() has not yet been invoked.
      */
-    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *md5,
+    int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
                   check_cancel_t *check_cancel, void *arg);
 
     /*
