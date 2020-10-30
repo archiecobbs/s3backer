@@ -1,5 +1,6 @@
 Version Next
 
+    - Fixed phantom write error when server-side-encryption used (issue #135)
     - Allow bucket names with "subdirectory" for prefix (issue #130)
     - Added `--configFile' flag (issue #129)
     - Added `--accessKeyEnv' flag (issue #128)

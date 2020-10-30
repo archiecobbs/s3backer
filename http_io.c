@@ -1677,10 +1677,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
-    /* Report MD5 back to caller */
-    if (caller_etag != NULL)
-        memcpy(caller_etag, md5, MD5_DIGEST_LENGTH);
-
     /* Construct URL for this block */
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
@@ -1730,6 +1726,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_write_prepper);
 
+    /* Report ETag back to caller if requested */
+    if (r == 0 && caller_etag != NULL)
+        memcpy(caller_etag, src != NULL ? io.etag : zero_etag, MD5_DIGEST_LENGTH);
+
     /* Update stats */
     if (r == 0) {
         pthread_mutex_lock(&priv->mutex);
@@ -1760,12 +1760,15 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_READDATA, io);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
     if (io->src != NULL) {
         curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size);
     }
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    http_io_curl_header_reset(io);
 }
 
 static int
