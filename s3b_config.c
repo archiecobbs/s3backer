@@ -120,6 +120,7 @@ static void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__for
 static void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static int validate_config(void);
 static void list_blocks_callback(void *arg, s3b_block_t block_num);
+static int find_string_in_table(const char *const *table, const char *value);
 static void dump_config(void);
 static void usage(void);
 
@@ -135,13 +136,24 @@ static const char *const s3_acls[] = {
     S3_ACCESS_PRIVATE,
     S3_ACCESS_PUBLIC_READ,
     S3_ACCESS_PUBLIC_READ_WRITE,
-    S3_ACCESS_AUTHENTICATED_READ
+    S3_ACCESS_AUTHENTICATED_READ,
+    NULL
 };
 
 /* Valid S3 authentication types */
 static const char *const s3_auth_types[] = {
     AUTH_VERSION_AWS2,
     AUTH_VERSION_AWS4,
+    NULL
+};
+
+/* Valid S3 storage classes */
+static const char *const s3_storage_classes[] = {
+    STORAGE_CLASS_STANDARD,
+    STORAGE_CLASS_STANDARD_IA,
+    STORAGE_CLASS_ONEZONE_IA,
+    STORAGE_CLASS_REDUCED_REDUNDANCY,
+    NULL
 };
 
 /* Configuration structure */
@@ -1151,11 +1163,7 @@ validate_config(void)
     }
 
     /* Check auth version */
-    for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++) {
-        if (strcmp(config.http_io.authVersion, s3_auth_types[i]) == 0)
-            break;
-    }
-    if (i == sizeof(s3_auth_types) / sizeof(*s3_auth_types)) {
+    if (!find_string_in_table(s3_auth_types, config.http_io.authVersion)) {
         warnx("illegal authentication version `%s'", config.http_io.authVersion);
         return -1;
     }
@@ -1213,11 +1221,7 @@ validate_config(void)
     }
 
     /* Check storage class */
-    if (config.http_io.storage_class != NULL
-      && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD) != 0
-      && strcmp(config.http_io.storage_class, STORAGE_CLASS_STANDARD_IA) != 0
-      && strcmp(config.http_io.storage_class, STORAGE_CLASS_ONEZONE_IA) != 0
-      && strcmp(config.http_io.storage_class, STORAGE_CLASS_REDUCED_REDUNDANCY) != 0) {
+    if (config.http_io.storage_class != NULL && !find_string_in_table(s3_storage_classes, config.http_io.storage_class)) {
         warnx("invalid storage class `%s'", config.http_io.storage_class);
         return -1;
     }
@@ -1290,11 +1294,7 @@ validate_config(void)
     }
 
     /* Check S3 access privilege */
-    for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++) {
-        if (strcmp(config.http_io.accessType, s3_acls[i]) == 0)
-            break;
-    }
-    if (i == sizeof(s3_acls) / sizeof(*s3_acls)) {
+    if (!find_string_in_table(s3_acls, config.http_io.accessType)) {
         warnx("illegal access type `%s'", config.http_io.accessType);
         return -1;
     }
@@ -1819,6 +1819,17 @@ list_blocks_callback(void *arg, s3b_block_t block_num)
         fprintf(stderr, ".");
         fflush(stderr);
     }
+}
+
+static int
+find_string_in_table(const char *const *table, const char *value)
+{
+    while (*table != NULL) {
+        if (strcmp(value, *table) == 0)
+            return 1;
+        table++;
+    }
+    return 0;
 }
 
 static void
