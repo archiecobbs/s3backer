@@ -293,7 +293,8 @@ static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static int http_io_parse_hex_block_num(const char *string, s3b_block_t *block_nump);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
 static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
-static int http_io_parse_header(const char *input, const char *header, const char *fmt, ...);
+static int http_io_parse_header(struct http_io *io, const char *input,
+    const char *header, int num_conversions, const char *fmt, ...);
 static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
 static void http_io_curl_header_reset(struct http_io *const io);
 
@@ -2654,17 +2655,17 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     buf[total] = '\0';
 
     /* Check for interesting headers */
-    (void)http_io_parse_header(buf, FILE_SIZE_HEADER, "%ju", &io->file_size);
-    (void)http_io_parse_header(buf, BLOCK_SIZE_HEADER, "%u", &io->block_size);
-    if (http_io_parse_header(buf, MOUNT_TOKEN_HEADER, "%x", &mtoken) == 1)
+    http_io_parse_header(io, buf, FILE_SIZE_HEADER, 1, "%ju", &io->file_size);
+    http_io_parse_header(io, buf, BLOCK_SIZE_HEADER, 1, "%u", &io->block_size);
+    if (http_io_parse_header(io, buf, MOUNT_TOKEN_HEADER, 1, "%x", &mtoken))
         io->mount_token = (int32_t)mtoken;
 
     /* ETag header */
-    if (http_io_parse_header(buf, ETAG_HEADER, "\"%32c\"", hashbuf) == 1)
+    if (http_io_parse_header(io, buf, ETAG_HEADER, 1, "\"%32c\"", hashbuf))
         http_io_parse_hex(hashbuf, io->etag, MD5_DIGEST_LENGTH);
 
     /* "x-amz-meta-s3backer-hmac" header */
-    if (http_io_parse_header(buf, HMAC_HEADER, "\"%40c\"", hashbuf) == 1)
+    if (http_io_parse_header(io, buf, HMAC_HEADER, 1, "\"%40c\"", hashbuf))
         http_io_parse_hex(hashbuf, io->hmac, SHA_DIGEST_LENGTH);
 
     /* Content encoding(s) */
@@ -2966,12 +2967,12 @@ http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
 }
 
 static int
-http_io_parse_header(const char *const input, const char *const header, const char *const fmt, ...)
+http_io_parse_header(struct http_io *const io, const char *const input,
+    const char *const header, int num_conversions, const char *const fmt, ...)
 {
-
     va_list args;
     size_t offset;
-    int rtn;
+    int r = 0;
 
     /* Initialize */
     va_start(args, fmt);
@@ -2979,14 +2980,21 @@ http_io_parse_header(const char *const input, const char *const header, const ch
     /* Match header (case-insensitively) followed by ':' and optional whitespace */
     offset = strlen(header);
     if (strncasecmp(input, header, offset) != 0 || input[offset++] != ':')
-        return -1;
+        goto fail;
     while (isspace(input[offset]))
         offset++;
 
-    /* Parse header value */
-    rtn = vsscanf(input + offset, fmt, args);
+    /* Parse header value; log an error if it's bogus */
+    if (vsscanf(input + offset, fmt, args) != num_conversions) {
+        (*io->config->log)(LOG_ERR, "%s %s: rec'd malformed response header: %s: %s", io->method, io->url, header, input + offset);
+        goto fail;
+    }
 
+    /* Success */
+    r = 1;
+
+fail:
     /* Done */
     va_end(args);
-    return rtn;
+    return r;
 }
