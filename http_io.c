@@ -297,6 +297,7 @@ static int http_io_parse_header(struct http_io *io, const char *input,
     const char *header, int num_conversions, const char *fmt, ...);
 static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
 static void http_io_curl_header_reset(struct http_io *const io);
+static int http_io_verify_etag_provided(struct http_io *io);
 
 /* Internal variables */
 static pthread_mutex_t *openssl_locks;
@@ -1303,6 +1304,10 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
 
+    /* Verify an ETag was provided by server if caller wants it */
+    if (r == 0 && actual_etag != NULL)
+        r = http_io_verify_etag_provided(&io);
+
     /* Determine how many bytes we read */
     did_read = io.buf_size - io.bufs.rdremain;
 
@@ -1726,6 +1731,10 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     /* Perform operation */
     r = http_io_perform_io(priv, &io, http_io_write_prepper);
 
+    /* Verify ETag was provided by server if we did a PUT and caller wants it */
+    if (r == 0 && caller_etag != NULL && src != NULL)
+        r = http_io_verify_etag_provided(&io);
+
     /* Report ETag back to caller if requested */
     if (r == 0 && caller_etag != NULL)
         memcpy(caller_etag, src != NULL ? io.etag : zero_etag, MD5_DIGEST_LENGTH);
@@ -1746,6 +1755,16 @@ fail:
     if (encoded_buf != NULL)
         free(encoded_buf);
     return r;
+}
+
+static int
+http_io_verify_etag_provided(struct http_io *const io)
+{
+    if (memcmp(io->etag, zero_etag, MD5_DIGEST_LENGTH) == 0) {
+        (*io->config->log)(LOG_ERR, "%s %s: missing %s header in response", io->method, io->url, ETAG_HEADER);
+        return EIO;
+    }
+    return 0;
 }
 
 static void
