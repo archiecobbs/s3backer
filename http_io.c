@@ -1102,7 +1102,14 @@ update_iam_credentials(struct http_io_private *const priv)
     /* Perform operation */
     (*config->log)(LOG_INFO, "acquiring EC2 IAM credentials from %s", io.url);
     if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
-        (*config->log)(LOG_ERR, "failed to acquire EC2 IAM credentials from %s: %s", io.url, strerror(r));
+        switch (r) {
+        case ENOENT:
+            (*config->log)(LOG_ERR, "EC2 IAM credentials \"%s\" not found", config->ec2iam_role);
+            break;
+        default:
+            (*config->log)(LOG_ERR, "failed to acquire EC2 IAM credentials from %s: %s", io.url, strerror(r));
+            break;
+        }
         free(urlbuf);
         return r;
     }

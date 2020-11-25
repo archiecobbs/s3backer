@@ -1,3 +1,7 @@
+Version Next
+
+    - Log a more useful error message when IAM credentials not found (#136)
+
 Version 1.5.6 released October 30, 220
 
     - Fixed phantom write error when server-side-encryption used (issue #135)
