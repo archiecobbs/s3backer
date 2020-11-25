@@ -59,6 +59,7 @@
 #define ACL_HEADER                  "x-amz-acl"
 #define CONTENT_SHA256_HEADER       "x-amz-content-sha256"
 #define SSE_HEADER                  "x-amz-server-side-encryption"
+#define SSE_KEY_ID_HEADER           "x-amz-server-side-encryption-aws-kms-key-id"
 #define STORAGE_CLASS_HEADER        "x-amz-storage-class"
 #define FILE_SIZE_HEADER            "x-amz-meta-s3backer-filesize"
 #define BLOCK_SIZE_HEADER           "x-amz-meta-s3backer-blocksize"
@@ -1053,9 +1054,12 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACL_HEADER, config->accessType);
         }
 
-        /* Add Server Side Encryption value (if needed) */
-        if (config->sse != NULL && new_value != 0)
+        /* Add Server Side Encryption header(s) (if needed) */
+        if (config->sse != NULL && new_value != 0) {
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
+            if (strcmp(config->sse, SSE_AWS_KMS) == 0)
+                io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
+        }
 
         /* Add storage class header (if needed) */
         if (config->storage_class != NULL)
@@ -1718,9 +1722,12 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (src != NULL && config->encryption != NULL)
         io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
 
-    /* Add Server Side Encryption header (if needed) */
-    if (config->sse != NULL && src != NULL)
+    /* Add Server Side Encryption header(s) (if needed) */
+    if (config->sse != NULL && src != NULL) {
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
+        if (strcmp(config->sse, SSE_AWS_KMS) == 0)
+            io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
+    }
 
     /* Add storage class header (if needed) */
     if (config->storage_class != NULL)

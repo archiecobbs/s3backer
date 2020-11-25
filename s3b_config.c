@@ -171,6 +171,7 @@ static struct s3b_config config = {
         .baseURL=               NULL,
         .region=                NULL,
         .sse=                   NULL,
+        .sse_key_id=            NULL,
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
         .user_agent=            user_agent_buf,
@@ -270,6 +271,10 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--sse=%s",
         .offset=    offsetof(struct s3b_config, http_io.sse),
+    },
+    {
+        .templ=     "--sse-key-id=%s",
+        .offset=    offsetof(struct s3b_config, http_io.sse_key_id),
     },
     {
         .templ=     "--blockCacheSize=%u",
@@ -1228,10 +1233,17 @@ validate_config(void)
         return -1;
     }
 
-    /* Check server side encryption type */
-    if (config.http_io.sse != NULL && strcmp(config.http_io.sse, REQUIRED_SSE_VALUE) != 0) {
-        warnx("invalid sse type `%s' (only `%s' is supported)", config.http_io.sse, REQUIRED_SSE_VALUE);
-        return -1;
+    /* Check server side encryption type and get key ID if needed */
+    if (config.http_io.sse != NULL) {
+        if (strcmp(config.http_io.sse, SSE_AWS_KMS) == 0) {
+            if (config.http_io.sse_key_id == NULL) {
+                warnx("`--sse-key-id' flag is required when `--sse' flag is used");
+                return -1;
+            }
+        } else if (strcmp(config.http_io.sse, SSE_AES256) != 0) {
+            warnx("unknown sse type `%s'", config.http_io.sse);
+            return -1;
+        }
     }
 
     /* Set default or custom region */
@@ -1878,6 +1890,7 @@ dump_config(void)
       config.http_io.max_speed[HTTP_DOWNLOAD]);
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse", config.http_io.sse);
+    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse-key-id", config.http_io.sse_key_id);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
     (*config.log)(LOG_DEBUG, "%24s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
@@ -2035,7 +2048,8 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
-    fprintf(stderr, "\t--%-27s %s\n", "sse=" REQUIRED_SSE_VALUE, "Specify server side encryption");
+    fprintf(stderr, "\t--%-27s %s\n", "sse=TYPE", "Specify server side encryption ('" SSE_AES256 "' or '" SSE_AWS_KMS "')");
+    fprintf(stderr, "\t--%-27s %s\n", "ss-key-id=ID", "Specify server side encryption customer key ID");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
     fprintf(stderr, "\t--%-27s %s\n", "statsFilename=NAME", "Name of statistics file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "storageClass=TYPE", "Specify storage class for written blocks");

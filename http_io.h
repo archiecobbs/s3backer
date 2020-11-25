@@ -53,7 +53,8 @@
 #define STORAGE_CLASS_OUTPOSTS              "OUTPOSTS"
 
 /* Server side encryption types */
-#define REQUIRED_SSE_VALUE                  "AES256"
+#define SSE_AES256                          "AES256"
+#define SSE_AWS_KMS                         "aws:kms"
 
 /* Configuration info structure for http_io store */
 struct http_io_conf {
@@ -90,6 +91,7 @@ struct http_io_conf {
     uintmax_t           max_speed[2];
     log_func_t          *log;
     const char          *sse;
+    const char          *sse_key_id;
 };
 
 /* Statistics structure for http_io store */

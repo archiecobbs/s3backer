@@ -836,14 +836,24 @@ If this option is specified but disagrees with the auto-detected value,
 will exit with an error unless
 .Fl \-force
 is also given.
-.It Fl \-sse=ALGORITHM
+.It Fl \-sse=TYPE
 Enable server side encryption.
 This adds the
 .Pa x-amz-server-side-encryption
 header to all PUT requests.
 .Pp
-Currently the only supported encryption algorithm is
-.Pa AES256 .
+The value must be either
+.Pa AES256
+or
+.Pa aws:kms .
+In the latter case, a customer-supplied key is used for encryption, and the
+.Fl \-sse-key-id
+flag is required.
+.It Fl \-sse-key-id=ID
+Specify the ID of the customer-supplied key for server-side encryption.
+This flag is required if
+.Fl \-sse
+is given, ignored otherwise.
 .It Fl \-ssl
 Equivalent to
 .Bk -words
