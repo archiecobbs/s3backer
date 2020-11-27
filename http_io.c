@@ -293,7 +293,7 @@ static s3b_block_t http_io_block_hash_prefix(s3b_block_t block_num);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static int http_io_parse_hex_block_num(const char *string, s3b_block_t *block_nump);
 static void http_io_prhex(char *buf, const u_char *data, size_t len);
-static int http_io_strcasecmp_ptr(const void *ptr1, const void *ptr2);
+static int http_io_header_name_sort(const void *ptr1, const void *ptr2);
 static int http_io_parse_header(struct http_io *io, const char *input,
     const char *header, int num_conversions, const char *fmt, ...);
 static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
@@ -2121,7 +2121,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
             amz_hdrs[i++] = header->data;
     }
     assert(i == num_amz_hdrs);
-    qsort(amz_hdrs, num_amz_hdrs, sizeof(*amz_hdrs), http_io_strcasecmp_ptr);
+    qsort(amz_hdrs, num_amz_hdrs, sizeof(*amz_hdrs), http_io_header_name_sort);
 
     /* Sign x-amz headers (in sorted order) */
     for (i = 0; i < num_amz_hdrs; i++)
@@ -2283,7 +2283,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     for (i = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
         sorted_hdrs[i++] = hdr->data;
     assert(i == num_sorted_hdrs);
-    qsort(sorted_hdrs, num_sorted_hdrs, sizeof(*sorted_hdrs), http_io_strcasecmp_ptr);
+    qsort(sorted_hdrs, num_sorted_hdrs, sizeof(*sorted_hdrs), http_io_header_name_sort);
 
     /* Request method */
     EVP_DigestUpdate(hash_ctx, (const u_char *)io->method, strlen(io->method));
@@ -2990,13 +2990,25 @@ http_io_prhex(char *buf, const u_char *data, size_t len)
     buf[i * 2] = '\0';
 }
 
+/*
+ * Sort two header strings of the form "Foo: Bar" case-insensitively by header name (only).
+ */
 static int
-http_io_strcasecmp_ptr(const void *const ptr1, const void *const ptr2)
+http_io_header_name_sort(const void *const ptr1, const void *const ptr2)
 {
     const char *const str1 = *(const char *const *)ptr1;
     const char *const str2 = *(const char *const *)ptr2;
+    size_t i;
 
-    return strcasecmp(str1, str2);
+    for (i = 0; str1[i] != '\0' || str2[i] != '\0'; i++) {
+        const int ch1 = str1[i] == ':' ? '\0' : tolower(str1[i]);
+        const int ch2 = str2[i] == ':' ? '\0' : tolower(str2[i]);
+        const int diff = ch1 - ch2;
+
+        if (diff != 0)
+            return diff;
+    }
+    return 0;
 }
 
 static int
