@@ -931,6 +931,7 @@ s3b_dcache_read(struct s3b_dcache *priv, off_t offset, void *data, size_t len)
         const off_t posn = offset + sofar;
 
         if ((r = pread(priv->fd, (char *)data + sofar, len - sofar, offset + sofar)) == -1) {
+            r = errno;
             (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: %s",
               priv->filename, (uintmax_t)posn, strerror(r));
             return r;
@@ -960,6 +961,7 @@ s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t o
         const off_t posn = offset + sofar;
 
         if ((r = pwrite(fd, (const char *)data + sofar, len - sofar, offset + sofar)) == -1) {
+            r = errno;
             (*priv->log)(LOG_ERR, "error writing cache file `%s' at offset %ju: %s",
               filename, (uintmax_t)posn, strerror(r));
             return r;
