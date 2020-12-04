@@ -107,7 +107,7 @@ AC_CHECK_DECLS(fdatasync)
 
 # Check for required header files
 AC_HEADER_STDC
-AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h zlib.h, [],
+AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h sys/statvfs.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h zlib.h, [],
 	[AC_MSG_ERROR([required header file '$ac_header' missing])])
 
 # Optional features

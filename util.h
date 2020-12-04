@@ -38,6 +38,7 @@ extern int log_enable_debug;
 
 extern int parse_size_string(const char *s, uintmax_t *valp);
 extern void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
+extern void describe_size(char *buf, size_t bmax, uintmax_t value);
 extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);

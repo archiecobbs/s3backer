@@ -2,6 +2,7 @@ Version Next
 
     - Added `--sse-key-id' flag (issue #137)
     - Log a more useful error message when IAM credentials not found (#136)
+    - Warn on startup if disk space is insufficient for disk cache (#138)
 
 Version 1.5.6 released October 30, 220
 

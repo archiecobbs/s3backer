@@ -141,6 +141,26 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
     snprintf(buf, bmax, "%ju", value);
 }
 
+void
+describe_size(char *buf, size_t bmax, uintmax_t value)
+{
+    int i;
+
+    for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
+        const struct size_suffix *const ss = &size_suffixes[i];
+        uintmax_t unit;
+
+        if (ss->bits >= sizeof(uintmax_t) * 8)
+            continue;
+        unit = (uintmax_t)1 << ss->bits;
+        if (value >= unit) {
+            snprintf(buf, bmax, "%.2f%s", (double)(value >> (ss->bits - 8)) / (double)(1 << 8), ss->suffix);
+            return;
+        }
+    }
+    snprintf(buf, bmax, "%ju", value);
+}
+
 int
 find_string_in_table(const char *const *table, const char *value)
 {

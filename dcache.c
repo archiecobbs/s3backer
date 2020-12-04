@@ -36,6 +36,7 @@
 
 #include "s3backer.h"
 #include "dcache.h"
+#include "util.h"
 
 /*
  * This file implements a simple on-disk storage area for cached blocks.
@@ -162,6 +163,9 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
     struct ofile_header oheader;
     struct file_header header;
     struct s3b_dcache *priv;
+#if HAVE_SYS_STATVFS_H
+    struct statvfs vfs;
+#endif
     struct stat sb;
     int r;
 
@@ -301,6 +305,28 @@ retry:
     /* Read the directory to build the free list and visit allocated blocks */
     if (visitor != NULL && (r = s3b_dcache_init_free_list(priv, visitor, arg, visit_dirty)) != 0)
         goto fail4;
+
+#if HAVE_SYS_STATVFS_H
+
+    /* Warn if insufficient disk space exists on the partition */
+    if (fstatvfs(priv->fd, &vfs) == 0) {
+        const uintmax_t free = (uintmax_t)vfs.f_bavail * (uintmax_t)vfs.f_bsize;
+        const uintmax_t need = (uintmax_t)DATA_OFFSET(priv, priv->max_blocks);
+        const uintmax_t used = (uintmax_t)sb.st_blocks * 512;
+
+        if (need >= used + free) {
+            char needbuf[64];
+            char freebuf[64];
+
+            describe_size(needbuf, sizeof(needbuf), need);
+            describe_size(freebuf, sizeof(freebuf), used + free);
+            (*priv->log)(LOG_WARNING,
+              "cache file `%s' will have size %s when completely full, but only %s is available in partition",
+              priv->filename, needbuf, freebuf);
+        }
+    }
+
+#endif
 
     /* Done */
     *dcachep = priv;

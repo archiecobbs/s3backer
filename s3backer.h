@@ -38,6 +38,9 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#if HAVE_SYS_STATVFS_H
+#include <sys/statvfs.h>
+#endif
 #include <sys/queue.h>
 
 /* Add some queue.h definitions missing on Linux */
