@@ -103,7 +103,7 @@ parse_size_string(const char *s, uintmax_t *valp)
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
             const struct size_suffix *const ss = &size_suffixes[i];
 
-            if (ss->bits >= sizeof(off_t) * 8)
+            if (ss->bits >= sizeof(uintmax_t) * 8)
                 break;
             if (strcasecmp(suffix, ss->suffix) == 0) {
                 *valp <<= ss->bits;
@@ -120,7 +120,6 @@ parse_size_string(const char *s, uintmax_t *valp)
 void
 unparse_size_string(char *buf, size_t bmax, uintmax_t value)
 {
-    uintmax_t unit;
     int i;
 
     if (value == 0) {
@@ -129,8 +128,9 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
     }
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
         const struct size_suffix *const ss = &size_suffixes[i];
+        uintmax_t unit;
 
-        if (ss->bits >= sizeof(off_t) * 8)
+        if (ss->bits >= sizeof(uintmax_t) * 8)
             continue;
         unit = (uintmax_t)1 << ss->bits;
         if (value % unit == 0) {
