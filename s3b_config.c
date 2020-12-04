@@ -42,6 +42,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "dcache.h"
+#include "util.h"
 
 /****************************************************************************
  *                          DEFINITIONS                                     *
@@ -112,15 +113,10 @@ static void insert_fuse_arg(int pos, const char *arg);
 static void append_fuse_arg(const char *arg);
 static void remove_fuse_arg(int pos);
 static void read_fuse_args(const char *filename, int pos);
-static int parse_size_string(const char *s, uintmax_t *valp);
-static void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
-static void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
-static void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static int validate_config(void);
 static void list_blocks_callback(void *arg, s3b_block_t block_num);
-static int find_string_in_table(const char *const *table, const char *value);
 static void dump_config(void);
 static void usage(void);
 
@@ -538,54 +534,11 @@ static const char *const s3backer_fuse_defaults[] = {
 /*  "-ointr", */
 };
 
-/* Size suffixes */
-struct size_suffix {
-    const char  *suffix;
-    int         bits;
-};
-static const struct size_suffix size_suffixes[] = {
-    {
-        .suffix=    "k",
-        .bits=      10
-    },
-    {
-        .suffix=    "m",
-        .bits=      20
-    },
-    {
-        .suffix=    "g",
-        .bits=      30
-    },
-    {
-        .suffix=    "t",
-        .bits=      40
-    },
-    {
-        .suffix=    "p",
-        .bits=      50
-    },
-    {
-        .suffix=    "e",
-        .bits=      60
-    },
-    {
-        .suffix=    "z",
-        .bits=      70
-    },
-    {
-        .suffix=    "y",
-        .bits=      80
-    },
-};
-
 /* s3backer_store layers */
 struct s3backer_store *block_cache_store;
 struct s3backer_store *ec_protect_store;
 struct s3backer_store *http_io_store;
 struct s3backer_store *test_io_store;
-
-/* stderr logging mutex */
-static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
@@ -944,60 +897,6 @@ read_fuse_args(const char *filename, int pos)
     if (ferror(fp))
         err(1, "%s", filename);
     fclose(fp);
-}
-
-static int
-parse_size_string(const char *s, uintmax_t *valp)
-{
-    char suffix[3] = { '\0' };
-    int nconv;
-
-    nconv = sscanf(s, "%ju%2s", valp, suffix);
-    if (nconv < 1)
-        return -1;
-    if (nconv >= 2) {
-        int found = 0;
-        int i;
-
-        for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
-            const struct size_suffix *const ss = &size_suffixes[i];
-
-            if (ss->bits >= sizeof(off_t) * 8)
-                break;
-            if (strcasecmp(suffix, ss->suffix) == 0) {
-                *valp <<= ss->bits;
-                found = 1;
-                break;
-            }
-        }
-        if (!found)
-            return -1;
-    }
-    return 0;
-}
-
-static void
-unparse_size_string(char *buf, size_t bmax, uintmax_t value)
-{
-    uintmax_t unit;
-    int i;
-
-    if (value == 0) {
-        snprintf(buf, bmax, "0");
-        return;
-    }
-    for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
-        const struct size_suffix *const ss = &size_suffixes[i];
-
-        if (ss->bits >= sizeof(off_t) * 8)
-            continue;
-        unit = (uintmax_t)1 << ss->bits;
-        if (value % unit == 0) {
-            snprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
-            return;
-        }
-    }
-    snprintf(buf, bmax, "%ju", value);
 }
 
 /**
@@ -1504,6 +1403,9 @@ validate_config(void)
         }
     }
 
+    /* Configure logging module */
+    log_enable_debug = config.debug;
+
     /* Format descriptive string of what we're mounting */
     if (config.test)
         snprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
@@ -1835,17 +1737,6 @@ list_blocks_callback(void *arg, s3b_block_t block_num)
     }
 }
 
-static int
-find_string_in_table(const char *const *table, const char *value)
-{
-    while (*table != NULL) {
-        if (strcmp(value, *table) == 0)
-            return 1;
-        table++;
-    }
-    return 0;
-}
-
 static void
 dump_config(void)
 {
@@ -1911,68 +1802,6 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
-}
-
-static void
-syslog_logger(int level, const char *fmt, ...)
-{
-    va_list args;
-
-    /* Filter debug messages */
-    if (!config.debug && level == LOG_DEBUG)
-        return;
-
-    /* Send message to syslog */
-    va_start(args, fmt);
-    vsyslog(level, fmt, args);
-    va_end(args);
-}
-
-static void
-stderr_logger(int level, const char *fmt, ...)
-{
-    const char *levelstr;
-    char timebuf[32];
-    va_list args;
-    struct tm tm;
-    time_t now;
-
-    /* Filter debug messages */
-    if (!config.debug && level == LOG_DEBUG)
-        return;
-
-    /* Get level descriptor */
-    switch (level) {
-    case LOG_ERR:
-        levelstr = "ERROR";
-        break;
-    case LOG_WARNING:
-        levelstr = "WARNING";
-        break;
-    case LOG_NOTICE:
-        levelstr = "NOTICE";
-        break;
-    case LOG_INFO:
-        levelstr = "INFO";
-        break;
-    case LOG_DEBUG:
-        levelstr = "DEBUG";
-        break;
-    default:
-        levelstr = "<?>";
-        break;
-    }
-
-    /* Format and print log message */
-    time(&now);
-    strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
-    va_start(args, fmt);
-    pthread_mutex_lock(&stderr_log_mutex);
-    fprintf(stderr, "%s %s: ", timebuf, levelstr);
-    vfprintf(stderr, fmt, args);
-    fprintf(stderr, "\n");
-    pthread_mutex_unlock(&stderr_log_mutex);
-    va_end(args);
 }
 
 static void
