@@ -55,6 +55,8 @@ struct s3b_hash {
     u_int       maxkeys;            /* max capacity */
     u_int       numkeys;            /* number of keys in table */
     u_int       alen;               /* hash array length */
+    u_int       collisions;         /* Hash collisions */
+    u_int       replaces;           /* Correct hash replaces */
     void        *array[0];          /* hash array */
 };
 
@@ -126,7 +128,10 @@ s3b_hash_put(struct s3b_hash *hash, void *value)
             break;
         if (KEY(value2) == key) {
             VALUE(hash, i) = value;         /* replace existing value having the same key with new value */
+            hash->replaces++;
             return value2;
+        } else {
+            hash->collisions++; /* We have a collision */
         }
     }
     assert(hash->numkeys < hash->maxkeys);

@@ -53,6 +53,18 @@ struct block_cache_conf {
     log_func_t          *log;
 };
 
+/* Usage statistics for block_cache */
+/* 36 bytes for each block */
+struct block_cache_usage_stats {
+    uint16_t            num_reads;                /* Number of read operations */
+    uint64_t            cumulative_reads_time;    /* Sum of all the differences between read opeation times */
+    uint64_t            last_read_timestamp;      /* Last time we read this block */
+
+    uint16_t            num_writes;               /* Number of write operations */
+    uint64_t            cumulative_writes_time;   /* Sum of all the differences between writes opeation times */
+    uint64_t            last_write_timestamp;     /* Last time we wrote this block */
+}; 
+
 /* Statistics structure for block_cache */
 struct block_cache_stats {
     u_int               initial_size;
@@ -65,6 +77,7 @@ struct block_cache_stats {
     u_int               verified;
     u_int               mismatch;
     u_int               out_of_memory_errors;
+    struct block_cache_usage_stats *usage_stats;  /* Pointer to array of usage stats (for each block) */
 };
 
 /* block_cache.c */
