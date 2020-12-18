@@ -230,6 +230,8 @@ struct s3backer_store {
     /*
      * Identify all non-zero blocks.
      *
+     * If this function is used, it will be performed before any block reads or writes.
+     *
      * Returns zero on success or a (positive) errno value on error.
      */
     int         (*list_blocks)(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);

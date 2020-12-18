@@ -164,7 +164,7 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 /* Special all-zeroes MD5 value signifying a zeroed block */
 static const u_char zero_etag[MD5_DIGEST_LENGTH];
 
-/* Special all-onew MD5 value signifying a just-written block whose content is unknown */
+/* Special all-ones MD5 value signifying a just-written block whose content is unknown */
 static u_char unknown_etag[MD5_DIGEST_LENGTH];
 
 /*
