@@ -37,6 +37,7 @@
 #include "s3backer.h"
 #include "block_part.h"
 #include "http_io.h"
+#include "util.h"
 
 /* HTTP definitions */
 #define HTTP_GET                    "GET"
@@ -162,7 +163,7 @@ struct http_io_private {
     struct http_io_stats        stats;
     LIST_HEAD(, curl_holder)    curls;
     pthread_mutex_t             mutex;
-    u_int                       *non_zero;                      // config->nonzero_bitmap is moved to here
+    bitmap_t                    *non_zero;                      // config->nonzero_bitmap is moved to here
     pthread_t                   iam_thread;                     // IAM credentials refresh thread
     u_char                      iam_thread_alive;               // IAM thread was successfully created
     u_char                      iam_thread_shutdown;            // Flag to the IAM thread telling it to exit
@@ -288,7 +289,6 @@ static u_int http_io_crypt(struct http_io_private *priv,
 static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
 static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
   const char *name, int value_only, char *sigbuf, size_t sigbuflen);
-static int http_io_is_zero_block(const void *data, u_int block_size);
 static s3b_block_t http_io_block_hash_prefix(s3b_block_t block_num);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
 static int http_io_parse_hex_block_num(const char *string, s3b_block_t *block_nump);
@@ -1246,12 +1246,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Read zero blocks when bitmap indicates empty until non-zero content is written */
     if (priv->non_zero != NULL) {
-        const int bits_per_word = sizeof(*priv->non_zero) * 8;
-        const int word = block_num / bits_per_word;
-        const int bit = 1 << (block_num % bits_per_word);
-
         pthread_mutex_lock(&priv->mutex);
-        if ((priv->non_zero[word] & bit) == 0) {
+        if (!bitmap_test(priv->non_zero, block_num)) {
             priv->stats.empty_blocks_read++;
             pthread_mutex_unlock(&priv->mutex);
             memset(dest, 0, config->block_size);
@@ -1565,20 +1561,14 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         return EINVAL;
 
     /* Detect zero blocks (if not done already by upper layer) */
-    if (src != NULL) {
-        if (http_io_is_zero_block(src, config->block_size))
-            src = NULL;
-    }
+    if (src != NULL && block_is_zeroes(src, config->block_size))
+        src = NULL;
 
     /* Don't write zero blocks when bitmap indicates empty until non-zero content is written */
     if (priv->non_zero != NULL) {
-        const int bits_per_word = sizeof(*priv->non_zero) * 8;
-        const int word = block_num / bits_per_word;
-        const int bit = 1 << (block_num % bits_per_word);
-
         pthread_mutex_lock(&priv->mutex);
         if (src == NULL) {
-            if ((priv->non_zero[word] & bit) == 0) {
+            if (!bitmap_test(priv->non_zero, block_num)) {
                 priv->stats.empty_blocks_written++;
                 pthread_mutex_unlock(&priv->mutex);
                 if (caller_etag != NULL)
@@ -1586,7 +1576,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
                 return 0;
             }
         } else
-            priv->non_zero[word] |= bit;
+            bitmap_set(priv->non_zero, block_num, 1);
         pthread_mutex_unlock(&priv->mutex);
     }
 
@@ -2786,23 +2776,6 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
     BIO_get_mem_ptr(b64, &bptr);
     snprintf(buf, bufsiz, "%.*s", (int)bptr->length - 1, (char *)bptr->data);
     BIO_free_all(b64);
-}
-
-static int
-http_io_is_zero_block(const void *data, u_int block_size)
-{
-    static const u_long zero;
-    const u_int *ptr;
-    int i;
-
-    if (block_size <= sizeof(zero))
-        return memcmp(data, &zero, block_size) == 0;
-    ptr = (const u_int *)data;
-    for (i = 0; i < block_size / sizeof(*ptr); i++) {
-        if (*ptr++ != 0)
-            return 0;
-    }
-    return 1;
 }
 
 static void

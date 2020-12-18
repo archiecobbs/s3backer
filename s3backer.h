@@ -100,10 +100,11 @@
 #define FALLOC_FL_PUNCH_HOLE    0x02
 #endif
 
-/*
- * Integral type for holding a block number.
- */
+/* Integral type for holding a block number */
 typedef uint32_t    s3b_block_t;
+
+/* Integral type used for bitmaps */
+typedef uintptr_t   bitmap_t;
 
 /*
  * How many hex digits we will use to print a block number.

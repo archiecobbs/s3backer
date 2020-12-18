@@ -172,6 +172,63 @@ find_string_in_table(const char *const *table, const char *value)
     return 0;
 }
 
+/* Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits */
+size_t
+bitmap_size(off_t num_blocks)
+{
+    const size_t bits_per_word = sizeof(bitmap_t) * 8;
+    const size_t nwords = (num_blocks + bits_per_word - 1) / bits_per_word;
+
+    return nwords;
+}
+
+bitmap_t *
+bitmap_init(off_t num_blocks)
+{
+    return calloc(bitmap_size(num_blocks), sizeof(bitmap_t));
+}
+
+int
+bitmap_test(const bitmap_t *bitmap, s3b_block_t block_num)
+{
+    const int bits_per_word = sizeof(*bitmap) * 8;
+    const int index = block_num / bits_per_word;
+    const bitmap_t bit = (bitmap_t)1 << (block_num % bits_per_word);
+
+    return (bitmap[index] & bit) != 0;
+}
+
+void
+bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value)
+{
+    const int bits_per_word = sizeof(*bitmap) * 8;
+    const int index = block_num / bits_per_word;
+    const bitmap_t bit = (bitmap_t)1 << (block_num % bits_per_word);
+
+    if (value)
+        bitmap[index] |= bit;
+    else
+        bitmap[index] &= ~bit;
+}
+
+int
+block_is_zeroes(const void *data, u_int block_size)
+{
+    static const u_long zero;
+    const u_int *ptr;
+    int i;
+
+    if (block_size <= sizeof(zero))
+        return memcmp(data, &zero, block_size) == 0;
+    assert(block_size % sizeof(*ptr) == 0);
+    ptr = (const u_int *)data;
+    for (i = 0; i < block_size / sizeof(*ptr); i++) {
+        if (*ptr++ != 0)
+            return 0;
+    }
+    return 1;
+}
+
 void
 syslog_logger(int level, const char *fmt, ...)
 {

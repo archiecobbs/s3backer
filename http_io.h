@@ -80,7 +80,7 @@ struct http_io_conf {
     int                 quiet;
     int                 compress;                   // zlib compression level
     int                 vhost;                      // use virtual host style URL
-    u_int               *nonzero_bitmap;            // is set to NULL by http_io_create()
+    bitmap_t            *nonzero_bitmap;            // is set to NULL by http_io_create()
     int                 blockHashPrefix;
     int                 insecure;
     u_int               block_size;

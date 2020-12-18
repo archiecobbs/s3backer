@@ -96,7 +96,7 @@
 
 /* Block counting info */
 struct list_blocks {
-    u_int       *bitmap;
+    bitmap_t    *bitmap;
     int         print_dots;
     uintmax_t   count;
 };
@@ -1682,7 +1682,6 @@ validate_config(void)
     if (config.list_blocks) {
         struct s3backer_store *temp_store;
         struct list_blocks lb;
-        size_t nwords;
 
         /* Logging */
         if (!config.quiet) {
@@ -1695,8 +1694,7 @@ validate_config(void)
             err(1, config.test ? "test_io_create" : "http_io_create");
 
         /* Initialize bitmap */
-        nwords = (config.num_blocks + (sizeof(*lb.bitmap) * 8) - 1) / (sizeof(*lb.bitmap) * 8);
-        if ((lb.bitmap = calloc(nwords, sizeof(*lb.bitmap))) == NULL)
+        if ((lb.bitmap = bitmap_init(config.num_blocks)) == NULL)
             err(1, "calloc");
         lb.print_dots = !config.quiet;
         lb.count = 0;
@@ -1727,9 +1725,8 @@ static void
 list_blocks_callback(void *arg, s3b_block_t block_num)
 {
     struct list_blocks *const lb = arg;
-    const int bits_per_word = sizeof(*lb->bitmap) * 8;
 
-    lb->bitmap[block_num / bits_per_word] |= 1 << (block_num % bits_per_word);
+    bitmap_set(lb->bitmap, block_num, 1);
     lb->count++;
     if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
         fprintf(stderr, ".");
