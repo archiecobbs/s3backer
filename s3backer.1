@@ -144,9 +144,11 @@ In other words, the backed file is always maximally sparse.
 .Pp
 As a result, blocks do not need to be created before being used and no special initialization is necessary when creating a new filesystem.
 .Pp
+.Nm
+also uses a simple bitmap to track blocks that are known to be zero on an ongoing basis.
 When the
 .Fl \-listBlocks
-flag is given,
+flag is given (recommended),
 .Nm
 will list all existing blocks at startup so it knows ahead of time exactly which blocks are empty.
 .Ss File and Block Size Auto-Detection

@@ -36,6 +36,7 @@
 
 #include "s3backer.h"
 #include "block_cache.h"
+#include "zero_cache.h"
 #include "ec_protect.h"
 #include "fuse_ops.h"
 #include "http_io.h"
@@ -536,6 +537,7 @@ static const char *const s3backer_fuse_defaults[] = {
 
 /* s3backer_store layers */
 struct s3backer_store *block_cache_store;
+struct s3backer_store *zero_cache_store;
 struct s3backer_store *ec_protect_store;
 struct s3backer_store *http_io_store;
 struct s3backer_store *test_io_store;
@@ -679,6 +681,11 @@ s3backer_create_store(struct s3b_config *conf)
         store = block_cache_store;
     }
 
+    /* Create zero block cache */
+    if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store)) == NULL)
+        goto fail_with_errno;
+    store = zero_cache_store;
+
     /* Set mount token and check previous value one last time */
     new_mount_token = -1;
     if (!conf->fuse_ops.read_only) {
@@ -711,6 +718,7 @@ fail:
     if (store != NULL)
         (*store->destroy)(store);
     block_cache_store = NULL;
+    zero_cache_store = NULL;
     ec_protect_store = NULL;
     http_io_store = NULL;
     test_io_store = NULL;
@@ -727,6 +735,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
 {
     struct http_io_stats http_io_stats;
     struct ec_protect_stats ec_protect_stats;
+    struct zero_cache_stats zero_cache_stats;
     struct block_cache_stats block_cache_stats;
     double curl_reuse_ratio = 0.0;
     u_int total_oom = 0;
@@ -735,6 +744,10 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
     /* Get HTTP stats */
     if (http_io_store != NULL)
         http_io_get_stats(http_io_store, &http_io_stats);
+
+    /* Get zero cache stats */
+    if (zero_cache_store != NULL)
+        zero_cache_get_stats(zero_cache_store, &zero_cache_stats);
 
     /* Get EC protection stats */
     if (ec_protect_store != NULL)
@@ -811,6 +824,11 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
         total_oom += block_cache_stats.out_of_memory_errors;
     }
+    if (zero_cache_store != NULL) {
+        (*printer)(prarg, "%-28s %ju blocks\n", "zero_block_cache_size", (uintmax_t)zero_cache_stats.current_cache_size);
+        (*printer)(prarg, "%-28s %u\n", "zero_block_cache_read_hits", zero_cache_stats.read_hits);
+        (*printer)(prarg, "%-28s %u\n", "zero_block_cache_write_hits", zero_cache_stats.write_hits);
+    }
     if (ec_protect_store != NULL) {
         (*printer)(prarg, "%-28s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
         (*printer)(prarg, "%-28s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
@@ -833,6 +851,10 @@ s3b_config_clear_stats(void)
     /* Clear EC protection stats */
     if (ec_protect_store != NULL)
         ec_protect_clear_stats(ec_protect_store);
+
+    /* Clear zero block cache stats */
+    if (zero_cache_store != NULL)
+        zero_cache_clear_stats(zero_cache_store);
 
     /* Clear block cache stats */
     if (block_cache_store != NULL)
@@ -1583,6 +1605,9 @@ validate_config(void)
     config.http_io.block_size = config.block_size;
     config.http_io.num_blocks = config.num_blocks;
     config.http_io.log = config.log;
+    config.zero_cache.block_size = config.block_size;
+    config.zero_cache.num_blocks = config.num_blocks;
+    config.zero_cache.log = config.log;
     config.ec_protect.block_size = config.block_size;
     config.ec_protect.log = config.log;
     config.fuse_ops.block_size = config.block_size;

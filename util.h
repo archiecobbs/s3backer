@@ -34,6 +34,8 @@
  * also delete it here.
  */
 
+typedef uintptr_t bitmap_t;
+
 extern int log_enable_debug;
 
 extern int parse_size_string(const char *s, uintmax_t *valp);

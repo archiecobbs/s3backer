@@ -34,56 +34,23 @@
  * also delete it here.
  */
 
-#include "s3backer.h"
-#include "block_cache.h"
-#include "ec_protect.h"
-#include "zero_cache.h"
-#include "fuse_ops.h"
-#include "http_io.h"
-#include "test_io.h"
-#include "s3b_config.h"
-#include "erase.h"
-#include "reset.h"
+/* Configuration info structure for zero_cache store */
+struct zero_cache_conf {
+    u_int               block_size;
+    off_t               num_blocks;
+    log_func_t          *log;
+};
 
-int
-main(int argc, char **argv)
-{
-    const struct fuse_operations *fuse_ops;
-    struct s3backer_store *s3b;
-    struct s3b_config *config;
+/* Statistics structure for zero_cache store */
+struct zero_cache_stats {
+    off_t               current_cache_size;
+    u_int               read_hits;
+    u_int               write_hits;
+};
 
-    /* Get configuration */
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
-        return 1;
-
-    /* Handle `--erase' flag */
-    if (config->erase) {
-        if (s3backer_erase(config) != 0)
-            return 1;
-        return 0;
-    }
-
-    /* Handle `--reset' flag */
-    if (config->reset) {
-        if (s3backer_reset(config) != 0)
-            return 1;
-        return 0;
-    }
-
-    /* Create backing store */
-    if ((s3b = s3backer_create_store(config)) == NULL) {
-        (*config->log)(LOG_ERR, "error creating s3backer_store: %s", strerror(errno));
-        return 1;
-    }
-
-    /* Setup FUSE operation hooks */
-    if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
-        (*s3b->destroy)(s3b);
-        return 1;
-    }
-
-    /* Start */
-    (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL);
-}
+/* zero_cache.c */
+extern struct s3backer_store *zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner);
+extern void zero_cache_init_nonzero(struct s3backer_store *s3b, const u_int *non_zero);
+extern void zero_cache_get_stats(struct s3backer_store *s3b, struct zero_cache_stats *stats);
+extern void zero_cache_clear_stats(struct s3backer_store *s3b);
 
