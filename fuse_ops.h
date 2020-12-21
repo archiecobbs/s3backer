@@ -55,7 +55,7 @@ struct fuse_ops_conf {
     uid_t                   uid;
     gid_t                   gid;
     u_int                   block_size;
-    off_t                   num_blocks;
+    s3b_block_t             num_blocks;
     int                     file_mode;
     log_func_t              *log;
 };

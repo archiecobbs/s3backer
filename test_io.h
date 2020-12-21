@@ -37,7 +37,7 @@
 /* Configuration info structure for test_io store */
 struct test_io_conf {
     u_int               block_size;
-    off_t               num_blocks;
+    s3b_block_t         num_blocks;
     const char          *bucket;
     const char          *prefix;
     log_func_t          *log;

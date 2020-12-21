@@ -37,13 +37,13 @@
 /* Configuration info structure for zero_cache store */
 struct zero_cache_conf {
     u_int               block_size;
-    off_t               num_blocks;
+    s3b_block_t         num_blocks;
     log_func_t          *log;
 };
 
 /* Statistics structure for zero_cache store */
 struct zero_cache_stats {
-    off_t               current_cache_size;
+    s3b_block_t         current_cache_size;
     u_int               read_hits;
     u_int               write_hits;
 };

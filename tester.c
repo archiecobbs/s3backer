@@ -73,6 +73,7 @@ static uint64_t start_time;
 int
 main(int argc, char **argv)
 {
+    s3b_block_t block_num;
     pthread_t thread;
     int i;
     int r;
@@ -101,9 +102,9 @@ main(int argc, char **argv)
     start_time = get_time();
 
     /* Zero all blocks */
-    for (i = 0; i < config->num_blocks; i++) {
-        printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)i);
-        if ((r = (*store->write_block)(store, i, zero_block, NULL, NULL, NULL)) != 0)
+    for (block_num = 0; block_num < config->num_blocks; block_num++) {
+        printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+        if ((r = (*store->write_block)(store, block_num, zero_block, NULL, NULL, NULL)) != 0)
             err(1, "write error");
     }
 

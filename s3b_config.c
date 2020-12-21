@@ -1014,6 +1014,7 @@ validate_config(void)
     const int customRegion = config.http_io.region != NULL;
     off_t auto_file_size;
     u_int auto_block_size;
+    off_t big_num_blocks;
     uintmax_t value;
     const char *s;
     char blockSizeBuf[64];
@@ -1529,12 +1530,12 @@ validate_config(void)
         warnx("file size must be a multiple of block size");
         return -1;
     }
-    config.num_blocks = config.file_size / config.block_size;
-    if (sizeof(s3b_block_t) < sizeof(config.num_blocks)
-      && config.num_blocks > ((off_t)1 << (sizeof(s3b_block_t) * 8))) {
-        warnx("more than 2^%d blocks: decrease file size or increase block size", (int)(sizeof(s3b_block_t) * 8));
+    big_num_blocks = config.file_size / config.block_size;
+    if (sizeof(config.num_blocks) < sizeof(big_num_blocks) && big_num_blocks >= ((off_t)1 << (sizeof(config.num_blocks) * 8))) {
+        warnx("more than 2^%d blocks: decrease file size or increase block size", (int)(sizeof(config.num_blocks) * 8));
         return -1;
     }
+    config.num_blocks = (s3b_block_t)big_num_blocks;
 
     /* Check block size vs. encryption block size */
     if (config.http_io.encryption != NULL && config.block_size % EVP_MAX_IV_LENGTH != 0) {

@@ -174,7 +174,7 @@ find_string_in_table(const char *const *table, const char *value)
 
 /* Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits */
 size_t
-bitmap_size(off_t num_blocks)
+bitmap_size(s3b_block_t num_blocks)
 {
     const size_t bits_per_word = sizeof(bitmap_t) * 8;
     const size_t nwords = (num_blocks + bits_per_word - 1) / bits_per_word;
@@ -183,7 +183,7 @@ bitmap_size(off_t num_blocks)
 }
 
 bitmap_t *
-bitmap_init(off_t num_blocks)
+bitmap_init(s3b_block_t num_blocks)
 {
     return calloc(bitmap_size(num_blocks), sizeof(bitmap_t));
 }

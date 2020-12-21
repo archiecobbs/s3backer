@@ -796,7 +796,7 @@ http_io_list_text(void *arg, const XML_Char *s, int len)
  * Parse a block's item name (including prefix and block hash prefix if any) and returns the result in *block_nump.
  */
 int
-http_io_parse_block(const char *prefix, off_t num_blocks, int blockHashPrefix, const char *name, s3b_block_t *block_nump)
+http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPrefix, const char *name, s3b_block_t *block_nump)
 {
     const size_t plen = strlen(prefix);
     s3b_block_t hash_value = 0;

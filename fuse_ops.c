@@ -184,7 +184,7 @@ fuse_op_init(struct fuse_conn_info *conn)
     priv->file_atime = priv->start_time;
     priv->file_mtime = priv->start_time;
     priv->stats_atime = priv->start_time;
-    priv->file_size = config->num_blocks * config->block_size;
+    priv->file_size = (off_t)config->num_blocks * config->block_size;
 
     /* Startup background threads now that we have fork()'d */
     if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
@@ -291,7 +291,7 @@ fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st)
     st->st_gid = config->gid;
     st->st_size = priv->file_size;
     st->st_blksize = config->block_size;
-    st->st_blocks = config->num_blocks;
+    st->st_blocks = (off_t)config->num_blocks;
     st->st_atime = priv->file_atime;
     st->st_mtime = priv->file_mtime;
     st->st_ctime = priv->start_time;
@@ -532,7 +532,7 @@ fuse_op_statfs(const char *path, struct statvfs *st)
 {
     st->f_bsize = config->block_size;
     st->f_frsize = config->block_size;
-    st->f_blocks = config->num_blocks;
+    st->f_blocks = (off_t)config->num_blocks;
     st->f_bfree = 0;
     st->f_bavail = 0;
     st->f_files = 3;

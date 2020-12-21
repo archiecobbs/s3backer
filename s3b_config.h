@@ -51,7 +51,7 @@ struct s3b_config {
     char                        description[768];
     u_int                       block_size;
     off_t                       file_size;
-    off_t                       num_blocks;
+    s3b_block_t                 num_blocks;
     const char                  *bucket;
     const char                  *prefix;
     const char                  *accessKeyEnv;
