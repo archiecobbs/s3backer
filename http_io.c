@@ -1499,7 +1499,7 @@ bad_encoding:
         }
     }
 
-    /* Treat `404 Not Found' all zeroes */
+    /* Treat `404 Not Found' all zeros */
     if (r == ENOENT) {
         memset(dest, 0, config->block_size);
         r = 0;
@@ -1559,7 +1559,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         return EINVAL;
 
     /* Detect zero blocks (if not done already by upper layer) */
-    if (src != NULL && block_is_zeroes(src, config->block_size))
+    if (src != NULL && block_is_zeros(src, config->block_size))
         src = NULL;
 
     /* Don't write zero blocks when bitmap indicates empty until non-zero content is written */

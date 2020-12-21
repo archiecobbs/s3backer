@@ -202,7 +202,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             r = errno;
     }
 
-    /* Convert ENOENT into a read of all zeroes */
+    /* Convert ENOENT into a read of all zeros */
     if ((zero_block = (r == ENOENT))) {
         memset(dest, 0, config->block_size);
         r = 0;

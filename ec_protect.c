@@ -87,7 +87,7 @@
  *
  * There is a special case that occurs when we get an error while WRITING: in this case,
  * we don't know whether the block was successfully written or not, so we transition to
- * WRITTEN but with an all zeroes ETag indicating "don't know".
+ * WRITTEN but with an all zeros ETag indicating "don't know".
  *
  * If we hit the 'cache_size' limit, we sleep a little while and then try again.
  *
@@ -153,7 +153,7 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 #define EC_PROTECT_CHECK_INVARIANTS(priv)     do { } while (0)
 #endif
 
-/* Special all-zeroes MD5 value signifying a zeroed block */
+/* Special all-zeros MD5 value signifying a zeroed block */
 static const u_char zero_etag[MD5_DIGEST_LENGTH];
 
 /* Special all-ones MD5 value signifying a just-written block whose content is unknown */

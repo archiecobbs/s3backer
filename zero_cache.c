@@ -68,7 +68,7 @@
 struct zero_cache_private {
     struct zero_cache_conf      *config;
     struct s3backer_store       *inner;         // underlying s3backer store
-    bitmap_t                    *zeroes;        // 1 = known to be zero, 0 = unknown
+    bitmap_t                    *zeros;         // 1 = known to be zero, 0 = unknown
     pthread_mutex_t             mutex;
     struct zero_cache_stats     stats;
 };
@@ -89,7 +89,7 @@ static void zero_cache_destroy(struct s3backer_store *s3b);
 /* Internal fuctions */
 static void zero_cache_update_block(struct zero_cache_private *const priv, s3b_block_t block_num, int zero);
 
-/* Special all-zeroes MD5 value signifying a zeroed block */
+/* Special all-zeros MD5 value signifying a zeroed block */
 static const u_char zero_etag[MD5_DIGEST_LENGTH];
 
 /*
@@ -128,7 +128,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     priv->inner = inner;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
-    if ((priv->zeroes = bitmap_init(config->num_blocks)) == NULL) {
+    if ((priv->zeros = bitmap_init(config->num_blocks)) == NULL) {
         r = errno;
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail3;
@@ -195,7 +195,7 @@ zero_cache_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
-    free(priv->zeroes);
+    free(priv->zeros);
     free(priv);
     free(s3b);
 }
@@ -210,7 +210,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 
     /* Check for the case where we are reading a block that is already known to be zero */
     pthread_mutex_lock(&priv->mutex);
-    if (bitmap_test(priv->zeroes, block_num)) {
+    if (bitmap_test(priv->zeros, block_num)) {
         priv->stats.read_hits++;
         pthread_mutex_unlock(&priv->mutex);
         if (expect_etag != NULL && strict && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
@@ -227,7 +227,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 
     /* Update cache - if read was successful (or EEXIST case) */
     if (r == 0 || (expect_etag != NULL && !strict && r == EEXIST && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) == 0)) {
-        const int zero = block_is_zeroes(dest, config->block_size);
+        const int zero = block_is_zeros(dest, config->block_size);
         pthread_mutex_lock(&priv->mutex);
         zero_cache_update_block(priv, block_num, zero);
         pthread_mutex_unlock(&priv->mutex);
@@ -247,13 +247,13 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     int r;
 
     /* Detect zero blocks */
-    if (src != NULL && block_is_zeroes(src, config->block_size))
+    if (src != NULL && block_is_zeros(src, config->block_size))
         src = NULL;
     zero = src == NULL;
 
     /* Handle the case where we think this block is zero */
     pthread_mutex_lock(&priv->mutex);
-    if (bitmap_test(priv->zeroes, block_num)) {
+    if (bitmap_test(priv->zeros, block_num)) {
         if (zero) {                                             /* ok, it's still zero -> return immediately */
             priv->stats.write_hits++;
             pthread_mutex_unlock(&priv->mutex);
@@ -323,9 +323,9 @@ zero_cache_clear_stats(struct s3backer_store *s3b)
 static void
 zero_cache_update_block(struct zero_cache_private *const priv, s3b_block_t block_num, int zero)
 {
-    if (bitmap_test(priv->zeroes, block_num) == zero)
+    if (bitmap_test(priv->zeros, block_num) == zero)
         return;
-    bitmap_set(priv->zeroes, block_num, zero);
+    bitmap_set(priv->zeros, block_num, zero);
     if (zero)
         priv->stats.current_cache_size++;
     else

@@ -173,10 +173,10 @@ struct s3backer_store {
     int         (*set_mount_token)(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
 
     /*
-     * Read one block. Never-written-to blocks will return all zeroes.
+     * Read one block. Never-written-to blocks will return all zeros.
      *
      * If not NULL, 'actual_etag' should be filled in with a value suitable for the 'expect_etag' parameter,
-     * or all zeroes if unknown.
+     * or all zeros if unknown.
      *
      * If 'expect_etag' is not NULL:
      *  - expect_etag should be the value returned from a previous call to read_block() or write_block().
@@ -205,13 +205,13 @@ struct s3backer_store {
     /*
      * Write one block.
      *
-     * Passing src == NULL is equivalent to passing a block containing all zeroes.
+     * Passing src == NULL is equivalent to passing a block containing all zeros.
      *
      * If check_cancel != NULL, then it may be invoked periodically during the write. If so, and it ever
      * returns a non-zero value, then this function may choose to abort the write and return ECONNABORTED.
      *
      * Upon successful return, etag (if not NULL) will get updated with a value suitable for the 'expect_etag'
-     * parameter of read_block(); if the block is all zeroes, etag will be zeroed.
+     * parameter of read_block(); if the block is all zeros, etag will be zeroed.
      *
      * Returns zero on success or a (positive) errno value on error.
      * May return ENOTCONN if create_threads() has not yet been invoked.

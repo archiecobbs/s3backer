@@ -773,7 +773,7 @@ s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, 
         goto fail;
     }
 
-    /* Extend the file to the required length; the directory will be filled with zeroes */
+    /* Extend the file to the required length; the directory will be filled with zeros */
     if (ftruncate(*fdp, sizeof(header)) == -1 || ftruncate(*fdp, DIR_OFFSET(header.flags, max_blocks)) == -1) {
         r = errno;
         (*priv->log)(LOG_ERR, "error initializing cache file `%s': %s", filename, strerror(r));

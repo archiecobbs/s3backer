@@ -212,7 +212,7 @@ bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value)
 }
 
 int
-block_is_zeroes(const void *data, u_int block_size)
+block_is_zeros(const void *data, u_int block_size)
 {
     static const u_long zero;
     const u_int *ptr;
