@@ -228,15 +228,6 @@ struct s3backer_store {
     int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
-     * Identify all non-zero blocks.
-     *
-     * If this function is used, it will be performed before any block reads or writes.
-     *
-     * Returns zero on success or a (positive) errno value on error.
-     */
-    int         (*list_blocks)(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
-
-    /*
      * Sync any dirty data to the underlying data store.
      */
     int         (*flush)(struct s3backer_store *s3b);

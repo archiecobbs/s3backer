@@ -83,7 +83,6 @@ static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int zero_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int zero_cache_flush(struct s3backer_store *s3b);
 static void zero_cache_destroy(struct s3backer_store *s3b);
 
@@ -118,7 +117,6 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->write_block = zero_cache_write_block;
     s3b->read_block_part = zero_cache_read_block_part;
     s3b->write_block_part = zero_cache_write_block_part;
-    s3b->list_blocks = zero_cache_list_blocks;
     s3b->flush = zero_cache_flush;
     s3b->destroy = zero_cache_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -200,14 +198,6 @@ zero_cache_destroy(struct s3backer_store *const s3b)
     free(priv->zeroes);
     free(priv);
     free(s3b);
-}
-
-static int
-zero_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
-{
-    struct zero_cache_private *const priv = s3b->data;
-
-    return (*priv->inner->list_blocks)(priv->inner, callback, arg);
 }
 
 static int

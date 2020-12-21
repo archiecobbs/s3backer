@@ -238,7 +238,6 @@ static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_flush(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
 
@@ -340,7 +339,6 @@ http_io_create(struct http_io_conf *config)
     s3b->write_block = http_io_write_block;
     s3b->read_block_part = http_io_read_block_part;
     s3b->write_block_part = http_io_write_block_part;
-    s3b->list_blocks = http_io_list_blocks;
     s3b->flush = http_io_flush;
     s3b->destroy = http_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -549,7 +547,7 @@ http_io_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_unlock(&priv->mutex);
 }
 
-static int
+int
 http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct http_io_private *const priv = s3b->data;

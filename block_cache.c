@@ -181,12 +181,6 @@ struct block_cache_private {
     pthread_cond_t                  write_complete; // a write has completed
 };
 
-/* Callback info */
-struct cbinfo {
-    block_list_func_t           *callback;
-    void                        *arg;
-};
-
 /* s3backer_store functions */
 static int block_cache_create_threads(struct s3backer_store *s3b);
 static int block_cache_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
@@ -197,7 +191,6 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int block_cache_flush(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
@@ -212,7 +205,6 @@ static int block_cache_get_entry(struct block_cache_private *priv, struct cache_
 static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **entryp);
 static void block_cache_free_one(void *arg, void *value);
 static struct cache_entry *block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry);
-static void block_cache_dirty_callback(void *arg, void *value);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
 static struct list_head *block_cache_cleans_list(struct block_cache_private *priv, s3b_block_t block_num);
@@ -259,7 +251,6 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
-    s3b->list_blocks = block_cache_list_blocks;
     s3b->flush = block_cache_flush;
     s3b->destroy = block_cache_destroy;
 
@@ -536,23 +527,6 @@ block_cache_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
     pthread_mutex_unlock(&priv->mutex);
-}
-
-static int
-block_cache_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
-{
-    struct block_cache_private *const priv = s3b->data;
-    struct cbinfo cbinfo;
-    int r;
-
-    if ((r = (*priv->inner->list_blocks)(priv->inner, callback, arg)) != 0)
-        return r;
-    cbinfo.callback = callback;
-    cbinfo.arg = arg;
-    pthread_mutex_lock(&priv->mutex);
-    s3b_hash_foreach(priv->hashtable, block_cache_dirty_callback, &cbinfo);
-    pthread_mutex_unlock(&priv->mutex);
-    return 0;
 }
 
 static int
@@ -1450,29 +1424,6 @@ block_cache_dirty_ratio(struct block_cache_private *priv)
     struct block_cache_conf *const config = priv->config;
 
     return (double)priv->num_dirties / (double)config->cache_size;
-}
-
-static void
-block_cache_dirty_callback(void *arg, void *value)
-{
-    struct cbinfo *const cbinfo = arg;
-    struct cache_entry *const entry = value;
-
-    switch (ENTRY_GET_STATE(entry)) {
-    case CLEAN:
-    case CLEAN2:
-    case READING:
-    case READING2:
-        break;
-    case WRITING2:
-    case WRITING:
-    case DIRTY:
-        (*cbinfo->callback)(cbinfo->arg, entry->block_num);
-        break;
-    default:
-        assert(0);
-        break;
-    }
 }
 
 #ifndef NDEBUG

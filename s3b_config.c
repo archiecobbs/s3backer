@@ -1726,7 +1726,7 @@ validate_config(void)
 
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*temp_store->list_blocks)(temp_store, list_blocks_callback, &lb)) != 0)
+        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store, list_blocks_callback, &lb)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */

@@ -124,12 +124,6 @@ struct ec_protect_private {
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
 };
 
-/* Callback info */
-struct cbinfo {
-    block_list_func_t           *callback;
-    void                        *arg;
-};
-
 /* s3backer_store functions */
 static int ec_protect_create_threads(struct s3backer_store *s3b);
 static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
@@ -147,8 +141,6 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
-static int ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
-static void ec_protect_dirty_callback(void *arg, void *value);
 static void ec_protect_free_one(void *arg, void *value);
 
 /* Invariants checking */
@@ -192,7 +184,6 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
-    s3b->list_blocks = ec_protect_list_blocks;
     s3b->flush = ec_protect_flush;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -326,23 +317,6 @@ ec_protect_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
     pthread_mutex_unlock(&priv->mutex);
-}
-
-static int
-ec_protect_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
-{
-    struct ec_protect_private *const priv = s3b->data;
-    struct cbinfo cbinfo;
-    int r;
-
-    if ((r = (*priv->inner->list_blocks)(priv->inner, callback, arg)) != 0)
-        return r;
-    cbinfo.callback = callback;
-    cbinfo.arg = arg;
-    pthread_mutex_lock(&priv->mutex);
-    s3b_hash_foreach(priv->hashtable, ec_protect_dirty_callback, &cbinfo);
-    pthread_mutex_unlock(&priv->mutex);
-    return 0;
 }
 
 static int
@@ -650,16 +624,6 @@ static void
 ec_protect_free_one(void *arg, void *value)
 {
     free(value);
-}
-
-static void
-ec_protect_dirty_callback(void *arg, void *value)
-{
-    struct cbinfo *const cbinfo = arg;
-    struct block_info *const binfo = value;
-
-    if (binfo->timestamp == 0 ? binfo->u.data != NULL : memcmp(binfo->u.etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
-        (*cbinfo->callback)(cbinfo->arg, binfo->block_num);
 }
 
 #ifndef NDEBUG
