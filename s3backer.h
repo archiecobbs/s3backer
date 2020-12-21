@@ -228,6 +228,19 @@ struct s3backer_store {
     int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
+     * Build a bitmap identifying all blocks known to be zero.
+     *
+     * A bitmap should be allocated and the *zerosp should be set to point at it, or,
+     * if it is not known that any blocks are zero, then *zerosp may be set to NULL.
+     * Bits should be set for blocks known to be zero, unset for all others.
+     *
+     * If this function is used, it will be invoked before any block reads or writes.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     */
+    int         (*survey_zeros)(struct s3backer_store *s3b, bitmap_t **zerosp);
+
+    /*
      * Sync any dirty data to the underlying data store.
      */
     int         (*flush)(struct s3backer_store *s3b);

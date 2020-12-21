@@ -38,6 +38,7 @@
 #include "block_cache.h"
 #include "dcache.h"
 #include "hash.h"
+#include "util.h"
 
 /*
  * This file implements a simple block cache that acts as a "layer" on top
@@ -191,6 +192,7 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int block_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
 static int block_cache_flush(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
@@ -251,6 +253,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
+    s3b->survey_zeros = block_cache_survey_zeros;
     s3b->flush = block_cache_flush;
     s3b->destroy = block_cache_destroy;
 
@@ -527,6 +530,27 @@ block_cache_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+block_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+{
+    struct block_cache_private *const priv = s3b->data;
+    struct cache_entry *entry;
+    int r;
+
+    /* Invoke lower layer */
+    if ((r = (*priv->inner->survey_zeros)(priv->inner, zerosp)) != 0 || *zerosp == NULL)
+        return r;
+
+    /* Unset flag for dirty blocks */
+    pthread_mutex_lock(&priv->mutex);
+    for (entry = TAILQ_FIRST(&priv->dirties); entry != NULL; entry = TAILQ_NEXT(entry, link))
+        bitmap_set(*zerosp, entry->block_num, 0);
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
+    return 0;
 }
 
 static int

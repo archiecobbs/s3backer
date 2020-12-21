@@ -83,6 +83,7 @@ static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int zero_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
 static int zero_cache_flush(struct s3backer_store *s3b);
 static void zero_cache_destroy(struct s3backer_store *s3b);
 
@@ -117,6 +118,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->write_block = zero_cache_write_block;
     s3b->read_block_part = zero_cache_read_block_part;
     s3b->write_block_part = zero_cache_write_block_part;
+    s3b->survey_zeros = zero_cache_survey_zeros;
     s3b->flush = zero_cache_flush;
     s3b->destroy = zero_cache_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -198,6 +200,27 @@ zero_cache_destroy(struct s3backer_store *const s3b)
     free(priv->zeros);
     free(priv);
     free(s3b);
+}
+
+static int
+zero_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+{
+    struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+    const size_t bitmap_len = bitmap_size(config->num_blocks) * sizeof(**zerosp);
+    int r = 0;
+
+    /* Allocate bitmap */
+    if ((*zerosp = malloc(bitmap_len)) == NULL)
+        return errno;
+
+    /* Copy bitmap */
+    pthread_mutex_lock(&priv->mutex);
+    memcpy(*zerosp, priv->zeros, bitmap_len);
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
+    return r;
 }
 
 static int

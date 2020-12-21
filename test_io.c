@@ -58,6 +58,7 @@ static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int test_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
 static int test_io_flush(struct s3backer_store *s3b);
 static void test_io_destroy(struct s3backer_store *s3b);
 
@@ -82,6 +83,7 @@ test_io_create(struct test_io_conf *config)
     s3b->write_block = test_io_write_block;
     s3b->read_block_part = test_io_read_block_part;
     s3b->write_block_part = test_io_write_block_part;
+    s3b->survey_zeros = test_io_survey_zeros;
     s3b->flush = test_io_flush;
     s3b->destroy = test_io_destroy;
     if ((priv = calloc(1, sizeof(*priv) + config->block_size)) == NULL) {
@@ -389,6 +391,13 @@ test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_in
     struct test_io_conf *const config = priv->config;
 
     return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
+}
+
+int
+test_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+{
+    *zerosp = NULL;
+    return 0;
 }
 
 int

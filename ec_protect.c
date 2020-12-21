@@ -38,6 +38,7 @@
 #include "ec_protect.h"
 #include "block_part.h"
 #include "hash.h"
+#include "util.h"
 
 /*
  * Written block information caching.
@@ -141,6 +142,7 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
+static int ec_protect_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
 static void ec_protect_free_one(void *arg, void *value);
 
 /* Invariants checking */
@@ -184,6 +186,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
+    s3b->survey_zeros = ec_protect_survey_zeros;
     s3b->flush = ec_protect_flush;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -317,6 +320,27 @@ ec_protect_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+ec_protect_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+{
+    struct ec_protect_private *const priv = s3b->data;
+    struct block_info *binfo;
+    int r;
+
+    /* Invoke lower layer */
+    if ((r = (*priv->inner->survey_zeros)(priv->inner, zerosp)) != 0 || *zerosp == NULL)
+        return r;
+
+    /* Unset flag for dirty blocks */
+    pthread_mutex_lock(&priv->mutex);
+    for (binfo = TAILQ_FIRST(&priv->list); binfo != NULL; binfo = TAILQ_NEXT(binfo, link))
+        bitmap_set(*zerosp, binfo->block_num, 0);
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
+    return 0;
 }
 
 static int
