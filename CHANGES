@@ -1,4 +1,4 @@
-Version Next
+Version 1.6.0 released December 23, 2020
 
     - Added `--sse-key-id' flag (issue #137)
     - Log a more useful error message when IAM credentials not found (issue #136)
