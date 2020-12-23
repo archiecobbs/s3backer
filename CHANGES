@@ -1,11 +1,11 @@
 Version Next
 
     - Added `--sse-key-id' flag (issue #137)
-    - Log a more useful error message when IAM credentials not found (#136)
-    - Warn on startup if disk space is insufficient for disk cache (#138)
+    - Log a more useful error message when IAM credentials not found (issue #136)
+    - Warn on startup if disk space is insufficient for disk cache (issue #138)
     - Added zero block cache to better handle fstrim operations (issue #139)
 
-Version 1.5.6 released October 30, 220
+Version 1.5.6 released October 30, 2020
 
     - Fixed phantom write error when server-side-encryption used (issue #135)
     - Allow bucket names with "subdirectory" for prefix (issue #130)
