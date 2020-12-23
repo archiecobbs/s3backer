@@ -124,7 +124,7 @@ These are:
 .It 1.
 .Nm
 enforces a minimum delay between consecutive PUT or DELETE operations on the same block.
-This ensures that Amazon S3 doesn't receive these operations out of order.
+This ensures that Amazon S3 doesn't apply these operations out of order.
 .It 2.
 .Nm
 maintains an internal block MD5 checksum cache, which enables automatic detection and rejection of `stale' blocks returned by GET operations.
@@ -135,6 +135,12 @@ This logic is configured by the following command line options:
 .Fl \-md5CacheTime ,
 and
 .Fl \-minWriteDelay .
+.Pp
+To guarantee consistency,
+.Fl \-md5CacheTime
+and
+.Fl \-minWriteDelay
+should be greater than the maximum S3 convergence time.
 .Ss Zeroed Block Optimization
 As a simple optimization,
 .Nm
@@ -150,7 +156,11 @@ When the
 .Fl \-listBlocks
 flag is given (recommended),
 .Nm
-will list all existing blocks at startup so it knows ahead of time exactly which blocks are empty.
+will list all existing blocks at startup to initialize this bitmap.
+This especially affects performance with operations that read or write a large number of zero blocks,
+such as filesystem initialization,
+.Xr fstrim 8 ,
+bulk copies, etc.
 .Ss File and Block Size Auto-Detection
 As a convenience, whenever the first block of the backed file is written,
 .Nm
@@ -481,13 +491,15 @@ Some upper filesystems store highly active data (e.g., write journal) at the beg
 This option can be used to improve performance by reducing network reads for these regions of the file.
 With this option enabled, blocks after the first
 .Ar NUM
-blocks will be evicted before any protected blocks are.
+blocks will be evicted before any protected blocks.
 .It Fl \-blockHashPrefix
 Prepend random prefixes (generated deterministically from the block number) to block object names.
 This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.
 .Pp
 As with
-.Fl \-prefix ,
+.Fl \-prefix
+or
+.Ar subdir ,
 this flag must be used consistently once a disk image is established.
 .It Fl \-blockSize=SIZE
 Specify the block size.
@@ -787,6 +799,10 @@ along with the flag
 (note the additional trailing slash).
 .Pp
 Extraneous slash characters in a subdirectory name are disallowed.
+.Pp
+This flag (or
+.Ar subdir )
+must be used consistently once a disk image is established.
 .Pp
 The default prefix is the empty string.
 .It Fl \-quiet
