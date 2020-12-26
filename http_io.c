@@ -1740,7 +1740,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (src != NULL && block_num == 0) {
         io.headers = http_io_add_header(priv, io.headers, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
         io.headers = http_io_add_header(priv, io.headers, "%s: %ju",
-          FILE_SIZE_HEADER, (uintmax_t)(config->block_size * config->num_blocks));
+          FILE_SIZE_HEADER, (uintmax_t)config->block_size * (uintmax_t)config->num_blocks);
     }
 
     /* Add signature header (if encrypting) */
