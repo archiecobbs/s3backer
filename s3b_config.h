@@ -56,6 +56,7 @@ struct s3b_config {
     const char                  *prefix;
     const char                  *accessKeyEnv;
     int                         blockHashPrefix;
+    int                         foreground;
     int                         debug;
     int                         erase;
     int                         reset;

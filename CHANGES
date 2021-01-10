@@ -1,3 +1,7 @@
+Version Next
+
+    - Require test directory to be absolute unless `-f' flag given (issue #143)
+
 Version 1.6.1 released December 30, 2020
 
     - Fixed integer overflow bug setting "x-amz-meta-s3backer-filesize" (issue #141)

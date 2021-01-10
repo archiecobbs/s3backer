@@ -931,10 +931,14 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
     if (key == FUSE_OPT_KEY_OPT) {
 
         /* Debug flags */
-        if (strcmp(arg, "-d") == 0)
+        if (strcmp(arg, "-d") == 0) {
             config.debug = 1;
-        if (strcmp(arg, "-d") == 0 || strcmp(arg, "-f") == 0)
             config.log = stderr_logger;
+        }
+        if (strcmp(arg, "-f") == 0) {
+            config.foreground = 1;
+            config.log = stderr_logger;
+        }
 
         /* Version */
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
@@ -1136,6 +1140,10 @@ validate_config(void)
     } else {
         if (config.bucket == NULL) {
             warnx("no test directory specified");
+            return -1;
+        }
+        if (!config.foreground && *config.bucket != '/') {
+            warnx("%s: absolute pathname required for test mode directory unless `-f' flag is used", config.bucket);
             return -1;
         }
         if (stat(config.bucket, &sb) == -1) {
