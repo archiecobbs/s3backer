@@ -1,6 +1,7 @@
 Version Next
 
     - Require test directory to be absolute unless `-f' flag given (issue #143)
+    - Show HTTP error response payload content when `--debug-http' flag given
 
 Version 1.6.1 released December 30, 2020
 

@@ -576,7 +576,15 @@ however, the
 .Fl d
 FUSE flag implies this flag.
 .It Fl \-debug-http
-Enable printing of HTTP headers to standard output.
+Capture and print any HTTP error response payloads to the log, and configure
+.Xr libcurl 3
+to print debugging information (e.g., HTTP request and response headers) to standard error.
+.Pp
+With this flag you would normally also specify
+.Fl f
+so
+.Nm
+runs in the foreground.
 .It Fl \-defaultContentEncoding=VALUE
 Use this to workaround S3 backends that fail to send back the
 .Pa "Content-Encoding"

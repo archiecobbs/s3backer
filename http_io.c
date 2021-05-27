@@ -107,6 +107,9 @@
 /* How many blocks to list at a time */
 #define LIST_BLOCKS_CHUNK           0x100
 
+/* Maximum error payload size in bytes */
+#define MAX_ERROR_PAYLOAD_SIZE      0x100000
+
 /* PBKDF2 key generation iterations */
 #define PBKDF2_ITERATIONS           5000
 
@@ -205,6 +208,7 @@ struct http_io {
     struct http_io_conf *config;                // configuration
 
     // Other info that needs to be passed around
+    CURL                *curl;                  // back reference to CURL instance
     const char          *method;                // HTTP method
     const char          *url;                   // HTTP URL
     struct curl_slist   *headers;               // HTTP headers
@@ -223,6 +227,11 @@ struct http_io {
     char                content_encoding[32];   // received content encoding
     check_cancel_t      *check_cancel;          // write check-for-cancel callback
     void                *check_cancel_arg;      // write check-for-cancel callback argument
+
+    // Info used to capture error response payloads
+    long                http_status;            // response status, if known, else zero
+    char                *error_payload;         // payload of error response
+    size_t              error_payload_len;      // error response length
 };
 
 /* CURL prepper function type */
@@ -279,6 +288,9 @@ static struct curl_slist *http_io_add_header(struct http_io_private *priv, struc
 static void http_io_add_date(struct http_io_private *priv, struct http_io *const io, time_t now);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
 static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
+static int http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len);
+static void http_io_free_error_payload(struct http_io *const io);
+static void http_io_log_error_payload(struct http_io *const io);
 
 /* Misc */
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
@@ -716,6 +728,11 @@ http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *strea
     struct http_io *const io = (struct http_io *)stream;
     size_t total = size * nmemb;
 
+    /* Check for error payload */
+    if (http_io_reader_error_check(io, ptr, total))
+        return total;
+
+    /* Run new payload bytes through XML parser */
     if (io->xml_error != XML_ERROR_NONE)
         return total;
     if (XML_Parse(io->xml, ptr, total, 0) != XML_STATUS_OK) {
@@ -1870,14 +1887,21 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             return EIO;
         (*prepper)(curl, io);
 
+        /* Reset error payload capture */
+        io->http_status = 0;
+        assert(io->error_payload == NULL);
+        assert(io->error_payload_len == 0);
+
         /* Perform HTTP operation and check result */
         if (attempt > 0)
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, io->method, io->url);
+        io->curl = curl;
         curl_code = curl_easy_perform(curl);
+        io->curl = NULL;
 
         /* Find out what the HTTP result code was (if any) */
         switch (curl_code) {
-        case CURLE_HTTP_RETURNED_ERROR:
+        case CURLE_HTTP_RETURNED_ERROR:                         /* should never happen (we no longer use CURLOPT_FAILONERROR) */
         case 0:
             if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0)
                 http_code = 999;                                /* this should never happen */
@@ -1887,7 +1911,11 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             break;
         }
 
-        /* Work around the fact that libcurl converts a 304 HTTP code as success */
+        /* Pretend like the CURLOPT_FAILONERROR option was used */
+        if (curl_code == 0 && http_code >= 400)
+            curl_code = CURLE_HTTP_RETURNED_ERROR;
+
+        /* Work around the fact that libcurl treats a 304 HTTP code as success */
         if (curl_code == 0 && http_code == HTTP_NOT_MODIFIED)
             curl_code = CURLE_HTTP_RETURNED_ERROR;
 
@@ -1901,6 +1929,9 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         if (curl_code == 0) {
             double curl_time;
             int r = 0;
+
+            /* Discard any error payload (e.g., 404 Not Found from DELETE) */
+            http_io_free_error_payload(io);
 
             /* Extra debug logging */
             if (config->debug)
@@ -1955,6 +1986,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             pthread_mutex_lock(&priv->mutex);
             priv->stats.http_canceled_writes++;
             pthread_mutex_unlock(&priv->mutex);
+            http_io_free_error_payload(io);
             return ECONNABORTED;
         case CURLE_OPERATION_TIMEDOUT:
             (*config->log)(LOG_NOTICE, "operation timeout: %s %s", io->method, io->url);
@@ -1967,18 +1999,23 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             case HTTP_NOT_FOUND:
                 if (config->debug)
                     (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
+                http_io_free_error_payload(io);
                 return ENOENT;
             case HTTP_UNAUTHORIZED:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_unauthorized++;
                 pthread_mutex_unlock(&priv->mutex);
+                http_io_log_error_payload(io);
+                http_io_free_error_payload(io);
                 return EACCES;
             case HTTP_FORBIDDEN:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_forbidden++;
                 pthread_mutex_unlock(&priv->mutex);
+                http_io_log_error_payload(io);
+                http_io_free_error_payload(io);
                 return EPERM;
             case HTTP_PRECONDITION_FAILED:
                 (*config->log)(LOG_INFO, "rec'd stale content: %s %s", io->method, io->url);
@@ -2008,6 +2045,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                     break;
                 }
                 pthread_mutex_unlock(&priv->mutex);
+                http_io_log_error_payload(io);
                 break;
             }
             break;
@@ -2032,6 +2070,9 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             pthread_mutex_unlock(&priv->mutex);
             break;
         }
+
+        /* Free any error payload */
+        http_io_free_error_payload(io);
 
         /* Retry with exponential backoff up to max total pause limit */
         if (total_pause >= config->max_retry_pause)
@@ -2638,7 +2679,6 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
         }
     }
     curl_easy_setopt(curl, CURLOPT_URL, io->url);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (long)1);
@@ -2669,6 +2709,11 @@ http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
     struct http_io_bufs *const bufs = &io->bufs;
     size_t total = size * nmemb;
 
+    /* Check for error payload */
+    if (http_io_reader_error_check(io, ptr, total))
+        return total;
+
+    /* Copy payload bytes into read buffer */
     if (total > bufs->rdremain)     /* should never happen */
         total = bufs->rdremain;
     memcpy(bufs->rddata, ptr, total);
@@ -2779,6 +2824,61 @@ http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
     pthread_mutex_lock(&priv->mutex);
     LIST_INSERT_HEAD(&priv->curls, holder, link);
     pthread_mutex_unlock(&priv->mutex);
+}
+
+static int
+http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len)
+{
+    struct http_io_conf *const config = io->config;
+    char *new_error_payload;
+
+    /* Get HTTP status, if not done already */
+    if (io->http_status == 0
+      && (curl_easy_getinfo(io->curl, CURLINFO_RESPONSE_CODE, &io->http_status) != 0 || io->http_status == 0))
+        io->http_status = 999;                          /* this should never happen */
+
+    /* If status is not an error status, proceed normally */
+    if (io->http_status < 400)
+        return 0;
+
+    /* If no debug flag was given, just discard error payloads */
+    if (!config->debug_http)
+        return 1;
+
+    /* Impose limit on how much error payload we'll remember */
+    if (io->error_payload_len + len > MAX_ERROR_PAYLOAD_SIZE)
+        len = MAX_ERROR_PAYLOAD_SIZE - io->error_payload_len;
+
+    /* Capture the error payload in the error buffer */
+    if ((new_error_payload = realloc(io->error_payload, io->error_payload_len + len)) == NULL)
+        (*io->config->log)(LOG_ERR, "realloc: %s", strerror(errno));
+    else {
+        io->error_payload = new_error_payload;
+        memcpy(io->error_payload + io->error_payload_len, ptr, len);
+        io->error_payload_len += len;
+    }
+
+    /* Indicate to caller we're handling the payload */
+    return 1;
+}
+
+static void
+http_io_free_error_payload(struct http_io *const io)
+{
+    free(io->error_payload);
+    io->error_payload = NULL;
+    io->error_payload_len = 0;
+}
+
+static void
+http_io_log_error_payload(struct http_io *const io)
+{
+    struct http_io_conf *const config = io->config;
+
+    if (config->debug && io->error_payload_len > 0) {
+        (*config->log)(LOG_DEBUG, "HTTP %d status response payload:\n%.*s",
+          (int)io->http_status, (int)io->error_payload_len, io->error_payload);
+    }
 }
 
 static void
