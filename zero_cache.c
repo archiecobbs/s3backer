@@ -40,7 +40,7 @@
 #include "util.h"
 
 /*
- * Cache for "known zero blocks.
+ * Cache for "known zero" blocks.
  *
  * If a process reads or writes a bunch of zero blocks (for whatever reason), the regular
  * block cache can get blown out. This layer sits "on top" of the block cach layer and

@@ -53,17 +53,25 @@
  *      written for some minimum time and verifying that data returned from subsequent
  *      GETs matches, allowing us to verify we are not reading back stale data.
  *
+ * The theory here is that if you choose a value of X seconds large enough, and you
+ * assume all S3 reads will be up-to-date X seconds after they've been written, then
+ * using X seconds with (a) and (b) above guarantees consistent reads. However, this
+ * guarantee is only as good as that assumption about maximum convergence time X.
+ *
  * These are the relevant configuration parameters:
  *
  *  min_write_delay
  *      Minimum time delay after a PUT/DELETE completes before the next PUT/DELETE
- *      can be initiated.
+ *      can be initiated (for the same block).
  *  cache_time
  *      How long after writing a block we'll remember its ETag. This must be
- *      at least as long as min_write_delay. Zero means infinity.
+ *      at least as long as min_write_delay. This value determines the limit of
+ *      our ability to detect out-of-date reads. Zero means infinity.
  *  cache_size
- *      Maximum number of blocks we'll track at one time. When table
- *      is full, additional writes will block.
+ *      Maximum number of blocks we'll track at one time. When the table is full
+ *      and no WRITTEN blocks have exipred yet, additional writes will block.
+ *      Note if cache_time is zero (infinity), then this must be big enough to
+ *      contain ALL of the blocks, otherwise you will eventually deadlock.
  *
  * Blocks we are currently tracking can be in the following states:
  *
@@ -106,7 +114,7 @@ struct block_info {
     uint64_t                timestamp;          // time PUT/DELETE completed (if WRITTEN)
     TAILQ_ENTRY(block_info) link;               // list entry link
     union {
-        const void      *data;                  // blocks actual content (if WRITING)
+        const void      *data;                  // block's actual content (if WRITING)
         u_char          etag[MD5_DIGEST_LENGTH];// block's ETag (if WRITTEN)
     } u;
 };
