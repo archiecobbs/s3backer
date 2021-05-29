@@ -219,11 +219,11 @@ static int block_cache_write_data(struct block_cache_private *priv, struct cache
 
 /* Invariants checking */
 #ifndef NDEBUG
-static void block_cache_check_invariants(struct block_cache_private *priv);
+static void block_cache_check_invariants(struct block_cache_private *priv, int allow_stopping);
 static void block_cache_check_one(void *arg, void *value);
-#define S3BCACHE_CHECK_INVARIANTS(priv)     block_cache_check_invariants(priv)
+#define S3BCACHE_CHECK_INVARIANTS(priv, allow_stopping)     block_cache_check_invariants(priv, allow_stopping)
 #else
-#define S3BCACHE_CHECK_INVARIANTS(priv)     do { } while (0)
+#define S3BCACHE_CHECK_INVARIANTS(priv, allow_stopping)     do { } while (0)
 #endif
 
 /*
@@ -304,7 +304,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Done */
     pthread_mutex_unlock(&priv->mutex);
@@ -414,7 +414,7 @@ block_cache_create_threads(struct s3backer_store *s3b)
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Create threads */
     while (priv->num_threads < config->num_threads) {
@@ -461,7 +461,7 @@ block_cache_shutdown(struct s3backer_store *const s3b)
 
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Wait for all dirty blocks to be written and all worker threads to exit */
     priv->stopping = 1;
@@ -483,7 +483,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
 
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 1);
     assert(TAILQ_FIRST(&priv->dirties) == NULL && priv->num_threads == 0);
 
     /* Destroy inner store */
@@ -578,7 +578,7 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Sanity check */
     if (priv->num_threads == 0) {
@@ -710,7 +710,7 @@ read:
     pthread_mutex_unlock(&priv->mutex);
     r = (*priv->inner->read_block)(priv->inner, block_num, data, etag, entry->verify ? entry->etag : NULL, 0);
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* The entry should still exist and be in state READING[2] */
     assert(s3b_hash_get(priv->hashtable, block_num) == entry);
@@ -829,7 +829,7 @@ block_cache_write(struct block_cache_private *const priv, s3b_block_t block_num,
 
 again:
     /* Sanity check */
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
     if (priv->num_threads == 0) {
         (*config->log)(LOG_ERR, "block_cache_write(): no threads created yet");
         r = ENOTCONN;
@@ -949,7 +949,7 @@ success:
             pthread_cond_wait(&priv->write_complete, &priv->mutex);
 
             /* Sanity check */
-            S3BCACHE_CHECK_INVARIANTS(priv);
+            S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
             /* Find cache entry */
             if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL)
@@ -1120,7 +1120,7 @@ block_cache_worker_main(void *arg)
     while (1) {
 
         /* Sanity check */
-        S3BCACHE_CHECK_INVARIANTS(priv);
+        S3BCACHE_CHECK_INVARIANTS(priv, 1);
 
         /* Get current time */
         now = block_cache_get_time(priv);
@@ -1166,7 +1166,7 @@ block_cache_worker_main(void *arg)
             pthread_mutex_unlock(&priv->mutex);
             r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, etag, block_cache_check_cancel, priv);
             pthread_mutex_lock(&priv->mutex);
-            S3BCACHE_CHECK_INVARIANTS(priv);
+            S3BCACHE_CHECK_INVARIANTS(priv, 1);
 
             /* Sanity checks */
             assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
@@ -1254,7 +1254,7 @@ block_cache_check_cancel(void *arg, s3b_block_t block_num)
 
     /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Find cache entry */
     entry = s3b_hash_get(priv->hashtable, block_num);
@@ -1456,13 +1456,16 @@ struct check_info {
 };
 
 static void
-block_cache_check_invariants(struct block_cache_private *priv)
+block_cache_check_invariants(struct block_cache_private *priv, int allow_stopping)
 {
     struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
     struct check_info info;
     int clean_len = 0;
     int dirty_len = 0;
+
+    /* Check for stopping */
+    assert(allow_stopping || !priv->stopping);
 
     /* Check CLEANs and CLEAN2s */
     for (entry = TAILQ_FIRST(&priv->lo_cleans); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
