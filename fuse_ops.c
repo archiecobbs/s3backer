@@ -210,12 +210,10 @@ fuse_op_destroy(void *data)
         return;
     (*config->log)(LOG_INFO, "unmount %s: initiated", s3bconf->mount);
 
-    /* Flush dirty data */
-    if (!config->read_only) {
-        (*config->log)(LOG_INFO, "unmount %s: flushing dirty data", s3bconf->mount);
-        if ((r = (*s3b->flush)(s3b)) != 0)
-            (*config->log)(LOG_ERR, "unmount %s: flushing filesystem failed: %s", s3bconf->mount, strerror(r));
-    }
+    /* Shutdown (flush dirty data) */
+    (*config->log)(LOG_INFO, "unmount %s: shutting down filesystem", s3bconf->mount);
+    if ((r = (*s3b->shutdown)(s3b)) != 0)
+        (*config->log)(LOG_ERR, "unmount %s: filesystem shutdown failed: %s", s3bconf->mount, strerror(r));
 
     /* Clear mount token */
     if (!config->read_only) {
@@ -224,7 +222,7 @@ fuse_op_destroy(void *data)
             (*config->log)(LOG_ERR, "unmount %s: clearing mount token failed: %s", s3bconf->mount, strerror(r));
     }
 
-    /* Shutdown */
+    /* Destroy */
     (*s3b->destroy)(s3b);
     (*config->log)(LOG_INFO, "unmount %s: completed", s3bconf->mount);
     free(priv);

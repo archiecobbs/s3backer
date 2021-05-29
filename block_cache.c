@@ -193,7 +193,7 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
-static int block_cache_flush(struct s3backer_store *s3b);
+static int block_cache_shutdown(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
@@ -254,7 +254,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
     s3b->survey_zeros = block_cache_survey_zeros;
-    s3b->flush = block_cache_flush;
+    s3b->shutdown = block_cache_shutdown;
     s3b->destroy = block_cache_destroy;
 
     /* Initialize block_cache_private structure */
@@ -455,7 +455,7 @@ block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int
 }
 
 static int
-block_cache_flush(struct s3backer_store *const s3b)
+block_cache_shutdown(struct s3backer_store *const s3b)
 {
     struct block_cache_private *const priv = s3b->data;
 
@@ -484,13 +484,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv);
-
-    /* Wait for all dirty blocks to be written and all worker threads to exit */
-    priv->stopping = 1;
-    while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
-        pthread_cond_broadcast(&priv->worker_work);
-        pthread_cond_wait(&priv->worker_exit, &priv->mutex);
-    }
+    assert(TAILQ_FIRST(&priv->dirties) == NULL && priv->num_threads == 0);
 
     /* Destroy inner store */
     (*priv->inner->destroy)(priv->inner);

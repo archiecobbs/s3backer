@@ -241,12 +241,14 @@ struct s3backer_store {
     int         (*survey_zeros)(struct s3backer_store *s3b, bitmap_t **zerosp);
 
     /*
-     * Sync any dirty data to the underlying data store.
+     * Shutdown this instance. Sync any dirty data to the underlying data store (as required).
+     * There should be no other concurrent activity when this function is invoked, and the only
+     * functions that may be invoked afterwards are "set_mount_token" and "destroy".
      */
-    int         (*flush)(struct s3backer_store *s3b);
+    int         (*shutdown)(struct s3backer_store *s3b);
 
     /*
-     * Destroy this instance.
+     * Destroy this instance. Free all resources. Caller must have invoked "shutdown" prior to this.
      */
     void        (*destroy)(struct s3backer_store *s3b);
 

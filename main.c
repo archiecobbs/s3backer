@@ -78,6 +78,7 @@ main(int argc, char **argv)
 
     /* Setup FUSE operation hooks */
     if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
+        (*s3b->shutdown)(s3b);
         (*s3b->destroy)(s3b);
         return 1;
     }

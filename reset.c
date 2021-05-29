@@ -95,8 +95,10 @@ fail:
     /* Clean up */
     if (dcache != NULL)
         s3b_dcache_close(dcache);
-    if (s3b != NULL)
+    if (s3b != NULL) {
+        (*s3b->shutdown)(s3b);
         (*s3b->destroy)(s3b);
+    }
     return ok ? 0 : -1;
 }
 

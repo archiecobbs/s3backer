@@ -84,7 +84,7 @@ static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_
 static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int zero_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
-static int zero_cache_flush(struct s3backer_store *s3b);
+static int zero_cache_shutdown(struct s3backer_store *s3b);
 static void zero_cache_destroy(struct s3backer_store *s3b);
 
 /* Internal fuctions */
@@ -119,7 +119,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->read_block_part = zero_cache_read_block_part;
     s3b->write_block_part = zero_cache_write_block_part;
     s3b->survey_zeros = zero_cache_survey_zeros;
-    s3b->flush = zero_cache_flush;
+    s3b->shutdown = zero_cache_shutdown;
     s3b->destroy = zero_cache_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -181,11 +181,11 @@ zero_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int3
 }
 
 static int
-zero_cache_flush(struct s3backer_store *const s3b)
+zero_cache_shutdown(struct s3backer_store *const s3b)
 {
     struct zero_cache_private *const priv = s3b->data;
 
-    return (*priv->inner->flush)(priv->inner);
+    return (*priv->inner->shutdown)(priv->inner);
 }
 
 static void

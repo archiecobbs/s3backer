@@ -135,7 +135,7 @@ static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int ec_protect_flush(struct s3backer_store *s3b);
+static int ec_protect_shutdown(struct s3backer_store *s3b);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
 /* Misc */
@@ -187,7 +187,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
     s3b->survey_zeros = ec_protect_survey_zeros;
-    s3b->flush = ec_protect_flush;
+    s3b->shutdown = ec_protect_shutdown;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         r = errno;
@@ -257,7 +257,7 @@ ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int3
 }
 
 static int
-ec_protect_flush(struct s3backer_store *const s3b)
+ec_protect_shutdown(struct s3backer_store *const s3b)
 {
     struct ec_protect_private *const priv = s3b->data;
 
@@ -282,10 +282,7 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     /* Grab lock and sanity check */
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
-
-    /* Wait for all sleeping writers to finish */
-    while (priv->num_sleepers > 0)
-        pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
+    assert(priv->num_sleepers == 0);
 
     /* Destroy inner store */
     (*priv->inner->destroy)(priv->inner);

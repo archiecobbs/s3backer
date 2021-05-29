@@ -715,8 +715,10 @@ s3backer_create_store(struct s3b_config *conf)
 fail_with_errno:
     r = errno;
 fail:
-    if (store != NULL)
+    if (store != NULL) {
+        (*store->shutdown)(store);
         (*store->destroy)(store);
+    }
     block_cache_store = NULL;
     zero_cache_store = NULL;
     ec_protect_store = NULL;
@@ -1465,6 +1467,7 @@ validate_config(void)
         if (!config.quiet)
             warnx("auto-detecting block size and total file size...");
         r = (*s3b->meta_data)(s3b, &auto_file_size, &auto_block_size);
+        (*s3b->shutdown)(s3b);
         (*s3b->destroy)(s3b);
     }
 
@@ -1639,6 +1642,7 @@ validate_config(void)
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
         r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
+        (*s3b->shutdown)(s3b);
         (*s3b->destroy)(s3b);
         if (r != 0) {
             errno = r;
@@ -1739,6 +1743,7 @@ validate_config(void)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */
+        (*temp_store->shutdown)(temp_store);
         (*temp_store->destroy)(temp_store);
 
         /* Save generated bitmap */
