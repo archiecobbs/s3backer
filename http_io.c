@@ -200,7 +200,7 @@ struct http_io {
     int                 xml_text_max;           // max chars in 'xml_text' buffer
     char                *last_possible_path;    // last possible block name/prefix
     int                 list_truncated;         // returned list was truncated
-    s3b_block_t         last_block;             // the last block we saw listed
+    s3b_block_t         last_name;              // the last name we saw listed (hash or block#)
     block_list_func_t   *callback_func;         // callback func for listing blocks
     void                *callback_arg;          // callback arg for listing blocks
     struct http_io_conf *config;                // configuration
@@ -271,6 +271,8 @@ static int update_iam_credentials(struct http_io_private *priv);
 static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
 /* Bucket listing functions */
+static int http_io_list_blocks_range(struct s3backer_store *s3b,
+    s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg);
 static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static void http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
 static void http_io_list_elem_end(void *arg, const XML_Char *name);
@@ -598,9 +600,29 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
+    const s3b_block_t min = (s3b_block_t)0;
+    const s3b_block_t max = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
+
+    return http_io_list_blocks_range(s3b, min, max, callback, arg);
+}
+
+//
+// Scan blocks in the range "min" (inclusive) to "max" (inclusive).
+//
+// Note "min" and "max" refer to the first S3B_BLOCK_NUM_DIGITS characters of the block's S3 object name (after any "--prefix"),
+// not necessarily the block number; these are different things when "--blockHashPrefix" is used, otherwise they are the same.
+//
+static int
+http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg)
+{
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
     char last_possible_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
-    char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
-    char urlbuf[URL_BUF_SIZE(config) + sizeof("&marker=") + sizeof(url_encoded_prefix) + (S3B_BLOCK_NUM_DIGITS * 2) + 36];
+    char marker_buf[URL_BUF_SIZE(config)];
+    char marker_buf_urlencoded[3 * sizeof(marker_buf) + 1];
+    char urlbuf[URL_BUF_SIZE(config)
+      + sizeof("&" LIST_PARAM_MARKER "=") + sizeof(marker_buf_urlencoded)
+      + sizeof("&" LIST_PARAM_MAX_KEYS "=") + 16];
     struct http_io io;
     int r;
 
@@ -628,12 +650,11 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     }
 
     /* Determine the last possible valid block name (or block hash prefix) we can expect to see */
-    snprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix,
-      S3B_BLOCK_NUM_DIGITS, (uintmax_t)(config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1));
+    snprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
     io.last_possible_path = last_possible_path;
 
     /* List blocks */
-    do {
+    while (1) {
         const time_t now = time(NULL);
 
         /* Reset XML parser state */
@@ -642,22 +663,16 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
-        /* URL-encode prefix */
-        url_encode(config->prefix, strlen(config->prefix), url_encoded_prefix, sizeof(url_encoded_prefix), 1);
+        /* Set marker corresponding to "min" minus one (marker is exclusive), and URL-encode that value */
+        if (min == (s3b_block_t)0)
+            snprintf(marker_buf, sizeof(marker_buf), "%s%0*jx%c", config->prefix, S3B_BLOCK_NUM_DIGITS - 1, (uintmax_t)0, '0' - 1);
+        else
+            snprintf(marker_buf, sizeof(marker_buf), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)(min - 1));
+        url_encode(marker_buf, strlen(marker_buf), marker_buf_urlencoded, sizeof(marker_buf_urlencoded), 1);
 
-        /* Format URL */
-        snprintf(urlbuf, sizeof(urlbuf), "%s%s?", config->baseURL, config->vhost ? "" : config->bucket);
-
-        /* Add URL parameters (note: must be in "canonical query string" format for proper authentication) */
-        if (io.list_truncated) {
-            char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
-
-            http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), io.last_block);
-            snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%s%s%0*jx&",
-              LIST_PARAM_MARKER, url_encoded_prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)io.last_block);
-        }
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "%s=%u", LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
-        snprintf(urlbuf + strlen(urlbuf), sizeof(urlbuf) - strlen(urlbuf), "&%s=%s", LIST_PARAM_PREFIX, url_encoded_prefix);
+        /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
+        snprintf(urlbuf, sizeof(urlbuf), "%s%s?%s=%s&%s=%u", config->baseURL, config->vhost ? "" : config->bucket,
+          LIST_PARAM_MARKER, marker_buf_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
@@ -667,6 +682,10 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
             break;
 
         /* Perform operation */
+#if DEBUG_BLOCK_LIST
+        (*config->log)(LOG_DEBUG, "list: querying for range [%0*jx, %0*jx]",
+            S3B_BLOCK_NUM_DIGITS, (uintmax_t)min, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
+#endif
         r = http_io_perform_io(priv, &io, http_io_list_prepper);
 
         /* Clean up headers */
@@ -691,7 +710,14 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
             r = EIO;
             break;
         }
-    } while (io.list_truncated);
+
+        /* Are we done yet? */
+        if (!io.list_truncated || io.last_name >= max)
+            break;
+
+        /* Update "min" for next time */
+        min = io.last_name + 1;
+    }
 
 done:
     /* Done */
@@ -799,7 +825,7 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
               io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 #endif
             (*io->callback_func)(io->callback_arg, block_num);
-            io->last_block = block_num;
+            io->last_name = hash_value;
         }
 #if DEBUG_BLOCK_LIST
         else
