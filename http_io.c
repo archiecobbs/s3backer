@@ -772,7 +772,6 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
     struct http_io_conf *const config = io->config;
-    s3b_block_t block_num;
 
     /* Handle <Truncated> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0) {
@@ -785,13 +784,16 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 
     /* Handle <Key> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
+        s3b_block_t hash_value;
+        s3b_block_t block_num;
 
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
 #endif
 
         /* Attempt to parse key as a block's object name and invoke callback if successful */
-        if (http_io_parse_block(config->prefix, config->num_blocks, config->blockHashPrefix, io->xml_text, &block_num) == 0) {
+        if (http_io_parse_block(config->prefix, config->num_blocks,
+          config->blockHashPrefix, io->xml_text, &hash_value, &block_num) == 0) {
 #if DEBUG_BLOCK_LIST
             (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> block=%0*jx",
               io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
@@ -840,9 +842,12 @@ http_io_list_text(void *arg, const XML_Char *s, int len)
 
 /*
  * Parse a block's item name (including prefix and block hash prefix if any) and returns the result in *block_nump.
+ *
+ * Also returns the hash value, if any, in *hash_valuep; if not using block hash prefix then *hash_valuep = *block_nump.
  */
 int
-http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPrefix, const char *name, s3b_block_t *block_nump)
+http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPrefix,
+    const char *name, s3b_block_t *hash_valuep, s3b_block_t *block_nump)
 {
     const size_t plen = strlen(prefix);
     s3b_block_t hash_value = 0;
@@ -870,10 +875,13 @@ http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPre
         return -1;
 
     /* Verify hash matches what's expected */
-    if (blockHashPrefix && hash_value != http_io_block_hash_prefix(block_num))
+    if (!blockHashPrefix)
+        hash_value = block_num;
+    else if (hash_value != http_io_block_hash_prefix(block_num))
         return -1;
 
     /* Done */
+    *hash_valuep = hash_value;
     *block_nump = block_num;
     return 0;
 }
