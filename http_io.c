@@ -317,7 +317,6 @@ static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
 static u_char zero_etag[MD5_DIGEST_LENGTH];
 static u_char zero_hmac[SHA_DIGEST_LENGTH];
-static const s3b_block_t last_possible_block = (s3b_block_t)~0L;
 
 /*
  * Constructor
@@ -795,18 +794,18 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
             io->last_block = block_num;
         } else {                                                        /* object is some unrelated junk that we can ignore */
             char last_block_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
+            s3b_block_t last_possible_hex;
 
 #if DEBUG_BLOCK_LIST
             (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
 #endif
 
-            /*
-             * If the object name is lexicographically after our last possible block name, we are done.
-             * Note that this works whether or not --blockHashPrefix is being used, because the block hash
-             * prefix is in the same format as the block number (i.e., 32 bit unsigned hexadecimal value).
-             */
+            /* Determine the last possible valid block name (or block hash prefix) we can expect to see */
+            last_possible_hex = config->blockHashPrefix ? (s3b_block_t)~0L : config->num_blocks - 1;
+
+            /* If the object name is lexicographically after our last possible block name, we are done */
             snprintf(last_block_path, sizeof(last_block_path), "%s%0*jx",
-              config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)last_possible_block);
+              config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)last_possible_hex);
             if (strcmp(io->xml_text, last_block_path) > 0) {
 #if DEBUG_BLOCK_LIST
                 (*config->log)(LOG_DEBUG, "list: key=\"%s\" > last block \"%s\" -> we're done", io->xml_text, last_block_path);
