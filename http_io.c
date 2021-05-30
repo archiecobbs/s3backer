@@ -661,7 +661,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
         /* Add Authorization header */
         if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
-            goto fail;
+            break;
 
         /* Perform operation */
         r = http_io_perform_io(priv, &io, http_io_list_prepper);
@@ -672,7 +672,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 
         /* Check for error */
         if (r != 0)
-            goto fail;
+            break;
 
         /* Finalize parse */
         if (XML_Parse(io.xml, NULL, 0, 1) != XML_STATUS_OK) {
@@ -686,15 +686,16 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
             (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
               io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
             r = EIO;
-            goto fail;
+            break;
         }
     } while (io.list_truncated);
 
+done:
     /* Done */
     XML_ParserFree(io.xml);
     free(io.xml_path);
     free(io.xml_text);
-    return 0;
+    return r;
 
 oom:
     /* Update stats */
@@ -702,14 +703,7 @@ oom:
     priv->stats.out_of_memory_errors++;
     pthread_mutex_unlock(&priv->mutex);
     r = ENOMEM;
-
-fail:
-    /* Clean up after failure */
-    if (io.xml != NULL)
-        XML_ParserFree(io.xml);
-    free(io.xml_path);
-    free(io.xml_text);
-    return r;
+    goto done;
 }
 
 static void
