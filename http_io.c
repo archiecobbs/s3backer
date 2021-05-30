@@ -201,8 +201,9 @@ struct http_io {
     char                *xml_text;              // Current XML text
     int                 xml_text_len;           // # chars in 'xml_text' buffer
     int                 xml_text_max;           // max chars in 'xml_text' buffer
+    char                *last_possible_path;    // last possible block name/prefix
     int                 list_truncated;         // returned list was truncated
-    s3b_block_t         last_block;             // last dirty block listed
+    s3b_block_t         last_block;             // the last block we saw listed
     block_list_func_t   *callback_func;         // callback func for listing blocks
     void                *callback_arg;          // callback arg for listing blocks
     struct http_io_conf *config;                // configuration
@@ -600,6 +601,7 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
+    char last_possible_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
     char url_encoded_prefix[strlen(config->prefix) * 3 + 1];
     char urlbuf[URL_BUF_SIZE(config) + sizeof("&marker=") + sizeof(url_encoded_prefix) + (S3B_BLOCK_NUM_DIGITS * 2) + 36];
     struct http_io io;
@@ -627,6 +629,11 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
         (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
         goto oom;
     }
+
+    /* Determine the last possible valid block name (or block hash prefix) we can expect to see */
+    snprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix,
+      S3B_BLOCK_NUM_DIGITS, (uintmax_t)(config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1));
+    io.last_possible_path = last_possible_path;
 
     /* List blocks */
     do {
@@ -776,15 +783,17 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: parsed truncated=%d", io->list_truncated);
 #endif
+        goto done;
     }
 
     /* Handle <Key> tag */
-    else if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
+    if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
+
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
 #endif
 
-        /* Attempt to parse key as a block's object name */
+        /* Attempt to parse key as a block's object name and invoke callback if successful */
         if (http_io_parse_block(config->prefix, config->num_blocks, config->blockHashPrefix, io->xml_text, &block_num) == 0) {
 #if DEBUG_BLOCK_LIST
             (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> block=%0*jx",
@@ -792,29 +801,22 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
 #endif
             (*io->callback_func)(io->callback_arg, block_num);
             io->last_block = block_num;
-        } else {                                                        /* object is some unrelated junk that we can ignore */
-            char last_block_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
-            s3b_block_t last_possible_hex;
-
+        }
 #if DEBUG_BLOCK_LIST
+        else
             (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
 #endif
 
-            /* Determine the last possible valid block name (or block hash prefix) we can expect to see */
-            last_possible_hex = config->blockHashPrefix ? (s3b_block_t)~0L : config->num_blocks - 1;
-
-            /* If the object name is lexicographically after our last possible block name, we are done */
-            snprintf(last_block_path, sizeof(last_block_path), "%s%0*jx",
-              config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)last_possible_hex);
-            if (strcmp(io->xml_text, last_block_path) > 0) {
+        /* If the object name is lexicographically after our last possible block name (or block name prefix), we are done */
+        if (strcmp(io->xml_text, io->last_possible_path) > 0) {
 #if DEBUG_BLOCK_LIST
-                (*config->log)(LOG_DEBUG, "list: key=\"%s\" > last block \"%s\" -> we're done", io->xml_text, last_block_path);
+            (*config->log)(LOG_DEBUG, "list: key=\"%s\" > last block \"%s\" -> we're done", io->xml_text, io->last_possible_path);
 #endif
-                io->list_truncated = 0;
-            }
+            io->list_truncated = 0;
         }
     }
 
+done:
     /* Update current XML path */
     assert(strrchr(io->xml_path, '/') != NULL);
     *strrchr(io->xml_path, '/') = '\0';
