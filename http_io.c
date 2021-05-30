@@ -100,9 +100,6 @@
 #define LIST_ELEM_CONTENTS          "Contents"
 #define LIST_ELEM_KEY               "Key"
 #define LIST_TRUE                   "true"
-#define LIST_MAX_PATH               (sizeof(LIST_ELEM_LIST_BUCKET_RESLT) \
-                                      + sizeof(LIST_ELEM_CONTENTS) \
-                                      + sizeof(LIST_ELEM_KEY) + 1)
 
 /* How many blocks to list at a time */
 #define LIST_BLOCKS_CHUNK           0x100
