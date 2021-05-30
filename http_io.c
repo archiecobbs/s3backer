@@ -83,11 +83,11 @@
 #define AWS_DATE_BUF_FMT            "%Y%m%dT%H%M%SZ"
 #define DATE_BUF_SIZE               64
 
-/* Size required for URL buffer */
-#define URL_BUF_SIZE(config)        (strlen((config)->baseURL) \
-                                      + strlen((config)->bucket) + 1 \
-                                      + strlen((config)->prefix) \
-                                      + S3B_BLOCK_NUM_DIGITS + 1 \
+/* Upper bound on the length of an URL representing one block */
+#define URL_BUF_SIZE(config)        (strlen((config)->baseURL)          \
+                                      + strlen((config)->bucket) + 1    \
+                                      + strlen((config)->prefix)        \
+                                      + S3B_BLOCK_NUM_DIGITS + 1        \
                                       + S3B_BLOCK_NUM_DIGITS + 2)
 
 /* Bucket listing API constants */
