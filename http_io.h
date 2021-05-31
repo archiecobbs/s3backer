@@ -149,5 +149,5 @@ extern void http_io_clear_stats(struct s3backer_store *s3b);
 extern int http_io_parse_block(const char *prefix, s3b_block_t num_blocks,
     int blockHashPrefix, const char *name, s3b_block_t *hash_valuep, s3b_block_t *block_nump);
 extern void http_io_format_block_hash(int blockHashPrefix, char *block_hash_buf, size_t bufsiz, s3b_block_t block_num);
-extern int http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+extern int http_io_list_blocks(struct s3backer_store *s3b, int max_threads, block_list_func_t *callback, void *arg);
 

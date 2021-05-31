@@ -84,6 +84,7 @@
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
+#define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
@@ -214,6 +215,7 @@ static struct s3b_config config = {
     .quiet=                 0,
     .erase=                 0,
     .no_auto_detect=        0,
+    .list_blocks_threads=   S3BACKER_DEFAULT_LIST_BLOCKS_THREADS,
     .reset=                 0,
     .log=                   syslog_logger
 };
@@ -257,6 +259,10 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--listBlocks",
         .offset=    offsetof(struct s3b_config, list_blocks),
         .value=     1
+    },
+    {
+        .templ=     "--listBlocksThreads=%d",
+        .offset=    offsetof(struct s3b_config, list_blocks_threads),
     },
     {
         .templ=     "--baseURL=%s",
@@ -1437,6 +1443,12 @@ validate_config(void)
         }
     }
 
+    /* Check list blocks threads */
+    if (config.list_blocks && config.list_blocks_threads < 1) {
+        warnx("invalid listBlocksThreads %u", config.list_blocks_threads);
+        return -1;
+    }
+
     /* Configure logging module */
     log_enable_debug = config.debug;
 
@@ -1743,7 +1755,8 @@ validate_config(void)
 
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store, list_blocks_callback, &lb)) != 0)
+        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store,
+          config.list_blocks_threads, list_blocks_callback, &lb)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */
@@ -1805,6 +1818,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
       config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %d", "list_blocks_threads", config.list_blocks_threads);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
@@ -1905,6 +1919,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
+    fprintf(stderr, "\t--%-27s %s\n", "listBlocksThreads", "List blocks in parallel using this many threads");
     fprintf(stderr, "\t--%-27s %s\n", "maxDownloadSpeed=BITSPERSEC", "Max download bandwidth for a single read");
     fprintf(stderr, "\t--%-27s %s\n", "maxRetryPause=MILLIS", "Max total pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "maxUploadSpeed=BITSPERSEC", "Max upload bandwidth for a single write");
@@ -1949,6 +1964,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
     fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
+    fprintf(stderr, "\t--%-27s %u\n", "listBlocksThreads", S3BACKER_DEFAULT_LIST_BLOCKS_THREADS);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
     fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode",

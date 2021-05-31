@@ -102,7 +102,7 @@
 #define LIST_TRUE                   "true"
 
 /* How many blocks to list at a time */
-#define LIST_BLOCKS_CHUNK           0x100
+#define LIST_BLOCKS_CHUNK           1000
 
 /* Maximum error payload size in bytes */
 #define MAX_ERROR_PAYLOAD_SIZE      0x100000
@@ -234,6 +234,18 @@ struct http_io {
     size_t              error_payload_len;      // error response length
 };
 
+/* List blocks per-thread info */
+struct http_io_list_blocks {
+    struct http_io_private      *priv;
+    pthread_t                   thread;
+    s3b_block_t                 min_name;
+    s3b_block_t                 max_name;
+    block_list_func_t           *callback;
+    void                        *callback_arg;
+    int                         return_value;
+    volatile int                abort;
+};
+
 /* CURL prepper function type */
 typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
@@ -273,12 +285,14 @@ static int update_iam_credentials(struct http_io_private *priv);
 static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
 /* Bucket listing functions */
-static int http_io_list_blocks_range(struct s3backer_store *s3b,
+static int http_io_list_blocks_range(struct http_io_private *priv,
     s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg);
+static void *http_io_list_blocks_worker_main(void *arg);
 static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static void http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
 static void http_io_list_elem_end(void *arg, const XML_Char *name);
 static void http_io_list_text(void *arg, const XML_Char *s, int len);
+static block_list_func_t http_io_list_blocks_callback;
 
 /* HTTP and curl functions */
 static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper);
@@ -598,14 +612,92 @@ done:
 }
 
 int
-http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
+http_io_list_blocks(struct s3backer_store *s3b, int max_threads, block_list_func_t *callback, void *arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    const s3b_block_t min = (s3b_block_t)0;
-    const s3b_block_t max = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
+    struct http_io_list_blocks infos[max_threads];
+    s3b_block_t last_possible_name;
+    int num_threads;
+    int r = 0;
+    int i;
 
-    return http_io_list_blocks_range(s3b, min, max, callback, arg);
+    /* Determine the last possible block name we need to scan for */
+    last_possible_name = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
+
+    /* Initialize per-thread infos and start threads */
+    memset(&infos, 0, sizeof(infos));
+    for (num_threads = 0; num_threads < max_threads; num_threads++) {
+        struct http_io_list_blocks *const info = &infos[num_threads];
+
+        /* Configure this thread */
+        info->priv = priv;
+        info->callback = callback;
+        info->callback_arg = arg;
+
+        /* Configure this thread's portion of the range, but being careful to handle weird corner cases */
+        info->min_name = num_threads > 0 ? infos[num_threads - 1].max_name + 1 : (s3b_block_t)0;
+        if (info->min_name > last_possible_name)
+            info->min_name = last_possible_name;
+        if (num_threads == max_threads - 1)
+            info->max_name = last_possible_name;
+        else {
+            info->max_name = ((off_t)last_possible_name * (num_threads + 1)) / max_threads;
+            if (info->max_name < info->min_name)
+                info->max_name = info->min_name;
+            if (info->max_name > last_possible_name)
+                info->max_name = last_possible_name;
+        }
+
+        /* Start thread */
+        if ((r = pthread_create(&info->thread, NULL, http_io_list_blocks_worker_main, info)) != 0) {
+            (*config->log)(LOG_ERR, "pthread_create: %s", strerror(r));
+            for (i = 0; i < num_threads; i++)                       // tell the already-started threads to bail out
+                infos[i].abort = 1;
+            break;
+        }
+    }
+
+    /* Wait for all (started) threads to finish, and check for any per-thread errors */
+    for (i = 0; i < num_threads; i++) {
+        struct http_io_list_blocks *const info = &infos[i];
+        int r2;
+
+        if ((r2 = pthread_join(info->thread, NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r2));
+        if (r == 0)
+            r = info->return_value;
+    }
+
+    /* Done */
+    return r;
+}
+
+static void *
+http_io_list_blocks_worker_main(void *arg)
+{
+    struct http_io_list_blocks *const info = arg;
+    struct http_io_private *const priv = info->priv;
+
+    /* Anything for me to do? */
+    if (info->min_name > info->max_name)
+        return NULL;
+
+    /* Scan my range */
+    info->return_value = http_io_list_blocks_range(priv, info->min_name, info->max_name, http_io_list_blocks_callback, info);
+
+    /* Done */
+    return NULL;
+}
+
+static int
+http_io_list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    struct http_io_list_blocks *const info = arg;
+
+    if (info->abort)
+        return ECANCELED;
+    return (*info->callback)(info->callback_arg, block_nums, num_blocks);
 }
 
 //
@@ -615,9 +707,8 @@ http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
 // not necessarily the block number; these are different things when "--blockHashPrefix" is used, otherwise they are the same.
 //
 static int
-http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg)
+http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg)
 {
-    struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char last_possible_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
     s3b_block_t block_list[LIST_BLOCKS_CHUNK];

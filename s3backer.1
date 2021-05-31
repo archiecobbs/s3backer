@@ -711,6 +711,12 @@ This flag is useful when creating a new backed file, or any time it is expected 
 blocks will be read or written, such as when initializing a new filesystem.
 .Pp
 In general, use of this flag is recommended, but it will slow down startup in direct proportion to the number of blocks that already exist.
+.It Fl \-listBlocksThreads=NUM
+To minimize startup delay, the initial block enumeration of
+.Fl \-listBlocks
+is performed in parallel using multiple threads.
+This flag configures the number of threads used.
+Default is 16.
 .It Fl \-maxUploadSpeed=BITSPERSEC
 .It Fl \-maxDownloadSpeed=BITSPERSEC
 These flags set a limit on the bandwidth utilized for individual block uploads and downloads (i.e.,
