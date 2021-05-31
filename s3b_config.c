@@ -97,9 +97,10 @@
 
 /* Block counting info */
 struct list_blocks {
-    bitmap_t    *bitmap;
-    int         print_dots;
-    uintmax_t   count;
+    pthread_mutex_t     mutex;
+    bitmap_t            *bitmap;
+    int                 print_dots;
+    uintmax_t           count;
 };
 #define BLOCKS_PER_DOT                  0x100
 
@@ -1733,6 +1734,8 @@ validate_config(void)
 
         /* Initialize bitmap */
         memset(&lb, 0, sizeof(lb));
+        if ((r = pthread_mutex_init(&lb.mutex, NULL)) != 0)
+            errx(1, "pthread_mutex_init: %s", strerror(r));
         if ((lb.bitmap = bitmap_init(config.num_blocks)) == NULL)
             err(1, "calloc");
         lb.print_dots = !config.quiet;
@@ -1749,6 +1752,7 @@ validate_config(void)
 
         /* Save generated bitmap */
         config.http_io.nonzero_bitmap = lb.bitmap;
+        pthread_mutex_destroy(&lb.mutex);
 
         /* Logging */
         if (!config.quiet) {
@@ -1766,6 +1770,7 @@ list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
     struct list_blocks *const lb = arg;
 
+    pthread_mutex_lock(&lb->mutex);
     while (num_blocks-- > 0) {
         bitmap_set(lb->bitmap, *block_nums++, 1);
         lb->count++;
@@ -1774,6 +1779,7 @@ list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
             fflush(stderr);
         }
     }
+    pthread_mutex_unlock(&lb->mutex);
     return 0;
 }
 
