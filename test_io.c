@@ -423,7 +423,7 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
         if (http_io_parse_block(config->prefix, config->num_blocks,
           config->blockHashPrefix, dent->d_name, &hash_value, &block_num) == 0)
-            (*callback)(arg, block_num);
+            (*callback)(arg, &block_num, 1);
     }
 
     /* Close directory */

@@ -63,7 +63,7 @@ struct erase_state {
 };
 
 /* Internal functions */
-static void erase_list_callback(void *arg, s3b_block_t block_num);
+static block_list_func_t erase_list_callback;
 static void *erase_thread_main(void *arg);
 
 int
@@ -167,14 +167,16 @@ fail0:
 }
 
 static void
-erase_list_callback(void *arg, s3b_block_t block_num)
+erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
     struct erase_state *const priv = arg;
 
     pthread_mutex_lock(&priv->mutex);
-    while (priv->qlen == MAX_QUEUE_LENGTH)
-        pthread_cond_wait(&priv->queue_not_full, &priv->mutex);
-    priv->queue[priv->qlen++] = block_num;
+    while (num_blocks-- > 0) {
+        while (priv->qlen == MAX_QUEUE_LENGTH)
+            pthread_cond_wait(&priv->queue_not_full, &priv->mutex);
+        priv->queue[priv->qlen++] = *block_nums++;
+    }
     pthread_cond_signal(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
 }

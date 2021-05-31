@@ -115,7 +115,7 @@ typedef uintptr_t   bitmap_t;
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
 /* Block list callback function type */
-typedef void        block_list_func_t(void *arg, s3b_block_t block_num);
+typedef void        block_list_func_t(void *arg, const s3b_block_t *block_nums, u_int num_blocks);
 
 /* Block write cancel check function type */
 typedef int         check_cancel_t(void *arg, s3b_block_t block_num);

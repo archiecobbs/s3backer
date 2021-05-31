@@ -117,7 +117,7 @@ static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static int validate_config(void);
-static void list_blocks_callback(void *arg, s3b_block_t block_num);
+static block_list_func_t list_blocks_callback;
 static void dump_config(void);
 static void usage(void);
 
@@ -1732,6 +1732,7 @@ validate_config(void)
             err(1, config.test ? "test_io_create" : "http_io_create");
 
         /* Initialize bitmap */
+        memset(&lb, 0, sizeof(lb));
         if ((lb.bitmap = bitmap_init(config.num_blocks)) == NULL)
             err(1, "calloc");
         lb.print_dots = !config.quiet;
@@ -1761,15 +1762,17 @@ validate_config(void)
 }
 
 static void
-list_blocks_callback(void *arg, s3b_block_t block_num)
+list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
     struct list_blocks *const lb = arg;
 
-    bitmap_set(lb->bitmap, block_num, 1);
-    lb->count++;
-    if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
-        fprintf(stderr, ".");
-        fflush(stderr);
+    while (num_blocks-- > 0) {
+        bitmap_set(lb->bitmap, *block_nums++, 1);
+        lb->count++;
+        if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
+            fprintf(stderr, ".");
+            fflush(stderr);
+        }
     }
 }
 

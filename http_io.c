@@ -202,8 +202,8 @@ struct http_io {
     char                *start_after;           // where to start next round of listing
     s3b_block_t         min_name;               // inclusive lower bound for block name/prefix
     s3b_block_t         max_name;               // inclusive upper bound for block name/prefix
-    block_list_func_t   *callback_func;         // callback func for listing blocks
-    void                *callback_arg;          // callback arg for listing blocks
+    s3b_block_t         *block_list;            // the blocks we found this iteration
+    u_int               num_blocks;             // number of blocks in "block_list"
     int                 handler_error;          // error encountered during parsing
     struct http_io_conf *config;                // configuration
 
@@ -620,14 +620,14 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char last_possible_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
+    s3b_block_t block_list[LIST_BLOCKS_CHUNK];
     struct http_io io;
     int r;
 
     /* Initialize I/O info */
     http_io_init_io(priv, &io, HTTP_GET, NULL);         // io.url is set below
     io.xml_error = XML_ERROR_NONE;
-    io.callback_func = callback;
-    io.callback_arg = arg;
+    io.block_list = block_list;
     io.min_name = min;
     io.max_name = max;
 
@@ -676,6 +676,7 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
         XML_SetUserData(io.xml, &io);
         XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
+        assert(io.num_blocks == 0);
 
         /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
         url_encode(io.start_after, strlen(io.start_after), start_after_urlencoded, sizeof(start_after_urlencoded), 1);
@@ -722,6 +723,12 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
               io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
             r = EIO;
             break;
+        }
+
+        /* Invoke callback with the blocks we found */
+        if (io.num_blocks > 0) {
+            (*callback)(arg, block_list, io.num_blocks);
+            io.num_blocks = 0;
         }
 
         /* Are we done? */
@@ -829,15 +836,21 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
         (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
 #endif
 
-        /* Attempt to parse key as a block's object name and invoke callback if successful */
+        /* Attempt to parse key as a block's object name and add to list if successful */
         if (http_io_parse_block(config->prefix, config->num_blocks,
           config->blockHashPrefix, io->xml_text, &hash_value, &block_num) == 0) {
 #if DEBUG_BLOCK_LIST
-            (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> block=%0*jx",
-              io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> hash=%0*jx block=%0*jx",
+              io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)hash_value, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 #endif
-            if (hash_value >= io->min_name && hash_value <= io->max_name)               // avoid out-of-range callbacks
-                (*io->callback_func)(io->callback_arg, block_num);
+            if (hash_value >= io->min_name && hash_value <= io->max_name) {             // avoid out-of-range callbacks
+                if (io->num_blocks < LIST_BLOCKS_CHUNK)
+                    io->block_list[io->num_blocks++] = block_num;
+                else {
+                    (*config->log)(LOG_ERR, "list: rec'd more than %d blocks?", LIST_BLOCKS_CHUNK);
+                    io->handler_error = EINVAL;
+                }
+            }
         }
 #if DEBUG_BLOCK_LIST
         else
