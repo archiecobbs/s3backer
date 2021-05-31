@@ -166,7 +166,7 @@ fail0:
     return ok ? 0 : -1;
 }
 
-static void
+static int
 erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
     struct erase_state *const priv = arg;
@@ -179,6 +179,7 @@ erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
     }
     pthread_cond_signal(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
+    return 0;
 }
 
 static void *

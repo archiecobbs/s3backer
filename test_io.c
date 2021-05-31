@@ -408,6 +408,7 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     s3b_block_t hash_value;
     s3b_block_t block_num;
     struct dirent *dent;
+    int r = 0;
     DIR *dir;
     int i;
 
@@ -422,13 +423,15 @@ test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, voi
     /* Scan directory */
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
         if (http_io_parse_block(config->prefix, config->num_blocks,
-          config->blockHashPrefix, dent->d_name, &hash_value, &block_num) == 0)
-            (*callback)(arg, &block_num, 1);
+          config->blockHashPrefix, dent->d_name, &hash_value, &block_num) == 0) {
+            if ((r = (*callback)(arg, &block_num, 1)) != 0)
+                break;
+        }
     }
 
     /* Close directory */
     closedir(dir);
 
     /* Done */
-    return 0;
+    return r;
 }

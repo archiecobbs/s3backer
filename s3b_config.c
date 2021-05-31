@@ -1761,7 +1761,7 @@ validate_config(void)
     return 0;
 }
 
-static void
+static int
 list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
     struct list_blocks *const lb = arg;
@@ -1774,6 +1774,7 @@ list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
             fflush(stderr);
         }
     }
+    return 0;
 }
 
 static void

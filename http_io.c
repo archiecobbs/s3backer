@@ -727,7 +727,8 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
 
         /* Invoke callback with the blocks we found */
         if (io.num_blocks > 0) {
-            (*callback)(arg, block_list, io.num_blocks);
+            if ((r = (*callback)(arg, block_list, io.num_blocks)) != 0)
+                break;
             io.num_blocks = 0;
         }
 
