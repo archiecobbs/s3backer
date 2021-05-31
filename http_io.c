@@ -198,9 +198,10 @@ struct http_io {
     char                *xml_text;              // Current XML text
     int                 xml_text_len;           // # chars in 'xml_text' buffer
     int                 xml_text_max;           // max chars in 'xml_text' buffer
-    char                *last_possible_path;    // last possible block name/prefix
     int                 list_truncated;         // returned list was truncated
-    s3b_block_t         last_name;              // the last name we saw listed (hash or block#)
+    char                *start_after;           // where to start next round of listing
+    s3b_block_t         min_name;               // inclusive lower bound for block name/prefix
+    s3b_block_t         max_name;               // inclusive upper bound for block name/prefix
     block_list_func_t   *callback_func;         // callback func for listing blocks
     void                *callback_arg;          // callback arg for listing blocks
     int                 handler_error;          // error encountered during parsing
@@ -619,19 +620,16 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char last_possible_path[strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1];
-    char marker_buf[URL_BUF_SIZE(config)];
-    char marker_buf_urlencoded[3 * sizeof(marker_buf) + 1];
-    char urlbuf[URL_BUF_SIZE(config)
-      + sizeof("&" LIST_PARAM_MARKER "=") + sizeof(marker_buf_urlencoded)
-      + sizeof("&" LIST_PARAM_MAX_KEYS "=") + 16];
     struct http_io io;
     int r;
 
     /* Initialize I/O info */
-    http_io_init_io(priv, &io, HTTP_GET, urlbuf);
+    http_io_init_io(priv, &io, HTTP_GET, NULL);         // io.url is set below
     io.xml_error = XML_ERROR_NONE;
     io.callback_func = callback;
     io.callback_arg = arg;
+    io.min_name = min;
+    io.max_name = max;
 
     /* Create XML parser */
     if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
@@ -650,12 +648,27 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
         goto oom;
     }
 
-    /* Determine the last possible valid block name (or block hash prefix) we can expect to see */
+    /* Determine the last possible valid block name (or block hash prefix) we want to search for */
     snprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
-    io.last_possible_path = last_possible_path;
+
+    /* Initialize "io.start_after", which says where to continue listing names each time around the loop */
+    if (min == (s3b_block_t)0)
+        r = asprintf(&io.start_after, "%s%0*jx%c", config->prefix, S3B_BLOCK_NUM_DIGITS - 1, (uintmax_t)0, '0' - 1);
+    else
+        r = asprintf(&io.start_after, "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)(min - 1));
+    if (r == -1) {
+        (*config->log)(LOG_ERR, "asprintf: %s", strerror(r));
+        io.start_after = NULL;
+        goto oom;
+    }
 
     /* List blocks */
     while (1) {
+        char start_after_urlencoded[3 * strlen(io.start_after) + 1];
+        char urlbuf[strlen(config->baseURL)
+          + strlen(config->bucket)
+          + sizeof("?" LIST_PARAM_MARKER "=") + sizeof(start_after_urlencoded)
+          + sizeof("&" LIST_PARAM_MAX_KEYS "=") + 16];
         const time_t now = time(NULL);
 
         /* Reset XML parser state */
@@ -664,16 +677,11 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
         XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
         XML_SetCharacterDataHandler(io.xml, http_io_list_text);
 
-        /* Set marker corresponding to "min" minus one (marker is exclusive), and URL-encode that value */
-        if (min == (s3b_block_t)0)
-            snprintf(marker_buf, sizeof(marker_buf), "%s%0*jx%c", config->prefix, S3B_BLOCK_NUM_DIGITS - 1, (uintmax_t)0, '0' - 1);
-        else
-            snprintf(marker_buf, sizeof(marker_buf), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)(min - 1));
-        url_encode(marker_buf, strlen(marker_buf), marker_buf_urlencoded, sizeof(marker_buf_urlencoded), 1);
-
         /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
+        url_encode(io.start_after, strlen(io.start_after), start_after_urlencoded, sizeof(start_after_urlencoded), 1);
         snprintf(urlbuf, sizeof(urlbuf), "%s%s?%s=%s&%s=%u", config->baseURL, config->vhost ? "" : config->bucket,
-          LIST_PARAM_MARKER, marker_buf_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+          LIST_PARAM_MARKER, start_after_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
+        io.url = urlbuf;
 
         /* Add Date header */
         http_io_add_date(priv, &io, now);
@@ -684,8 +692,8 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
 
         /* Perform operation */
 #if DEBUG_BLOCK_LIST
-        (*config->log)(LOG_DEBUG, "list: querying for range [%0*jx, %0*jx]",
-            S3B_BLOCK_NUM_DIGITS, (uintmax_t)min, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
+        (*config->log)(LOG_DEBUG, "list: querying range [%0*jx, %0*jx] starting after \"%s\"",
+            S3B_BLOCK_NUM_DIGITS, (uintmax_t)min, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max, io.start_after);
 #endif
         r = http_io_perform_io(priv, &io, http_io_list_prepper);
 
@@ -716,17 +724,15 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
             break;
         }
 
-        /* Are we done yet? */
-        if (!io.list_truncated || io.last_name >= max)
+        /* Are we done? */
+        if (!io.list_truncated || strcmp(io.start_after, last_possible_path) >= 0)
             break;
-
-        /* Update "min" for next time */
-        min = io.last_name + 1;
     }
 
 done:
     /* Done */
     XML_ParserFree(io.xml);
+    free(io.start_after);
     free(io.xml_path);
     free(io.xml_text);
     return r;
@@ -817,6 +823,7 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
         s3b_block_t hash_value;
         s3b_block_t block_num;
+        char *new_start_after;
 
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
@@ -829,20 +836,21 @@ http_io_list_elem_end(void *arg, const XML_Char *name)
             (*config->log)(LOG_DEBUG, "list: parsed key=\"%s\" -> block=%0*jx",
               io->xml_text, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 #endif
-            (*io->callback_func)(io->callback_arg, block_num);
-            io->last_name = hash_value;
+            if (hash_value >= io->min_name && hash_value <= io->max_name)               // avoid out-of-range callbacks
+                (*io->callback_func)(io->callback_arg, block_num);
         }
 #if DEBUG_BLOCK_LIST
         else
             (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
 #endif
 
-        /* If the object name is lexicographically after our last possible block name (or block name prefix), we are done */
-        if (strcmp(io->xml_text, io->last_possible_path) > 0) {
-#if DEBUG_BLOCK_LIST
-            (*config->log)(LOG_DEBUG, "list: key=\"%s\" > last block \"%s\" -> we're done", io->xml_text, io->last_possible_path);
-#endif
-            io->list_truncated = 0;
+        /* Save the last name we see as the starting point for next time */
+        if ((new_start_after = realloc(io->start_after, strlen(io->xml_text) + 1)) == NULL) {
+            io->handler_error = errno;
+            (*config->log)(LOG_ERR, "strdup: %s", strerror(errno));
+        } else {
+            io->start_after = new_start_after;
+            strcpy(io->start_after, io->xml_text);
         }
     }
 
