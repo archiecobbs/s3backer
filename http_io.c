@@ -203,6 +203,7 @@ struct http_io {
     s3b_block_t         last_name;              // the last name we saw listed (hash or block#)
     block_list_func_t   *callback_func;         // callback func for listing blocks
     void                *callback_arg;          // callback arg for listing blocks
+    int                 handler_error;          // error encountered during parsing
     struct http_io_conf *config;                // configuration
 
     // Other info that needs to be passed around
@@ -692,8 +693,12 @@ http_io_list_blocks_range(struct s3backer_store *s3b, s3b_block_t min, s3b_block
         curl_slist_free_all(io.headers);
         io.headers = NULL;
 
-        /* Check for error */
+        /* Check for error from curl */
         if (r != 0)
+            break;
+
+        /* Check for error from handlers */
+        if ((r = io.handler_error) != 0)
             break;
 
         /* Finalize parse */
@@ -756,7 +761,7 @@ http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *strea
         return total;
 
     /* Run new payload bytes through XML parser */
-    if (io->xml_error != XML_ERROR_NONE)
+    if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return total;
     if (XML_Parse(io->xml, ptr, total, 0) != XML_STATUS_OK) {
         io->xml_error = XML_GetErrorCode(io->xml);
@@ -775,8 +780,8 @@ http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
 
     /* Update current path */
     if ((newbuf = realloc(io->xml_path, plen + 1 + strlen(name) + 1)) == NULL) {
-        (*io->config->log)(LOG_DEBUG, "realloc: %s", strerror(errno));
-        io->xml_error = XML_ERROR_NO_MEMORY;
+        io->handler_error = errno;
+        (*io->config->log)(LOG_ERR, "realloc: %s", strerror(errno));
         return;
     }
     io->xml_path = newbuf;
