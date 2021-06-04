@@ -124,8 +124,7 @@ s3backer_erase(struct s3b_config *config)
     }
 
     /* Iterate over non-zero blocks */
-    if ((r = (*(config->test ? test_io_list_blocks : http_io_list_blocks))(priv->s3b,
-      config->list_blocks_threads, erase_list_callback, priv)) != 0) {
+    if ((r = (*(config->test ? test_io_list_blocks : http_io_list_blocks))(priv->s3b, erase_list_callback, priv)) != 0) {
         warnx("can't list blocks: %s", strerror(r));
         goto fail3;
     }

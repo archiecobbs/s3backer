@@ -66,7 +66,6 @@ struct s3b_config {
     int                         ssl;
     int                         no_auto_detect;
     int                         list_blocks;
-    int                         list_blocks_threads;
     struct fuse_args            fuse_args;
     log_func_t                  *log;
 

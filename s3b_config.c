@@ -178,6 +178,7 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
+        .list_blocks_threads=   S3BACKER_DEFAULT_LIST_BLOCKS_THREADS,
     },
 
     /* "Eventual consistency" protection config */
@@ -215,7 +216,6 @@ static struct s3b_config config = {
     .quiet=                 0,
     .erase=                 0,
     .no_auto_detect=        0,
-    .list_blocks_threads=   S3BACKER_DEFAULT_LIST_BLOCKS_THREADS,
     .reset=                 0,
     .log=                   syslog_logger
 };
@@ -262,7 +262,7 @@ static const struct fuse_opt option_list[] = {
     },
     {
         .templ=     "--listBlocksThreads=%d",
-        .offset=    offsetof(struct s3b_config, list_blocks_threads),
+        .offset=    offsetof(struct s3b_config, http_io.list_blocks_threads),
     },
     {
         .templ=     "--baseURL=%s",
@@ -1444,8 +1444,8 @@ validate_config(void)
     }
 
     /* Check list blocks threads */
-    if (config.list_blocks && config.list_blocks_threads < 1) {
-        warnx("invalid listBlocksThreads %u", config.list_blocks_threads);
+    if (config.list_blocks && config.http_io.list_blocks_threads < 1) {
+        warnx("invalid listBlocksThreads %u", config.http_io.list_blocks_threads);
         return -1;
     }
 
@@ -1755,8 +1755,7 @@ validate_config(void)
 
         /* Generate non-zero block bitmap */
         assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store,
-          config.list_blocks_threads, list_blocks_callback, &lb)) != 0)
+        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store, list_blocks_callback, &lb)) != 0)
             errx(1, "can't list blocks: %s", strerror(r));
 
         /* Close temporary store */
@@ -1818,7 +1817,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
       config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %d", "list_blocks_threads", config.list_blocks_threads);
+    (*config.log)(LOG_DEBUG, "%24s: %d", "list_blocks_threads", config.http_io.list_blocks_threads);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);

@@ -50,5 +50,5 @@ struct test_io_conf {
 
 /* test_io.c */
 extern struct s3backer_store *test_io_create(struct test_io_conf *config);
-extern int test_io_list_blocks(struct s3backer_store *s3b, int max_threads, block_list_func_t *callback, void *arg);
+extern int test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 

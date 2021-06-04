@@ -612,10 +612,11 @@ done:
 }
 
 int
-http_io_list_blocks(struct s3backer_store *s3b, int max_threads, block_list_func_t *callback, void *arg)
+http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
+    const int max_threads = config->list_blocks_threads;
     struct http_io_list_blocks infos[max_threads];
     s3b_block_t last_possible_name;
     int num_threads;

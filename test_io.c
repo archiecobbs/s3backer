@@ -401,7 +401,7 @@ test_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
 }
 
 int
-test_io_list_blocks(struct s3backer_store *s3b, int max_threads, block_list_func_t *callback, void *arg)
+test_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct test_io_private *const priv = s3b->data;
     struct test_io_conf *const config = priv->config;
