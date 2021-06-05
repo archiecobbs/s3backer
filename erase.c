@@ -72,8 +72,8 @@ s3backer_erase(struct s3b_config *config)
     struct erase_state state;
     struct erase_state *const priv = &state;
     char response[10];
+    int num_threads;
     int ok = 0;
-    int i;
     int r;
 
     /* Double check with user */
@@ -106,8 +106,8 @@ s3backer_erase(struct s3b_config *config)
         warnx("pthread_cond_init: %s", strerror(r));
         goto fail2;
     }
-    for (i = 0; i < NUM_ERASURE_THREADS; i++) {
-        if ((r = pthread_create(&priv->threads[i], NULL, erase_thread_main, priv)) != 0)
+    for (num_threads = 0; num_threads < NUM_ERASURE_THREADS; num_threads++) {
+        if ((r = pthread_create(&priv->threads[num_threads], NULL, erase_thread_main, priv)) != 0)
             goto fail3;
     }
 
@@ -144,10 +144,8 @@ fail3:
     priv->stopping = 1;
     pthread_cond_broadcast(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
-    for (i = 0; i < NUM_ERASURE_THREADS; i++) {
-        if (priv->threads[i] == (pthread_t)0)
-            continue;
-        if ((r = pthread_join(priv->threads[i], NULL)) != 0)
+    while (num_threads > 0) {
+        if ((r = pthread_join(priv->threads[--num_threads], NULL)) != 0)
             warnx("pthread_join: %s", strerror(r));
     }
     if (priv->s3b != NULL) {
