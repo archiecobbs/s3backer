@@ -153,6 +153,7 @@ fail3:
             fprintf(stderr, "done\n");
             warnx("erased %ju non-zero blocks", priv->count);
         }
+        (*priv->s3b->shutdown)(priv->s3b);
         (*priv->s3b->destroy)(priv->s3b);
     }
     pthread_cond_destroy(&priv->queue_not_full);
