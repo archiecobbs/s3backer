@@ -124,6 +124,11 @@ typedef int         check_cancel_t(void *arg, s3b_block_t block_num);
 struct s3backer_store {
 
     /*
+     * Implementation private data
+     */
+    void        *data;
+
+    /*
      * Create any background pthreads that may be required.
      *
      * This must be invoked prior to any of the following functions:
@@ -251,11 +256,6 @@ struct s3backer_store {
      * Destroy this instance. Free all resources. Caller must have invoked "shutdown" prior to this.
      */
     void        (*destroy)(struct s3backer_store *s3b);
-
-    /*
-     * Implementation private data
-     */
-    void        *data;
 };
 
 /* gitrev.c */
