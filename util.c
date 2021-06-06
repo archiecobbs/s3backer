@@ -183,9 +183,19 @@ bitmap_size(s3b_block_t num_blocks)
 }
 
 bitmap_t *
-bitmap_init(s3b_block_t num_blocks)
+bitmap_init(s3b_block_t num_blocks, int value)
 {
-    return calloc(bitmap_size(num_blocks), sizeof(bitmap_t));
+    bitmap_t *bitmap;
+    size_t nbytes;
+
+    if (value == 0)
+        bitmap = calloc(bitmap_size(num_blocks), sizeof(*bitmap));
+    else {
+        nbytes = bitmap_size(num_blocks) * sizeof(*bitmap);
+        if ((bitmap = malloc(nbytes)) != NULL)
+            memset(bitmap, 0xff, nbytes);
+    }
+    return bitmap;
 }
 
 void

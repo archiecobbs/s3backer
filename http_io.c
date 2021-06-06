@@ -606,7 +606,7 @@ http_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
     }
 
     /* Allocate bitmap */
-    if ((*zerosp = bitmap_init(config->num_blocks)) == NULL) {
+    if ((*zerosp = bitmap_init(config->num_blocks, 0)) == NULL) {
         r = errno;
         goto done;
     }

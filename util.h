@@ -45,7 +45,7 @@ extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__for
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
-extern bitmap_t *bitmap_init(s3b_block_t num_blocks);
+extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
 extern void bitmap_free(bitmap_t **bitmapp);
 extern size_t bitmap_size(s3b_block_t num_blocks);
 extern int bitmap_test(const bitmap_t *bitmap, s3b_block_t block_num);

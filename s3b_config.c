@@ -1748,7 +1748,7 @@ validate_config(void)
         memset(&lb, 0, sizeof(lb));
         if ((r = pthread_mutex_init(&lb.mutex, NULL)) != 0)
             errx(1, "pthread_mutex_init: %s", strerror(r));
-        if ((lb.bitmap = bitmap_init(config.num_blocks)) == NULL)
+        if ((lb.bitmap = bitmap_init(config.num_blocks, 0)) == NULL)
             err(1, "calloc");
         lb.print_dots = !config.quiet;
         lb.count = 0;

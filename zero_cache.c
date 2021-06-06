@@ -134,7 +134,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     /* Initialize cache, using zero block survey if able */
     if ((r = (*priv->inner->survey_zeros)(priv->inner, &priv->zeros)) != 0)
         goto fail3;
-    if (priv->zeros == NULL && (priv->zeros = bitmap_init(config->num_blocks)) == NULL) {
+    if (priv->zeros == NULL && (priv->zeros = bitmap_init(config->num_blocks, 0)) == NULL) {
         r = errno;
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
         goto fail3;
