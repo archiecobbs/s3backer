@@ -176,7 +176,7 @@ erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
             pthread_cond_wait(&priv->queue_not_full, &priv->mutex);
         priv->queue[priv->qlen++] = *block_nums++;
     }
-    pthread_cond_signal(&priv->thread_wakeup);
+    pthread_cond_broadcast(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
     return 0;
 }
@@ -199,7 +199,7 @@ erase_thread_main(void *arg)
 
             /* Grab next bock */
             if (priv->qlen == MAX_QUEUE_LENGTH)
-                pthread_cond_signal(&priv->queue_not_full);
+                pthread_cond_broadcast(&priv->queue_not_full);
             block_num = priv->queue[--priv->qlen];
 
             /* Do block deletion */
