@@ -192,17 +192,19 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
     hash->numkeys--;
 }
 
-void
+int
 s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t *visitor, void *arg)
 {
     u_int i;
 
     for (i = 0; i < hash->alen; i++) {
         void *const value = VALUE(hash, i);
+        int r;
 
-        if (value != NULL)
-            (*visitor)(arg, value);
+        if (value != NULL && (r = (*visitor)(arg, value)) != 0)
+            return r;
     }
+    return 0;
 }
 
 /*

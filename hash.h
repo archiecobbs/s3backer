@@ -45,7 +45,7 @@
  */
 
 /* Definitions */
-typedef void s3b_hash_visit_t(void *arg, void *value);
+typedef int s3b_hash_visit_t(void *arg, void *value);
 
 /* Declarations */
 struct s3b_hash;
@@ -58,5 +58,5 @@ extern void *s3b_hash_get(struct s3b_hash *hash, s3b_block_t key);
 extern void *s3b_hash_put(struct s3b_hash *hash, void *value);
 extern void s3b_hash_put_new(struct s3b_hash *hash, void *value);
 extern void s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key);
-extern void s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t *visitor, void *arg);
+extern int s3b_hash_foreach(struct s3b_hash *hash, s3b_hash_visit_t *visitor, void *arg);
 

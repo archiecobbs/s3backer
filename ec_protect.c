@@ -151,11 +151,11 @@ static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
 static int ec_protect_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
-static void ec_protect_free_one(void *arg, void *value);
+static s3b_hash_visit_t ec_protect_free_one;
 
 /* Invariants checking */
 #ifndef NDEBUG
-static void ec_protect_check_one(void *arg, void *value);
+static s3b_hash_visit_t ec_protect_check_one;
 static void ec_protect_check_invariants(struct ec_protect_private *priv);
 
 #define EC_PROTECT_CHECK_INVARIANTS(priv)     ec_protect_check_invariants(priv)
@@ -649,10 +649,11 @@ ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, ui
     return time_after - time_before;
 }
 
-static void
+static int
 ec_protect_free_one(void *arg, void *value)
 {
     free(value);
+    return 0;
 }
 
 #ifndef NDEBUG
@@ -664,7 +665,7 @@ struct check_info {
     u_int   writing;
 };
 
-static void
+static int
 ec_protect_check_one(void *arg, void *value)
 {
     struct block_info *const binfo = value;
@@ -674,6 +675,7 @@ ec_protect_check_one(void *arg, void *value)
         info->writing++;
     else
         info->written++;
+    return 0;
 }
 
 static void

@@ -205,7 +205,7 @@ static void *block_cache_worker_main(void *arg);
 static int block_cache_check_cancel(void *arg, s3b_block_t block_num);
 static int block_cache_get_entry(struct block_cache_private *priv, struct cache_entry **entryp, void **datap);
 static void block_cache_free_entry(struct block_cache_private *priv, struct cache_entry **entryp);
-static void block_cache_free_one(void *arg, void *value);
+static s3b_hash_visit_t block_cache_free_one;
 static struct cache_entry *block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
@@ -220,7 +220,7 @@ static int block_cache_write_data(struct block_cache_private *priv, struct cache
 /* Invariants checking */
 #ifndef NDEBUG
 static void block_cache_check_invariants(struct block_cache_private *priv, int allow_stopping);
-static void block_cache_check_one(void *arg, void *value);
+static s3b_hash_visit_t block_cache_check_one;
 #define S3BCACHE_CHECK_INVARIANTS(priv, allow_stopping)     block_cache_check_invariants(priv, allow_stopping)
 #else
 #define S3BCACHE_CHECK_INVARIANTS(priv, allow_stopping)     do { } while (0)
@@ -1338,7 +1338,7 @@ block_cache_get_time_millis(void)
     return (uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000;
 }
 
-static void
+static int
 block_cache_free_one(void *arg, void *value)
 {
     struct block_cache_private *const priv = arg;
@@ -1348,6 +1348,7 @@ block_cache_free_one(void *arg, void *value)
     if (config->cache_file == NULL)
         free(entry->u.data);
     free(entry);
+    return 0;
 }
 
 /*
@@ -1507,7 +1508,7 @@ block_cache_check_invariants(struct block_cache_private *priv, int allow_stoppin
     assert(priv->ra_count <= config->read_ahead);
 }
 
-static void
+static int
 block_cache_check_one(void *arg, void *value)
 {
     struct cache_entry *const entry = value;
@@ -1537,6 +1538,7 @@ block_cache_check_one(void *arg, void *value)
         assert(0);
         break;
     }
+    return 0;
 }
 #endif
 
