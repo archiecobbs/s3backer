@@ -42,6 +42,7 @@
 #include "http_io.h"
 #include "test_io.h"
 #include "s3b_config.h"
+#include "util.h"
 
 /* Definitions */
 #define NUM_THREADS     10
@@ -63,7 +64,6 @@ static void logit(int id, const char *fmt, ...) __attribute__ ((__format__ (__pr
 static uint64_t get_time(void);
 
 /* Internal variables */
-static void *zero_block;
 static pthread_mutex_t mutex;
 static struct s3b_config *config;
 static struct s3backer_store *store;
@@ -90,10 +90,6 @@ main(int argc, char **argv)
 
     /* Allocate block states */
     if ((blocks = calloc(config->num_blocks, sizeof(*blocks))) == NULL)
-        err(1, "calloc");
-
-    /* Create zero block */
-    if ((zero_block = calloc(1, config->block_size)) == NULL)
         err(1, "calloc");
 
     /* Random initialization */

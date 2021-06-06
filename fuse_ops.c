@@ -42,6 +42,7 @@
 #include "http_io.h"
 #include "test_io.h"
 #include "s3b_config.h"
+#include "util.h"
 
 /****************************************************************************
  *                              DEFINITIONS                                 *
@@ -581,7 +582,6 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
     const u_int mask = config->block_size - 1;
     size_t size = (size_t)len;
     s3b_block_t block_num;
-    void *zero_block;
     size_t num_blocks;
     int r;
 
@@ -603,10 +603,6 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
         return -EINVAL;
 */
 
-    /* Create an empty block */
-    if ((zero_block = calloc(1, config->block_size)) == NULL)
-        return -ENOMEM;
-
     /* Write first block fragment (if any) */
     if ((offset & mask) != 0) {
         size_t fragoff = (size_t)(offset & mask);
@@ -615,10 +611,8 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
         if (fraglen > size)
             fraglen = size;
         block_num = offset >> priv->block_bits;
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, zero_block)) != 0) {
-            free(zero_block);
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, zero_block)) != 0)
             return -r;
-        }
         offset += fraglen;
         size -= fraglen;
     }
@@ -629,25 +623,20 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
 
     /* Write intermediate complete blocks */
     while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, NULL, NULL, NULL, NULL)) != 0) {
-            free(zero_block);
+        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, NULL, NULL, NULL, NULL)) != 0)
             return -r;
-        }
     }
 
     /* Write last block fragment (if any) */
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, zero_block)) != 0) {
-            free(zero_block);
+        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, zero_block)) != 0)
             return -r;
-        }
     }
 
     /* Done */
     priv->file_mtime = time(NULL);
-    free(zero_block);
     return 0;
 }
 #endif

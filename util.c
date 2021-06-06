@@ -80,6 +80,9 @@ static const struct size_suffix size_suffixes[] = {
 /* Debug logging flag */
 int log_enable_debug;
 
+/* A block's worth of data containing only zero bytes */
+const void *zero_block;
+
 /* stderr logging mutex */
 static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 

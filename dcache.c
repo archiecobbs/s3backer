@@ -123,7 +123,6 @@ struct s3b_dcache {
     int                             fd;
     log_func_t                      *log;
     char                            *filename;
-    void                            *zero_block;
     u_int                           block_size;
     u_int                           max_blocks;
     u_int                           num_alloc;
@@ -185,16 +184,12 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
         r = errno;
         goto fail1;
     }
-    if ((priv->zero_block = calloc(1, block_size)) == NULL) {
-        r = errno;
-        goto fail2;
-    }
 
     /* Create cache file if it doesn't already exist */
     if (stat(priv->filename, &sb) == -1 && errno == ENOENT) {
         (*priv->log)(LOG_NOTICE, "creating new cache file `%s' with capacity %u blocks", priv->filename, priv->max_blocks);
         if ((r = s3b_dcache_create_file(priv, &priv->fd, priv->filename, priv->max_blocks, NULL)) != 0)
-            goto fail3;
+            goto fail2;
         (void)close(priv->fd);
         priv->fd = -1;
     }
@@ -205,13 +200,13 @@ retry:
     if ((priv->fd = open(priv->filename, O_RDWR, 0)) == -1) {
         r = errno;
         (*priv->log)(LOG_ERR, "can't open cache file `%s': %s", priv->filename, strerror(r));
-        goto fail3;
+        goto fail2;
     }
 
     /* Get file info */
     if (fstat(priv->fd, &sb) == -1) {
         r = errno;
-        goto fail4;
+        goto fail3;
     }
 
     /* Read in header with backward compatible support for older header format */
@@ -219,11 +214,11 @@ retry:
         (*priv->log)(LOG_ERR, "invalid cache file `%s': file is truncated (size %ju < %u)",
           priv->filename, (uintmax_t)sb.st_size, (u_int)sizeof(oheader));
         r = EINVAL;
-        goto fail4;
+        goto fail3;
     }
     if ((r = s3b_dcache_read(priv, (off_t)0, &oheader, sizeof(oheader))) != 0) {
         (*priv->log)(LOG_ERR, "can't read cache file `%s' header: %s", priv->filename, strerror(r));
-        goto fail4;
+        goto fail3;
     }
     switch (oheader.header_size) {
     case sizeof(oheader):                               /* old format */
@@ -233,13 +228,13 @@ retry:
     case sizeof(header):                                /* new format */
         if ((r = s3b_dcache_read(priv, (off_t)0, &header, sizeof(header))) != 0) {
             (*priv->log)(LOG_ERR, "can't read cache file `%s' header: %s", priv->filename, strerror(r));
-            goto fail4;
+            goto fail3;
         }
         break;
     default:
         (*priv->log)(LOG_ERR, "invalid cache file `%s': %s %d", priv->filename, "invalid header size", (int)oheader.header_size);
         r = EINVAL;
-        goto fail4;
+        goto fail3;
     }
 
     /* Verify header - all but number of blocks */
@@ -247,36 +242,36 @@ retry:
     if (header.signature != DCACHE_SIGNATURE) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': wrong signature %08x != %08x",
           priv->filename, header.signature, DCACHE_SIGNATURE);
-        goto fail4;
+        goto fail3;
     }
     if (header.header_size != HDR_SIZE(header.flags)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': %s %d != %d",
           priv->filename, "invalid header size", (int)header.header_size, (int)HDR_SIZE(header.flags));
-        goto fail4;
+        goto fail3;
     }
     if (header.u_int_size != sizeof(u_int)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with sizeof(u_int) %u != %u",
           priv->filename, header.u_int_size, (u_int)sizeof(u_int));
-        goto fail4;
+        goto fail3;
     }
     if (header.s3b_block_t_size != sizeof(s3b_block_t)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with sizeof(s3b_block_t) %u != %u",
           priv->filename, header.s3b_block_t_size, (u_int)sizeof(s3b_block_t));
-        goto fail4;
+        goto fail3;
     }
     if (header.block_size != priv->block_size) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with block size %u != %u",
           priv->filename, header.block_size, priv->block_size);
-        goto fail4;
+        goto fail3;
     }
     if (header.data_align != getpagesize()) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': created with alignment %u != %u",
           priv->filename, header.data_align, getpagesize());
-        goto fail4;
+        goto fail3;
     }
     if ((header.flags & ~HDRFLG_MASK) != 0) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': %s", priv->filename, "unrecognized flags present");
-        goto fail4;
+        goto fail3;
     }
     priv->flags = header.flags;
 
@@ -286,7 +281,7 @@ retry:
           priv->filename, header.max_blocks, priv->max_blocks, header.max_blocks < priv->max_blocks ?
            "expanding" : "shrinking");
         if ((r = s3b_dcache_resize_file(priv, &header)) != 0)
-            goto fail4;
+            goto fail3;
         (*priv->log)(LOG_INFO, "successfully resized cache file `%s' from %u to %u blocks",
           priv->filename, header.max_blocks, priv->max_blocks);
         goto retry;
@@ -296,7 +291,7 @@ retry:
     if (sb.st_size < DIR_OFFSET(priv->flags, priv->max_blocks)) {
         (*priv->log)(LOG_ERR, "invalid cache file `%s': file is truncated (size %ju < %ju)",
           priv->filename, (uintmax_t)sb.st_size, (uintmax_t)DIR_OFFSET(priv->flags, priv->max_blocks));
-        goto fail4;
+        goto fail3;
     }
 
     /* Compute offset of first data block */
@@ -304,7 +299,7 @@ retry:
 
     /* Read the directory to build the free list and visit allocated blocks */
     if (visitor != NULL && (r = s3b_dcache_init_free_list(priv, visitor, arg, visit_dirty)) != 0)
-        goto fail4;
+        goto fail3;
 
 #if HAVE_SYS_STATVFS_H
 
@@ -332,10 +327,8 @@ retry:
     *dcachep = priv;
     return 0;
 
-fail4:
-    close(priv->fd);
 fail3:
-    free(priv->zero_block);
+    close(priv->fd);
 fail2:
     free(priv->filename);
 fail1:
@@ -380,7 +373,6 @@ void
 s3b_dcache_close(struct s3b_dcache *priv)
 {
     close(priv->fd);
-    free(priv->zero_block);
     free(priv->filename);
     free(priv->free_list);
     free(priv);
@@ -542,7 +534,7 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
     assert(off + len <= priv->block_size);
 
     /* Write data */
-    return s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : priv->zero_block, len);
+    return s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : zero_block, len);
 }
 
 /*

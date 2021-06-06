@@ -38,6 +38,7 @@
 #include "http_io.h"
 #include "block_part.h"
 #include "test_io.h"
+#include "util.h"
 
 /* Do we want random errors? */
 #define RANDOM_ERROR_PERCENT    0
@@ -45,7 +46,6 @@
 /* Internal state */
 struct test_io_private {
     struct test_io_conf         *config;
-    u_char                      zero_block[0];
 };
 
 /* s3backer_store functions */
@@ -86,7 +86,7 @@ test_io_create(struct test_io_conf *config)
     s3b->survey_zeros = test_io_survey_zeros;
     s3b->shutdown = test_io_shutdown;
     s3b->destroy = test_io_destroy;
-    if ((priv = calloc(1, sizeof(*priv) + config->block_size)) == NULL) {
+    if ((priv = calloc(1, sizeof(*priv))) == NULL) {
         free(s3b);
         errno = ENOMEM;
         return NULL;
@@ -146,7 +146,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     u_char md5[MD5_DIGEST_LENGTH];
     char path[PATH_MAX];
-    int zero_block;
+    int is_zero_block;
     MD5_CTX ctx;
     int fd;
     int r;
@@ -205,7 +205,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Convert ENOENT into a read of all zeros */
-    if ((zero_block = (r == ENOENT))) {
+    if ((is_zero_block = (r == ENOENT))) {
         memset(dest, 0, config->block_size);
         r = 0;
     }
@@ -217,7 +217,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Compute MD5 */
-    if (zero_block)
+    if (is_zero_block)
         memset(md5, 0, MD5_DIGEST_LENGTH);
     else {
         MD5_Init(&ctx);
@@ -259,7 +259,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
           (u_int)md5[4], (u_int)md5[5], (u_int)md5[6], (u_int)md5[7],
           (u_int)md5[8], (u_int)md5[9], (u_int)md5[10], (u_int)md5[11],
           (u_int)md5[12], (u_int)md5[13], (u_int)md5[14], (u_int)md5[15],
-          zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
+          is_zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
     }
 
     /* Done */
@@ -282,7 +282,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     int r;
 
     /* Check for zero block */
-    if (src != NULL && memcmp(src, priv->zero_block, config->block_size) == 0)
+    if (src != NULL && memcmp(src, zero_block, config->block_size) == 0)
         src = NULL;
 
     /* Compute MD5 */

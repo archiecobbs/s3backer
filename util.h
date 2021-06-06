@@ -38,6 +38,8 @@ typedef uintptr_t bitmap_t;
 
 extern int log_enable_debug;
 
+extern const void *zero_block;
+
 extern int parse_size_string(const char *s, uintmax_t *valp);
 extern void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
 extern void describe_size(char *buf, size_t bmax, uintmax_t value);

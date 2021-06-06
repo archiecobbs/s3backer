@@ -1561,6 +1561,12 @@ validate_config(void)
     }
     config.num_blocks = (s3b_block_t)big_num_blocks;
 
+    /* Allocate zero block */
+    if ((zero_block = calloc(1, config.block_size)) == NULL) {
+        warn("calloc");
+        return -1;
+    }
+
     /* Check block size vs. encryption block size */
     if (config.http_io.encryption != NULL && config.block_size % EVP_MAX_IV_LENGTH != 0) {
         warnx("block size must be at least %u when encryption is enabled", EVP_MAX_IV_LENGTH);
