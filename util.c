@@ -188,6 +188,13 @@ bitmap_init(s3b_block_t num_blocks)
     return calloc(bitmap_size(num_blocks), sizeof(bitmap_t));
 }
 
+void
+bitmap_free(bitmap_t **bitmapp)
+{
+    free(*bitmapp);
+    *bitmapp = NULL;
+}
+
 int
 bitmap_test(const bitmap_t *bitmap, s3b_block_t block_num)
 {

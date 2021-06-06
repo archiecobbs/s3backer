@@ -545,7 +545,7 @@ http_io_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
-    free(priv->non_zero);
+    bitmap_free(&priv->non_zero);
     free(priv);
     free(s3b);
 }
