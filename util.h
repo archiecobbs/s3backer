@@ -36,6 +36,13 @@
 
 typedef uintptr_t bitmap_t;
 
+/* A list of block numbers */
+struct block_list {
+    s3b_block_t     *blocks;
+    s3b_block_t     num_alloc;
+    s3b_block_t     num_blocks;
+};
+
 extern int log_enable_debug;
 
 extern const void *zero_block;
@@ -47,6 +54,8 @@ extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__for
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
+
+/* Bitmaps */
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
 extern void bitmap_free(bitmap_t **bitmapp);
 extern size_t bitmap_size(s3b_block_t num_blocks);
@@ -55,3 +64,8 @@ extern void bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value);
 extern void bitmap_and(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
 extern void bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
 extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);
+
+/* Block lists */
+extern void block_list_init(struct block_list *list);
+extern int block_list_append(struct block_list *list, s3b_block_t block_num);
+extern void block_list_free(struct block_list *list);

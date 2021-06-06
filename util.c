@@ -280,6 +280,36 @@ block_is_zeros(const void *data, u_int block_size)
 }
 
 void
+block_list_init(struct block_list *list)
+{
+    memset(list, 0, sizeof(*list));
+}
+
+int
+block_list_append(struct block_list *list, s3b_block_t block_num)
+{
+    s3b_block_t *new_blocks;
+    s3b_block_t new_alloc;
+
+    if (list->num_alloc <= list->num_blocks) {
+        new_alloc = (list->num_blocks * 2) + 13;
+        if ((new_blocks = realloc(list->blocks, new_alloc * sizeof(*list->blocks))) == NULL)
+            return errno;
+        list->blocks = new_blocks;
+        list->num_alloc = new_alloc;
+    }
+    list->blocks[list->num_blocks++] = block_num;
+    return 0;
+}
+
+void
+block_list_free(struct block_list *list)
+{
+    free(list->blocks);
+    memset(list, 0, sizeof(*list));
+}
+
+void
 syslog_logger(int level, const char *fmt, ...)
 {
     va_list args;
