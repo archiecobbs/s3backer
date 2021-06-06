@@ -1099,18 +1099,21 @@ http_io_create_threads(struct s3backer_store *s3b)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    int r;
+    int r = 0;
 
     /* Start IAM updater thread if appropriate */
+    pthread_mutex_lock(&priv->mutex);
     if (config->ec2iam_role != NULL) {
         assert(!priv->iam_thread_alive);
-        if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) != 0)
-            return r;
-        priv->iam_thread_alive = 1;
+        if ((r = pthread_create(&priv->iam_thread, NULL, update_iam_credentials_main, priv)) == 0)
+            priv->iam_thread_alive = 1;
+        else
+            (*config->log)(LOG_ERR, "failed to create IAM updater thread: %s", strerror(r));
     }
+    pthread_mutex_unlock(&priv->mutex);
 
     /* Done */
-    return 0;
+    return r;
 }
 
 static int
