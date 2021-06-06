@@ -50,3 +50,6 @@ extern void bitmap_free(bitmap_t **bitmapp);
 extern size_t bitmap_size(s3b_block_t num_blocks);
 extern int bitmap_test(const bitmap_t *bitmap, s3b_block_t block_num);
 extern void bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value);
+extern void bitmap_and(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
+extern void bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
+extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);

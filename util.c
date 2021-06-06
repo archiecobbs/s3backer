@@ -228,6 +228,36 @@ bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value)
         bitmap[index] &= ~bit;
 }
 
+void
+bitmap_and(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks)
+{
+    const size_t nwords = bitmap_size(num_blocks);
+    size_t i;
+
+    for (i = 0; i < nwords; i++)
+        dst[i] &= src[i];
+}
+
+void
+bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks)
+{
+    const size_t nwords = bitmap_size(num_blocks);
+    size_t i;
+
+    for (i = 0; i < nwords; i++)
+        dst[i] |= src[i];
+}
+
+void
+bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks)
+{
+    const size_t nwords = bitmap_size(num_blocks);
+    size_t i;
+
+    for (i = 0; i < nwords; i++)
+        bitmap[i] = ~bitmap[i];
+}
+
 int
 block_is_zeros(const void *data, u_int block_size)
 {
