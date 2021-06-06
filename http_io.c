@@ -510,22 +510,7 @@ static void
 http_io_destroy(struct s3backer_store *const s3b)
 {
     struct http_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
     struct curl_holder *holder;
-    int r;
-
-    /* Shut down IAM thread */
-    if (priv->iam_thread_alive) {
-        (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
-        priv->iam_thread_shutdown = 1;
-        if ((r = pthread_cancel(priv->iam_thread)) != 0)
-            (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
-        if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
-            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
-        else
-            (*config->log)(LOG_DEBUG, "EC2 IAM thread successfully shutdown");
-        priv->iam_thread_alive = 0;
-    }
 
     /* Clean up openssl */
     while (num_openssl_locks > 0)
@@ -553,6 +538,32 @@ http_io_destroy(struct s3backer_store *const s3b)
 static int
 http_io_shutdown(struct s3backer_store *const s3b)
 {
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    int r;
+
+    /* Shut down IAM thread, if any */
+    pthread_mutex_lock(&priv->mutex);
+    if (priv->iam_thread_alive) {
+
+        /* Make IAM thread stop */
+        priv->iam_thread_shutdown = 1;
+        if ((r = pthread_cancel(priv->iam_thread)) != 0)
+            (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
+        priv->iam_thread_alive = 0;
+
+        /* Reap IAM thread */
+        pthread_mutex_unlock(&priv->mutex);
+        (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
+        if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
+        else
+            (*config->log)(LOG_DEBUG, "EC2 IAM thread successfully shutdown");
+        pthread_mutex_lock(&priv->mutex);
+    }
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
     return 0;
 }
 
