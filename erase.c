@@ -43,6 +43,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "erase.h"
+#include "util.h"
 
 #define BLOCKS_PER_DOT          0x100
 #define MAX_QUEUE_LENGTH        100000
@@ -57,9 +58,11 @@ struct erase_state {
     int                         quiet;
     int                         stopping;
     uintmax_t                   count;
+    bitmap_t                    *seen;
     pthread_mutex_t             mutex;
     pthread_cond_t              thread_wakeup;
     pthread_cond_t              queue_not_full;
+    pthread_cond_t              queue_empty;
 };
 
 /* Internal functions */
@@ -106,9 +109,18 @@ s3backer_erase(struct s3b_config *config)
         warnx("pthread_cond_init: %s", strerror(r));
         goto fail2;
     }
+    if ((r = pthread_cond_init(&priv->queue_empty, NULL)) != 0) {
+        warnx("pthread_cond_init: %s", strerror(r));
+        goto fail3;
+    }
+    if ((priv->seen = bitmap_init(config->num_blocks, 0)) == NULL) {
+        r = errno;
+        warnx("calloc: %s", strerror(r));
+        goto fail4;
+    }
     for (num_threads = 0; num_threads < NUM_ERASURE_THREADS; num_threads++) {
         if ((r = pthread_create(&priv->threads[num_threads], NULL, erase_thread_main, priv)) != 0)
-            goto fail3;
+            goto fail5;
     }
 
     /* Logging */
@@ -120,26 +132,32 @@ s3backer_erase(struct s3b_config *config)
     /* Create temporary lower layer */
     if ((priv->s3b = config->test ? test_io_create(&config->test_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
-        goto fail3;
+        goto fail5;
     }
 
     /* Iterate over non-zero blocks */
     if ((r = (*(config->test ? test_io_list_blocks : http_io_list_blocks))(priv->s3b, erase_list_callback, priv)) != 0) {
         warnx("can't list blocks: %s", strerror(r));
-        goto fail3;
+        goto fail5;
     }
+
+    /* Wait for queue to drain */
+    pthread_mutex_lock(&priv->mutex);
+    while (priv->qlen > 0)
+        pthread_cond_wait(&priv->queue_empty, &priv->mutex);
+    pthread_mutex_unlock(&priv->mutex);
 
     /* Clear mount token */
     if ((r = (*priv->s3b->set_mount_token)(priv->s3b, NULL, 0)) != 0) {
         warnx("can't clear mount token: %s", strerror(r));
-        goto fail3;
+        goto fail5;
     }
 
     /* Success */
     ok = 1;
 
     /* Clean up */
-fail3:
+fail5:
     pthread_mutex_lock(&priv->mutex);
     priv->stopping = 1;
     pthread_cond_broadcast(&priv->thread_wakeup);
@@ -156,6 +174,10 @@ fail3:
         (*priv->s3b->shutdown)(priv->s3b);
         (*priv->s3b->destroy)(priv->s3b);
     }
+    bitmap_free(&priv->seen);
+fail4:
+    pthread_cond_destroy(&priv->queue_empty);
+fail3:
     pthread_cond_destroy(&priv->queue_not_full);
 fail2:
     pthread_cond_destroy(&priv->thread_wakeup);
@@ -172,9 +194,14 @@ erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 
     pthread_mutex_lock(&priv->mutex);
     while (num_blocks-- > 0) {
+        const s3b_block_t block_num = *block_nums++;
+
+        if (bitmap_test(priv->seen, block_num))
+            continue;                                           // already reported to us
+        bitmap_set(priv->seen, block_num, 1);
         while (priv->qlen == MAX_QUEUE_LENGTH)
             pthread_cond_wait(&priv->queue_not_full, &priv->mutex);
-        priv->queue[priv->qlen++] = *block_nums++;
+        priv->queue[priv->qlen++] = block_num;
     }
     pthread_cond_broadcast(&priv->thread_wakeup);
     pthread_mutex_unlock(&priv->mutex);
@@ -201,6 +228,8 @@ erase_thread_main(void *arg)
             if (priv->qlen == MAX_QUEUE_LENGTH)
                 pthread_cond_broadcast(&priv->queue_not_full);
             block_num = priv->queue[--priv->qlen];
+            if (priv->qlen == 0)
+                pthread_cond_signal(&priv->queue_empty);
 
             /* Do block deletion */
             pthread_mutex_unlock(&priv->mutex);
