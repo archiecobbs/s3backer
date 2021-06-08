@@ -157,6 +157,16 @@ struct curl_holder {
     LIST_ENTRY(curl_holder)     link;
 };
 
+/* Block survey per-thread info */
+struct http_io_survey {
+    struct http_io_private      *priv;
+    pthread_t                   thread;
+    s3b_block_t                 min_name;
+    s3b_block_t                 max_name;
+    block_list_func_t           *callback;
+    void                        *callback_arg;
+};
+
 /* Internal state */
 struct http_io_private {
     struct http_io_conf         *config;
@@ -167,6 +177,13 @@ struct http_io_private {
     pthread_t                   iam_thread;                     // IAM credentials refresh thread
     u_char                      iam_thread_alive;               // IAM thread was successfully created
     u_char                      iam_thread_shutdown;            // Flag to the IAM thread telling it to exit
+
+    /* Block survey info */
+    struct http_io_survey       *survey_threads;                // survey threads that are running now, if any
+    u_int                       num_survey_threads;             // length of "survey_threads" array
+    pthread_cond_t              survey_done;                    // indicates last survey thread has finished
+    volatile int                abort_survey;                   // set to 1 to abort block survey
+    int                         survey_error;                   // error from any survey thread
 
     /* Encryption info */
     const EVP_CIPHER            *cipher;
@@ -234,18 +251,6 @@ struct http_io {
     size_t              error_payload_len;      // error response length
 };
 
-/* List blocks per-thread info */
-struct http_io_list_blocks {
-    struct http_io_private      *priv;
-    pthread_t                   thread;
-    s3b_block_t                 min_name;
-    s3b_block_t                 max_name;
-    block_list_func_t           *callback;
-    void                        *callback_arg;
-    int                         return_value;
-    volatile int                abort;
-};
-
 /* CURL prepper function type */
 typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
@@ -259,7 +264,7 @@ static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int http_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
+static int http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_shutdown(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
 
@@ -284,7 +289,7 @@ static void *update_iam_credentials_main(void *arg);
 static int update_iam_credentials(struct http_io_private *priv);
 static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
-/* Bucket listing functions */
+/* Block survey functions */
 static int http_io_list_blocks_range(struct http_io_private *priv,
     s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg);
 static void *http_io_list_blocks_worker_main(void *arg);
@@ -293,6 +298,7 @@ static void http_io_list_elem_start(void *arg, const XML_Char *name, const XML_C
 static void http_io_list_elem_end(void *arg, const XML_Char *name);
 static void http_io_list_text(void *arg, const XML_Char *s, int len);
 static block_list_func_t http_io_list_blocks_callback;
+static void http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv);
 
 /* HTTP and curl functions */
 static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper);
@@ -367,7 +373,7 @@ http_io_create(struct http_io_conf *config)
     s3b->write_block = http_io_write_block;
     s3b->read_block_part = http_io_read_block_part;
     s3b->write_block_part = http_io_write_block_part;
-    s3b->survey_zeros = http_io_survey_zeros;
+    s3b->survey_non_zero = http_io_survey_non_zero;
     s3b->shutdown = http_io_shutdown;
     s3b->destroy = http_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -377,6 +383,9 @@ http_io_create(struct http_io_conf *config)
     priv->config = config;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
+    if ((r = pthread_cond_init(&priv->survey_done, NULL)) != 0) {
+        goto fail3;
+    }
     LIST_INIT(&priv->curls);
     s3b->data = priv;
 
@@ -384,11 +393,11 @@ http_io_create(struct http_io_conf *config)
     num_openssl_locks = CRYPTO_num_locks();
     if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
         r = errno;
-        goto fail3;
+        goto fail4;
     }
     for (nlocks = 0; nlocks < num_openssl_locks; nlocks++) {
         if ((r = pthread_mutex_init(&openssl_locks[nlocks], NULL)) != 0)
-            goto fail4;
+            goto fail5;
     }
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
@@ -413,14 +422,14 @@ http_io_create(struct http_io_conf *config)
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
             (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
         cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
             (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
 
         /* Sanity check cipher is a block cipher */
@@ -430,7 +439,7 @@ http_io_create(struct http_io_conf *config)
             (*config->log)(LOG_ERR, "invalid cipher `%s' (block size %u, IV length %u); only block ciphers are supported",
               config->encryption, cipher_block_size, cipher_iv_length);
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
 
         /* Hash password to get bulk data encryption key */
@@ -439,7 +448,7 @@ http_io_create(struct http_io_conf *config)
           (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
 
         /* Hash the bulk encryption key to get the IV encryption key */
@@ -447,7 +456,7 @@ http_io_create(struct http_io_conf *config)
           priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
-            goto fail4;
+            goto fail5;
         }
 
         /* Encryption debug */
@@ -467,7 +476,7 @@ http_io_create(struct http_io_conf *config)
 
     /* Initialize IAM credentials */
     if (config->ec2iam_role != NULL && (r = update_iam_credentials(priv)) != 0)
-        goto fail5;
+        goto fail6;
 
     /* Take ownership of non-zero block bitmap */
     priv->non_zero = config->nonzero_bitmap;
@@ -476,14 +485,14 @@ http_io_create(struct http_io_conf *config)
     /* Done */
     return s3b;
 
-fail5:
+fail6:
     while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
         LIST_REMOVE(holder, link);
         free(holder);
     }
     curl_global_cleanup();
-fail4:
+fail5:
     CRYPTO_set_locking_callback(NULL);
     CRYPTO_set_id_callback(NULL);
     while (nlocks > 0)
@@ -491,6 +500,8 @@ fail4:
     free(openssl_locks);
     openssl_locks = NULL;
     num_openssl_locks = 0;
+fail4:
+    pthread_cond_destroy(&priv->survey_done);
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
@@ -529,6 +540,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     curl_global_cleanup();
 
     /* Free structures */
+    pthread_cond_destroy(&priv->survey_done);
     pthread_mutex_destroy(&priv->mutex);
     bitmap_free(&priv->non_zero);
     free(priv);
@@ -542,8 +554,13 @@ http_io_shutdown(struct s3backer_store *const s3b)
     struct http_io_conf *const config = priv->config;
     int r;
 
-    /* Shut down IAM thread, if any */
+    /* Signal survey threads to stop */
+    priv->abort_survey = 1;
+
+    /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
+
+    /* Shut down IAM thread, if any */
     if (priv->iam_thread_alive) {
 
         /* Make IAM thread stop */
@@ -561,6 +578,11 @@ http_io_shutdown(struct s3backer_store *const s3b)
             (*config->log)(LOG_DEBUG, "EC2 IAM thread successfully shutdown");
         pthread_mutex_lock(&priv->mutex);
     }
+
+    /* Wait for block survey threads to exit, if any */
+    http_io_wait_for_survey_threads_to_exit(priv);
+
+    /* Unlock mutex */
     pthread_mutex_unlock(&priv->mutex);
 
     /* Done */
@@ -588,33 +610,70 @@ http_io_clear_stats(struct s3backer_store *s3b)
 }
 
 static int
-http_io_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
-    size_t max_index;
-    size_t index;
+    const int max_threads = config->list_blocks_threads;
+    s3b_block_t last_possible_name;
     int r = 0;
 
-    /* Grab mutex */
+    /* Determine the last possible block name we need to scan for */
+    last_possible_name = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
+
+    /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
+    assert(priv->num_survey_threads == 0);
 
-    /* Do we have knowledge of zero blocks? */
-    if (priv->non_zero == NULL) {
-        *zerosp = NULL;
+    /* Allocate survey_threads array */
+    if (priv->num_survey_threads != 0) {
+        r = EINPROGRESS;
         goto done;
     }
-
-    /* Allocate bitmap */
-    if ((*zerosp = bitmap_init(config->num_blocks, 0)) == NULL) {
+    if ((priv->survey_threads = calloc(max_threads, sizeof(*priv->survey_threads))) == NULL) {
         r = errno;
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(r));
         goto done;
     }
 
-    /* Copy and invert our "non-zero" bitmap into "zero" bitmap */
-    max_index = bitmap_size(config->num_blocks);
-    for (index = 0; index < max_index; index++)
-        (*zerosp)[index] = ~priv->non_zero[index];
+    /* Initialize per-thread infos and start threads */
+    priv->survey_error = 0;
+    while (priv->num_survey_threads < max_threads) {
+        const int thread_index = priv->num_survey_threads;
+        struct http_io_survey *const survey = &priv->survey_threads[thread_index];
+
+        /* Configure this thread */
+        survey->priv = priv;
+        survey->callback = callback;
+        survey->callback_arg = arg;
+
+        /* Configure this thread's portion of the range, but being careful to handle weird corner cases */
+        survey->min_name = thread_index > 0 ? survey[thread_index - 1].max_name + 1 : (s3b_block_t)0;
+        if (survey->min_name > last_possible_name)
+            survey->min_name = last_possible_name;
+        if (thread_index == max_threads - 1)
+            survey->max_name = last_possible_name;
+        else {
+            survey->max_name = ((off_t)last_possible_name * (thread_index + 1)) / max_threads;
+            if (survey->max_name < survey->min_name)
+                survey->max_name = survey->min_name;
+            if (survey->max_name > last_possible_name)
+                survey->max_name = last_possible_name;
+        }
+
+        /* Start this thread */
+        if ((r = pthread_create(&survey->thread, NULL, http_io_list_blocks_worker_main, survey)) != 0) {
+            (*config->log)(LOG_ERR, "pthread_create: %s", strerror(r));
+            priv->abort_survey = 1;
+            break;
+        }
+        priv->num_survey_threads++;
+    }
+
+    /* Wait for survey threads to finish */
+    http_io_wait_for_survey_threads_to_exit(priv);
+    if (r == 0)
+        r = priv->survey_error;
 
 done:
     /* Done */
@@ -622,92 +681,46 @@ done:
     return r;
 }
 
-int
-http_io_list_blocks(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
+// This assumes the mutex is locked
+static void
+http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv)
 {
-    struct http_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
-    const int max_threads = config->list_blocks_threads;
-    struct http_io_list_blocks infos[max_threads];
-    s3b_block_t last_possible_name;
-    int num_threads;
-    int r = 0;
-    int i;
+    /* Wait for all survey threads to finish */
+    while (priv->num_survey_threads > 0)
+        pthread_cond_wait(&priv->survey_done, &priv->mutex);
 
-    /* Determine the last possible block name we need to scan for */
-    last_possible_name = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
-
-    /* Initialize per-thread infos and start threads */
-    memset(&infos, 0, sizeof(infos));
-    for (num_threads = 0; num_threads < max_threads; num_threads++) {
-        struct http_io_list_blocks *const info = &infos[num_threads];
-
-        /* Configure this thread */
-        info->priv = priv;
-        info->callback = callback;
-        info->callback_arg = arg;
-
-        /* Configure this thread's portion of the range, but being careful to handle weird corner cases */
-        info->min_name = num_threads > 0 ? infos[num_threads - 1].max_name + 1 : (s3b_block_t)0;
-        if (info->min_name > last_possible_name)
-            info->min_name = last_possible_name;
-        if (num_threads == max_threads - 1)
-            info->max_name = last_possible_name;
-        else {
-            info->max_name = ((off_t)last_possible_name * (num_threads + 1)) / max_threads;
-            if (info->max_name < info->min_name)
-                info->max_name = info->min_name;
-            if (info->max_name > last_possible_name)
-                info->max_name = last_possible_name;
-        }
-
-        /* Start thread */
-        if ((r = pthread_create(&info->thread, NULL, http_io_list_blocks_worker_main, info)) != 0) {
-            (*config->log)(LOG_ERR, "pthread_create: %s", strerror(r));
-            for (i = 0; i < num_threads; i++)                       // tell the already-started threads to bail out
-                infos[i].abort = 1;
-            break;
-        }
-    }
-
-    /* Wait for all (started) threads to finish, and check for any per-thread errors */
-    for (i = 0; i < num_threads; i++) {
-        struct http_io_list_blocks *const info = &infos[i];
-        int r2;
-
-        if ((r2 = pthread_join(info->thread, NULL)) != 0)
-            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r2));
-        if (r == 0)
-            r = info->return_value;
-    }
-
-    /* Done */
-    return r;
+    /* Reset state */
+    free(priv->survey_threads);
+    priv->survey_threads = NULL;
 }
 
 static void *
 http_io_list_blocks_worker_main(void *arg)
 {
-    struct http_io_list_blocks *const info = arg;
+    struct http_io_survey *const info = arg;
     struct http_io_private *const priv = info->priv;
+    int r = 0;
 
-    /* Anything for me to do? */
-    if (info->min_name > info->max_name)
-        return NULL;
+    /* Scan my range (if non-empty) */
+    if (info->min_name <= info->max_name)
+        r = http_io_list_blocks_range(priv, info->min_name, info->max_name, http_io_list_blocks_callback, info);
 
-    /* Scan my range */
-    info->return_value = http_io_list_blocks_range(priv, info->min_name, info->max_name, http_io_list_blocks_callback, info);
-
-    /* Done */
+    /* Finish up */
+    pthread_mutex_lock(&priv->mutex);
+    if (priv->survey_error == 0)
+        priv->survey_error = r;
+    if (priv->num_survey_threads > 0 && --priv->num_survey_threads == 0)
+        pthread_cond_broadcast(&priv->survey_done);
+    pthread_mutex_unlock(&priv->mutex);
     return NULL;
 }
 
 static int
 http_io_list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
 {
-    struct http_io_list_blocks *const info = arg;
+    struct http_io_survey *const info = arg;
 
-    if (info->abort)
+    if (info->priv->abort_survey)
         return ECANCELED;
     return (*info->callback)(info->callback_arg, block_nums, num_blocks);
 }

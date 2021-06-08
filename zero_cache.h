@@ -38,6 +38,7 @@
 struct zero_cache_conf {
     u_int               block_size;
     s3b_block_t         num_blocks;
+    int                 list_blocks;
     log_func_t          *log;
 };
 

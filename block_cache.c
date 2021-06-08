@@ -174,6 +174,8 @@ struct block_cache_private {
     u_int                           thread_id;      // next thread id
     u_int                           num_threads;    // number of alive worker threads
     int                             stopping;       // signals worker threads to exit
+    block_list_func_t               *survey_callback;// non-zero survey is running and this is the callback
+    void                            *survey_arg;    // non-zero survey is running and this is the arg
     pthread_mutex_t                 mutex;          // my mutex
     pthread_cond_t                  space_avail;    // there is new space available in cache
     pthread_cond_t                  end_reading;    // some entry in state READING[2] changed state
@@ -192,12 +194,13 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int block_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
+static int block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int block_cache_shutdown(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
 
 /* Other functions */
 static s3b_dcache_visit_t block_cache_dcache_load;
+static s3b_hash_visit_t block_cache_append_block_list;
 static int block_cache_read(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_do_read(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, void *dest, int stats);
 static int block_cache_write(struct block_cache_private *priv, s3b_block_t block_num, u_int off, u_int len, const void *src);
@@ -253,7 +256,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
-    s3b->survey_zeros = block_cache_survey_zeros;
+    s3b->survey_non_zero = block_cache_survey_non_zero;
     s3b->shutdown = block_cache_shutdown;
     s3b->destroy = block_cache_destroy;
 
@@ -529,24 +532,56 @@ block_cache_clear_stats(struct s3backer_store *s3b)
 }
 
 static int
-block_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct block_cache_private *const priv = s3b->data;
-    struct cache_entry *entry;
+    struct block_list list;
     int r;
 
-    /* Invoke lower layer */
-    if ((r = (*priv->inner->survey_zeros)(priv->inner, zerosp)) != 0 || *zerosp == NULL)
-        return r;
-
-    /* Unset flag for dirty blocks */
+    /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
-    for (entry = TAILQ_FIRST(&priv->dirties); entry != NULL; entry = TAILQ_NEXT(entry, link))
-        bitmap_set(*zerosp, entry->block_num, 0);
+    assert(priv->survey_callback == NULL);
+
+    /* Record survey in progress */
+    priv->survey_callback = callback;
+    priv->survey_arg = arg;
+
+    /* Inventory all blocks currently in the cache; we don't bother trying to discern the zero blocks */
+    block_list_init(&list);
+    if ((r = s3b_hash_foreach(priv->hashtable, block_cache_append_block_list, &list)) != 0)
+        goto done;
+
+    /* Unlock mutex */
     pthread_mutex_unlock(&priv->mutex);
 
+    /* Report all blocks inventoried above */
+    (*callback)(arg, list.blocks, list.num_blocks);
+    block_list_free(&list);
+
+    /* Invoke lower layer */
+    r = (*priv->inner->survey_non_zero)(priv->inner, callback, arg);
+
+    /* Lock mutex */
+    pthread_mutex_lock(&priv->mutex);
+
+    /* Finish up */
+    assert(priv->survey_callback != NULL);
+    priv->survey_callback = NULL;
+    priv->survey_arg = NULL;
+
+done:
     /* Done */
-    return 0;
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
+}
+
+static int
+block_cache_append_block_list(void *arg, void *value)
+{
+    struct cache_entry *const entry = value;
+    struct block_list *const list = arg;
+
+    return block_list_append(list, entry->block_num);
 }
 
 static int
@@ -705,6 +740,10 @@ again:
     /* Update stats */
     if (stats)
         priv->stats.read_misses++;
+
+    /* Conservatively disqualify this block as zero in any ongoing non-zero survey */
+    if (priv->survey_callback != NULL)
+        (*priv->survey_callback)(priv->survey_arg, &block_num, 1);
 
 read:
     /* Read the block from the underlying s3backer_store */
@@ -887,6 +926,10 @@ again:
         }
         goto success;
     }
+
+    /* Conservatively disqualify any non-zero block as being zero in any ongoing non-zero survey */
+    if (src != NULL && priv->survey_callback != NULL)
+        (*priv->survey_callback)(priv->survey_arg, &block_num, 1);
 
     /*
      * The block is not in the cache. If we're writing a partial block,

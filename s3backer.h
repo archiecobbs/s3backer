@@ -114,7 +114,7 @@ typedef uintptr_t   bitmap_t;
 /* Logging function type */
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
-/* Block list callback function type. Returns zero for success, else positive errno to abort. */
+/* Interactive non-zero block list callback function type. Returns zero for success, else positive errno to abort. */
 typedef int         block_list_func_t(void *arg, const s3b_block_t *block_nums, u_int num_blocks);
 
 /* Block write cancel check function type */
@@ -233,22 +233,28 @@ struct s3backer_store {
     int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
-     * Build a bitmap identifying all blocks known to be zero.
+     * Identify all blocks that are, or could possibly be, non-zero.
      *
-     * A bitmap should be allocated and the *zerosp should be set to point at it, or,
-     * if it is not known that any blocks are zero, then *zerosp may be set to NULL.
-     * Bits should be set for blocks known to be zero, unset for all others.
+     * The callback must be invoked for all blocks which could possibly be non-zero. Note: the same block
+     * may be reported more than once to "callback".
      *
-     * If this function is used, it will be invoked before any block reads or writes.
+     * If "callback" ever returns a non-zero value, survey should be aborted and an error returned.
+     *
+     * It's possible for "shutdown" to be invoked before this method returns; if so, the survey should be aborted
+     * and ECANCELED returned.
+     *
+     * This method should never be invoked more than once at a time.
      *
      * Returns zero on success or a (positive) errno value on error.
      */
-    int         (*survey_zeros)(struct s3backer_store *s3b, bitmap_t **zerosp);
+    int         (*survey_non_zero)(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 
     /*
      * Shutdown this instance. Sync any dirty data to the underlying data store (as required).
-     * There should be no other concurrent activity when this function is invoked, and the only
-     * functions that may be invoked afterwards are "set_mount_token" and "destroy".
+     *
+     * The only other concurrent activity that should possibly be happening when this function is invoked
+     * is an invocation of "survey_non_zero". The only functions that may be invoked after this one are
+     * "set_mount_token" and "destroy".
      */
     int         (*shutdown)(struct s3backer_store *s3b);
 

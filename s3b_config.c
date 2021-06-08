@@ -96,15 +96,6 @@
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
 #endif  /* __APPLE__ */
 
-/* Block counting info */
-struct list_blocks {
-    pthread_mutex_t     mutex;
-    bitmap_t            *bitmap;
-    int                 print_dots;
-    uintmax_t           count;
-};
-#define BLOCKS_PER_DOT                  0x100
-
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
@@ -119,7 +110,6 @@ static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static int validate_config(void);
-static block_list_func_t list_blocks_callback;
 static void dump_config(void);
 static void usage(void);
 
@@ -1638,6 +1628,7 @@ validate_config(void)
     config.http_io.log = config.log;
     config.zero_cache.block_size = config.block_size;
     config.zero_cache.num_blocks = config.num_blocks;
+    config.zero_cache.list_blocks = config.list_blocks;
     config.zero_cache.log = config.log;
     config.ec_protect.block_size = config.block_size;
     config.ec_protect.log = config.log;
@@ -1733,71 +1724,7 @@ validate_config(void)
         }
     }
 
-    /* If `--listBlocks' was given, build non-empty block bitmap */
-    if (config.erase || config.reset)
-        config.list_blocks = 0;
-    if (config.list_blocks) {
-        struct s3backer_store *temp_store;
-        struct list_blocks lb;
-
-        /* Logging */
-        if (!config.quiet) {
-            fprintf(stderr, "s3backer: listing non-zero blocks...");
-            fflush(stderr);
-        }
-
-        /* Create temporary lower layer */
-        if ((temp_store = config.test ? test_io_create(&config.test_io) : http_io_create(&config.http_io)) == NULL)
-            err(1, config.test ? "test_io_create" : "http_io_create");
-
-        /* Initialize bitmap */
-        memset(&lb, 0, sizeof(lb));
-        if ((r = pthread_mutex_init(&lb.mutex, NULL)) != 0)
-            errx(1, "pthread_mutex_init: %s", strerror(r));
-        if ((lb.bitmap = bitmap_init(config.num_blocks, 0)) == NULL)
-            err(1, "calloc");
-        lb.print_dots = !config.quiet;
-        lb.count = 0;
-
-        /* Generate non-zero block bitmap */
-        assert(config.http_io.nonzero_bitmap == NULL);
-        if ((r = (*(config.test ? test_io_list_blocks : http_io_list_blocks))(temp_store, list_blocks_callback, &lb)) != 0)
-            errx(1, "can't list blocks: %s", strerror(r));
-
-        /* Close temporary store */
-        (*temp_store->shutdown)(temp_store);
-        (*temp_store->destroy)(temp_store);
-
-        /* Save generated bitmap */
-        config.http_io.nonzero_bitmap = lb.bitmap;
-        pthread_mutex_destroy(&lb.mutex);
-
-        /* Logging */
-        if (!config.quiet) {
-            fprintf(stderr, "done\n");
-            warnx("found %ju non-zero blocks", lb.count);
-        }
-    }
-
     /* Done */
-    return 0;
-}
-
-static int
-list_blocks_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
-{
-    struct list_blocks *const lb = arg;
-
-    pthread_mutex_lock(&lb->mutex);
-    while (num_blocks-- > 0) {
-        bitmap_set(lb->bitmap, *block_nums++, 1);
-        lb->count++;
-        if (lb->print_dots && (lb->count % BLOCKS_PER_DOT) == 0) {
-            fprintf(stderr, ".");
-            fflush(stderr);
-        }
-    }
-    pthread_mutex_unlock(&lb->mutex);
     return 0;
 }
 

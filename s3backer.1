@@ -622,9 +622,6 @@ User confirmation is required unless the
 .Fl \-force
 flag is also given.
 Note, no simultaneous mount detection is performed in this case.
-.Pp
-This option implies
-.Fl \-listBlocks .
 .It Fl \-filename=NAME
 Specify the name of the backed file that appears in the
 .Nm
@@ -703,20 +700,21 @@ on your system, typically 64.
 It is an error to specify a value smaller than the cipher's natural key length;
 however, a value of zero is allowed and is equivalent to not specifying anything.
 .It Fl \-listBlocks
-Perform a query at startup to determine which blocks already exist.
+After starting, initiate a background query to determine which blocks already exist.
 This enables optimizations whereby, for each block that does not yet exist, reads return zeroes and zeroed writes are omitted,
 thereby eliminating any network access.
 .Pp
 This flag is useful when creating a new backed file, or any time it is expected that a large number of zeroed
 blocks will be read or written, such as when initializing a new filesystem.
 .Pp
-In general, use of this flag is recommended, but it will slow down startup in direct proportion to the number of blocks that already exist.
+In general, use of this flag is recommended, but it does create additional network traffic during startup in proportion to the number of blocks that already exist.
 .It Fl \-listBlocksThreads=NUM
 To minimize startup delay, the initial block enumeration of
 .Fl \-listBlocks
 is performed in parallel using multiple threads.
 This flag configures the number of threads used.
-Default is 16.
+.Pp
+Default value is 16.
 .It Fl \-maxUploadSpeed=BITSPERSEC
 .It Fl \-maxDownloadSpeed=BITSPERSEC
 These flags set a limit on the bandwidth utilized for individual block uploads and downloads (i.e.,

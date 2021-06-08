@@ -127,6 +127,8 @@ struct ec_protect_private {
     struct s3b_hash             *hashtable;
     u_int                       num_sleepers;   // count of sleeping threads
     TAILQ_HEAD(, block_info)    list;
+    block_list_func_t           *survey_callback;// non-zero survey is running and this is the callback
+    void                        *survey_arg;    // non-zero survey is running and this is the arg
     pthread_mutex_t             mutex;
     pthread_cond_t              space_cond;     // signaled when cache space available
     pthread_cond_t              sleepers_cond;  // signaled when no more threads are sleeping
@@ -150,7 +152,8 @@ static void ec_protect_destroy(struct s3backer_store *s3b);
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
-static int ec_protect_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
+static int ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
+static s3b_hash_visit_t ec_protect_append_block_list;
 static s3b_hash_visit_t ec_protect_free_one;
 
 /* Invariants checking */
@@ -194,7 +197,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
-    s3b->survey_zeros = ec_protect_survey_zeros;
+    s3b->survey_non_zero = ec_protect_survey_non_zero;
     s3b->shutdown = ec_protect_shutdown;
     s3b->destroy = ec_protect_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -330,24 +333,56 @@ ec_protect_clear_stats(struct s3backer_store *s3b)
 }
 
 static int
-ec_protect_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
     struct ec_protect_private *const priv = s3b->data;
-    struct block_info *binfo;
+    struct block_list list;
     int r;
 
-    /* Invoke lower layer */
-    if ((r = (*priv->inner->survey_zeros)(priv->inner, zerosp)) != 0 || *zerosp == NULL)
-        return r;
-
-    /* Unset flag for dirty blocks */
+    /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
-    for (binfo = TAILQ_FIRST(&priv->list); binfo != NULL; binfo = TAILQ_NEXT(binfo, link))
-        bitmap_set(*zerosp, binfo->block_num, 0);
+    assert(priv->survey_callback == NULL);
+
+    /* Record survey in progress */
+    priv->survey_callback = callback;
+    priv->survey_arg = arg;
+
+    /* Inventory all blocks currently in the cache; we don't bother trying to discern the zero blocks */
+    block_list_init(&list);
+    if ((r = s3b_hash_foreach(priv->hashtable, ec_protect_append_block_list, &list)) != 0)
+        goto done;
+
+    /* Unlock mutex */
     pthread_mutex_unlock(&priv->mutex);
 
+    /* Report all blocks inventoried above */
+    (*callback)(arg, list.blocks, list.num_blocks);
+    block_list_free(&list);
+
+    /* Invoke lower layer */
+    r = (*priv->inner->survey_non_zero)(priv->inner, callback, arg);
+
+    /* Lock mutex */
+    pthread_mutex_lock(&priv->mutex);
+
+    /* Finish up */
+    assert(priv->survey_callback != NULL);
+    priv->survey_callback = NULL;
+    priv->survey_arg = NULL;
+
+done:
     /* Done */
-    return 0;
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
+}
+
+static int
+ec_protect_append_block_list(void *arg, void *value)
+{
+    struct block_info *const entry = value;
+    struct block_list *const list = arg;
+
+    return block_list_append(list, entry->block_num);
 }
 
 static int
@@ -448,6 +483,10 @@ ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
+
+    /* Conservatively disqualify any non-zero block as being zero in any ongoing non-zero survey */
+    if (src != NULL && priv->survey_callback != NULL)
+        (*priv->survey_callback)(priv->survey_arg, &block_num, 1);
 
 again:
     /* Sanity check */

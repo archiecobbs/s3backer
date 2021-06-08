@@ -2,7 +2,8 @@ Version Next
 
     - Require test directory to be absolute unless `-f' flag given (issue #143)
     - Show HTTP error response payload content when `--debug-http' flag given
-    - List blocks in parallel using multiple threads; added `--listBlocksThreads'
+    - List blocks in the background; added `--listBlocksThreads' (issue #24)
+    - Don't let IAM credentials expire while listing blocks (issue #146)
 
 Version 1.6.1 released December 30, 2020
 

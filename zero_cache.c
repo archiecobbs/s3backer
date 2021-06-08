@@ -50,18 +50,23 @@
  * This layer caches the following bit of information for each block: whether it is known
  * for certain that the block is zero. If the bit is 1, the block is known to be zero; if
  * the bit is 0, the status of the block is unknown - it might or might not be zero.
- *
- * This layer does not directly utilize the information gather by the "--listBlocks" flag,
- * because that information applies to the HTTP layer, which is underneath the block cache.
- * However, this layer will indirectly learn from that information; for example, if a block
- * is read and the HTTP layer knows it is zero, then this layer will learn that information
- * when the zero block is returned back up the stack.
+ * Initially all blocks are in the unknown status, and we update the bitmap as we see blocks
+ * being read and written.
  *
  * Since (in theory) multiple threads can be reading and writing the same block at the same
  * time, we have to have choose how we behave in that scenario. This layer captures the state
  * of a block (known zero or not) at the end of each successful read or write I/O operation.
  * This new state affects any I/O operations initiated after that point in time. In practice
  * the kernel should never be doing two things at the same time to the same block.
+ *
+ * If the "--listBlocks" flag was specified, this layer also initiates a survey of non-zero
+ * blocks immediately after startup. The survey starts with a separate survey bitmap that
+ * initialized with all blocks as zero, and then as we see non-zero blocks from the survey
+ * we flip those bits. But the regular operation described above is also occuring during
+ * the survey, so when we see any non-zero (or unknown) blocks from regular operation, we
+ * flip those bits in the survey bitmap as well. Therefore at the end of the survey, only
+ * the truly zero blocks should remain in the survey bitmap. This bitmap is then OR'd into
+ * the main zero bitmap.
  */
 
 /* Internal state */
@@ -71,6 +76,14 @@ struct zero_cache_private {
     bitmap_t                    *zeros;         // 1 = known to be zero, 0 = unknown
     pthread_mutex_t             mutex;
     struct zero_cache_stats     stats;
+    volatile int                stopping;
+
+    /* Survey thread info */
+    int                         survey_running; // the survey thread is running
+    bitmap_t                    *survey_zeros;  // 1 = might still be zero, 0 = might not be zero; NULL if no survey running
+    pthread_t                   survey_thread;  // the survey thread
+    pthread_mutex_t             survey_mutex;   // this protects "survey_zeros" during the survey
+    uintmax_t                   survey_count;
 };
 
 /* s3backer_store functions */
@@ -83,12 +96,14 @@ static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
-static int zero_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp);
+static int zero_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int zero_cache_shutdown(struct s3backer_store *s3b);
 static void zero_cache_destroy(struct s3backer_store *s3b);
 
 /* Internal fuctions */
 static void zero_cache_update_block(struct zero_cache_private *const priv, s3b_block_t block_num, int zero);
+static void *zero_cache_survey_main(void *arg);
+static block_list_func_t zero_cache_survey_callback;
 
 /* Special all-zeros MD5 value signifying a zeroed block */
 static const u_char zero_etag[MD5_DIGEST_LENGTH];
@@ -118,7 +133,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->write_block = zero_cache_write_block;
     s3b->read_block_part = zero_cache_read_block_part;
     s3b->write_block_part = zero_cache_write_block_part;
-    s3b->survey_zeros = zero_cache_survey_zeros;
+    s3b->survey_non_zero = zero_cache_survey_non_zero;
     s3b->shutdown = zero_cache_shutdown;
     s3b->destroy = zero_cache_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
@@ -130,20 +145,22 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     priv->inner = inner;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
-
-    /* Initialize cache, using zero block survey if able */
-    if ((r = (*priv->inner->survey_zeros)(priv->inner, &priv->zeros)) != 0)
+    if ((r = pthread_mutex_init(&priv->survey_mutex, NULL)) != 0)
         goto fail3;
-    if (priv->zeros == NULL && (priv->zeros = bitmap_init(config->num_blocks, 0)) == NULL) {
+
+    /* Initialize bit map */
+    if ((priv->zeros = bitmap_init(config->num_blocks, 0)) == NULL) {
         r = errno;
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
-        goto fail3;
+        goto fail4;
     }
     s3b->data = priv;
 
     /* Done */
     return s3b;
 
+fail4:
+    pthread_mutex_destroy(&priv->survey_mutex);
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
@@ -160,8 +177,107 @@ static int
 zero_cache_create_threads(struct s3backer_store *s3b)
 {
     struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+    int r;
 
-    return (*priv->inner->create_threads)(priv->inner);
+    /* Propagate to lower layer */
+    if ((r = (*priv->inner->create_threads)(priv->inner)) != 0)
+        return r;
+
+    /* Anything to do? (was "--listBlocks" specified) */
+    if (!config->list_blocks)
+        return 0;
+    (*config->log)(LOG_INFO, "starting non-zero block survey");
+
+    /* Lock mutex */
+    pthread_mutex_lock(&priv->mutex);
+
+    /* Initialize survey bitmap (to all 1's) */
+    assert(priv->survey_zeros == NULL);
+    if ((priv->survey_zeros = bitmap_init(config->num_blocks, 1)) == NULL) {
+        r = errno;
+        (*config->log)(LOG_ERR, "malloc(): %s", strerror(r));
+        goto fail1;
+    }
+
+    /* Create survey thread */
+    if ((r = pthread_create(&priv->survey_thread, NULL, zero_cache_survey_main, priv)) != 0) {
+        (*config->log)(LOG_ERR, "pthread_create(): %s", strerror(r));
+        goto fail2;
+    }
+    priv->survey_running = 1;
+
+    /* Unlock mutex */
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
+    return 0;
+
+fail2:
+    bitmap_free(&priv->survey_zeros);
+fail1:
+    pthread_mutex_unlock(&priv->mutex);
+    return r;
+}
+
+static void *
+zero_cache_survey_main(void *arg)
+{
+    struct zero_cache_private *const priv = arg;
+    struct zero_cache_conf *const config = priv->config;
+    uintmax_t survey_count;
+    int r;
+
+    /* Perform survey */
+    r = (*priv->inner->survey_non_zero)(priv->inner, zero_cache_survey_callback, priv);
+
+    /* Lock main mutex */
+    pthread_mutex_lock(&priv->mutex);
+
+    /* Apply results (only if we completed the survey with no error) */
+    pthread_mutex_lock(&priv->survey_mutex);
+    if (r == 0)
+        bitmap_or(priv->zeros, priv->survey_zeros, config->num_blocks);
+    survey_count = priv->survey_count;
+    pthread_mutex_unlock(&priv->survey_mutex);
+
+    /* Finish up */
+    bitmap_free(&priv->survey_zeros);
+    priv->survey_running = 0;
+
+    /* Unlock main mutex */
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Done */
+    (*config->log)(LOG_INFO, "non-zero block survey %s (%ju non-zero blocks reported)",
+      r == 0 ? "completed" : r == ECANCELED ? "canceled" : "failed", survey_count);
+    return NULL;
+}
+
+static int
+zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    struct zero_cache_private *const priv = arg;
+
+    /* Check for shutdown */
+    if (priv->stopping)
+        return ECANCELED;
+
+    /* Reset bits corresponding to non-zero blocks */
+    pthread_mutex_lock(&priv->survey_mutex);
+    assert(priv->survey_zeros != NULL);
+    while (num_blocks-- > 0) {
+        const s3b_block_t block_num = *block_nums++;
+
+        if (!bitmap_test(priv->survey_zeros, block_num))
+            continue;                                           // already reported to us
+        bitmap_set(priv->survey_zeros, block_num, 0);
+        priv->survey_count++;
+    }
+    pthread_mutex_unlock(&priv->survey_mutex);
+
+    /* Done */
+    return 0;
 }
 
 static int
@@ -184,7 +300,21 @@ static int
 zero_cache_shutdown(struct s3backer_store *const s3b)
 {
     struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+    int r;
 
+    /* Stop the survey, if any */
+    pthread_mutex_lock(&priv->mutex);
+    if (priv->survey_running) {
+        priv->stopping = 1;
+        pthread_mutex_unlock(&priv->mutex);
+        if ((r = pthread_join(priv->survey_thread, NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
+        pthread_mutex_lock(&priv->mutex);
+    }
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Propagate to lower layer */
     return (*priv->inner->shutdown)(priv->inner);
 }
 
@@ -193,7 +323,7 @@ zero_cache_destroy(struct s3backer_store *const s3b)
 {
     struct zero_cache_private *const priv = s3b->data;
 
-    /* Grab lock and sanity check */
+    /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
 
     /* Destroy inner store */
@@ -201,30 +331,16 @@ zero_cache_destroy(struct s3backer_store *const s3b)
 
     /* Free structures */
     pthread_mutex_destroy(&priv->mutex);
+    assert(priv->survey_zeros == NULL);
     bitmap_free(&priv->zeros);
     free(priv);
     free(s3b);
 }
 
 static int
-zero_cache_survey_zeros(struct s3backer_store *s3b, bitmap_t **zerosp)
+zero_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
-    struct zero_cache_private *const priv = s3b->data;
-    struct zero_cache_conf *const config = priv->config;
-    const size_t bitmap_len = bitmap_size(config->num_blocks) * sizeof(**zerosp);
-    int r = 0;
-
-    /* Allocate bitmap */
-    if ((*zerosp = malloc(bitmap_len)) == NULL)
-        return errno;
-
-    /* Copy bitmap */
-    pthread_mutex_lock(&priv->mutex);
-    memcpy(*zerosp, priv->zeros, bitmap_len);
-    pthread_mutex_unlock(&priv->mutex);
-
-    /* Done */
-    return r;
+    return ENOTSUP;
 }
 
 static int
@@ -350,6 +466,11 @@ zero_cache_clear_stats(struct s3backer_store *s3b)
 static void
 zero_cache_update_block(struct zero_cache_private *const priv, s3b_block_t block_num, int zero)
 {
+    /* If non-zero, ensure any ongoing survey doesn't overwrite this change when it completes */
+    if (priv->survey_zeros != NULL && !zero)
+        bitmap_set(priv->survey_zeros, block_num, 0);
+
+    /* Update bitmap */
     if (bitmap_test(priv->zeros, block_num) == zero)
         return;
     bitmap_set(priv->zeros, block_num, zero);
