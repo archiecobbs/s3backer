@@ -279,7 +279,9 @@ ec_protect_shutdown(struct s3backer_store *const s3b)
 
     /* Release lock */
     pthread_mutex_unlock(&priv->mutex);
-    return 0;
+
+    /* Propagate to lower layer */
+    return (*priv->inner->shutdown)(priv->inner);
 }
 
 static void
