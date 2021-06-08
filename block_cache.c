@@ -1254,7 +1254,7 @@ block_cache_check_cancel(void *arg, s3b_block_t block_num)
 
     /* Lock mutex */
     pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv, 0);
+    S3BCACHE_CHECK_INVARIANTS(priv, 1);
 
     /* Find cache entry */
     entry = s3b_hash_get(priv->hashtable, block_num);
