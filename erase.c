@@ -45,7 +45,7 @@
 #include "erase.h"
 
 #define BLOCKS_PER_DOT          0x100
-#define MAX_QUEUE_LENGTH        1000
+#define MAX_QUEUE_LENGTH        100000
 #define NUM_ERASURE_THREADS     25
 
 /* Erasure state */
