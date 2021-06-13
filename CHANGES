@@ -4,6 +4,7 @@ Version Next
     - Show HTTP error response payload content when `--debug-http' flag given
     - List blocks in the background; added `--listBlocksThreads' (issue #24)
     - Don't let IAM credentials expire while listing blocks (issue #146)
+    - Fixed bug parsing "--configFile" inside comma-separated option list
 
 Version 1.6.1 released December 30, 2020
 

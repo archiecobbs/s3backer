@@ -573,22 +573,45 @@ s3backer_get_config(int argc, char **argv)
 
     /* Find and substitute "--configFile=FILE" flags, recursing if necessary */
     for (i = 1; i < config.fuse_args.argc; ) {
-        const char *optfile;
+        char *optfile;
         int num_args;
 
         /* Check for "--configFile=FILE" flag and variants */
-        if (strncmp(config.fuse_args.argv[i], "--configFile=", 13) == 0
-          || strncmp(config.fuse_args.argv[i], "-oconfigFile=", 13) == 0) {
-            optfile = config.fuse_args.argv[i] + 13;
+        if (strncmp(config.fuse_args.argv[i], "--configFile=", 13) == 0) {
+            if ((optfile = strdup(config.fuse_args.argv[i] + 13)) == NULL)
+                err(1, "strdup");
             num_args = 1;
-        } else if (strcmp(config.fuse_args.argv[i], "-o") == 0
-          && i + 1 < config.fuse_args.argc
-          && strncmp(config.fuse_args.argv[i + 1], "configFile=", 11) == 0) {
-            optfile = config.fuse_args.argv[i + 1] + 11;
-            num_args = 2;
         } else if (strcmp(config.fuse_args.argv[i], "-F") == 0 && i + 1 < config.fuse_args.argc) {
-            optfile = config.fuse_args.argv[i + 1];
+            if ((optfile = strdup(config.fuse_args.argv[i + 1])) == NULL)
+                err(1, "strdup");
             num_args = 2;
+        } else if (strcmp(config.fuse_args.argv[i], "-o") == 0 && i + 1 < config.fuse_args.argc) {
+            char *trailing_comma;
+            char *flag;
+
+            /* Find "configFile=" among comma-separated option list */
+            if (strncmp(config.fuse_args.argv[i + 1], "configFile=", 11) == 0)
+                flag = config.fuse_args.argv[i + 1];
+            else if ((flag = strstr(config.fuse_args.argv[i + 1], ",configFile=")) != NULL)
+                flag++;
+            else {
+                i++;
+                continue;
+            }
+
+            /* Extract filename from list */
+            if ((trailing_comma = strchr(flag + 11, ',')) == NULL) {
+                if ((optfile = strdup(flag + 11)) == NULL)
+                    err(1, "strdup");
+                *flag = '\0';
+                num_args = flag > config.fuse_args.argv[i + 1] ? 0 : 2;
+            } else {
+                *trailing_comma = '\0';
+                if ((optfile = strdup(flag + 11)) == NULL)
+                    err(1, "strdup");
+                memmove(flag, trailing_comma + 1, strlen(trailing_comma + 1) + 1);
+                num_args = 0;
+            }
         } else {
             i++;
             continue;
@@ -600,6 +623,7 @@ s3backer_get_config(int argc, char **argv)
 
         /* Replace the `--configFile' flag with arguments read from file */
         read_fuse_args(optfile, i + num_args);
+        free(optfile);
         while (num_args-- > 0)
             remove_fuse_arg(i);
     }
