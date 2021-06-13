@@ -622,6 +622,8 @@ User confirmation is required unless the
 .Fl \-force
 flag is also given.
 Note, no simultaneous mount detection is performed in this case.
+.Pp
+This operation bypasses the caching layers, so any leftover cache file must be manually deleted.
 .It Fl \-filename=NAME
 Specify the name of the backed file that appears in the
 .Nm
