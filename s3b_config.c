@@ -1826,10 +1826,10 @@ usage(void)
     int i;
 
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "\ts3backer [options] bucket /mount/point\n");
+    fprintf(stderr, "\ts3backer [options] bucket[/subdir] /mount/point\n");
     fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
-    fprintf(stderr, "\ts3backer --erase [options] bucket\n");
-    fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket\n");
+    fprintf(stderr, "\ts3backer --erase [options] bucket[/subdir]\n");
+    fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket[/subdir]\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
