@@ -47,6 +47,7 @@ noinst_HEADERS=     s3backer.h \
 			fuse_ops.h \
 			hash.h \
 			util.h \
+			compress.h \
 			http_io.h \
 			reset.h \
 			test_io.h \
@@ -70,6 +71,7 @@ s3backer_SOURCES=   main.c \
 		    fuse_ops.c \
 		    hash.c \
 		    util.c \
+		    compress.c \
 		    http_io.c \
 		    reset.c \
 		    s3b_config.c \
@@ -86,6 +88,7 @@ tester_SOURCES=     tester.c \
 		    erase.c \
 		    hash.c \
 		    util.c \
+		    compress.c \
 		    http_io.c \
 		    reset.c \
 		    s3b_config.c \

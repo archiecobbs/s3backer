@@ -43,6 +43,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "dcache.h"
+#include "compress.h"
 #include "util.h"
 
 /****************************************************************************
@@ -82,7 +83,7 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_MAX_DIRTY      0
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
-#define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
+#define S3BACKER_DEFAULT_COMPRESSION                "deflate"
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 #define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
 
@@ -164,7 +165,6 @@ static struct s3b_config config = {
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
         .user_agent=            user_agent_buf,
-        .compress=              S3BACKER_DEFAULT_COMPRESSION,
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
@@ -451,13 +451,12 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
-        .templ=     "--compress",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
-        .value=     Z_DEFAULT_COMPRESSION
+        .templ=     "--compress=%s",
+        .offset=    offsetof(struct s3b_config, compress_alg),
     },
     {
-        .templ=     "--compress=%d",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
+        .templ=     "--compress-level=%s",
+        .offset=    offsetof(struct s3b_config, compress_level),
     },
     {
         .templ=     "--encrypt",
@@ -1335,21 +1334,40 @@ validate_config(void)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--keyLength");
     }
 
-    /* We always want to compress if we are encrypting */
-    if (config.http_io.encryption != NULL && config.http_io.compress == Z_NO_COMPRESSION)
-        config.http_io.compress = Z_DEFAULT_COMPRESSION;
+    /* Disallow "--compress-level" without "--compress" */
+    if (config.compress_alg == NULL && config.compress_level != NULL) {
+        warnx("the `--compress-level' flag requires the `--compress' flag");
+        return -1;
+    }
 
-    /* Check compression level */
-    switch (config.http_io.compress) {
-    case Z_DEFAULT_COMPRESSION:
-    case Z_NO_COMPRESSION:
-        break;
-    default:
-        if (config.http_io.compress < Z_BEST_SPEED || config.http_io.compress > Z_BEST_COMPRESSION) {
-            warnx("illegal compression level `%d'", config.http_io.compress);
+    /* Apply backwards-compatibility for "--compress" flag */
+    if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
+        config.compress_level = config.compress_alg;
+        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+    }
+
+    /* We always want to compress if we are encrypting */
+    if (config.http_io.encryption != NULL && config.compress_alg == NULL)
+        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+
+    /* Parse compression, if any, and compression level, if any */
+    if (config.compress_alg != NULL) {
+        const struct comp_alg *calg;
+        void *level = NULL;
+
+        /* Find the compression algorithm */
+        if ((calg = comp_find(config.compress_alg)) == NULL) {
+            warnx("unknown compression algorithm `%s'", config.compress_alg);
             return -1;
         }
-        break;
+
+        /* Parse the compression level, if any */
+        if (config.compress_level != NULL && (level = (*calg->lparse)(config.compress_level)) == NULL)
+            return -1;
+
+        /* Done */
+        config.http_io.compress_alg = calg;
+        config.http_io.compress_level = level;
     }
 
     /* Disable md5 cache when in read only mode */
@@ -1785,7 +1803,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)config.num_blocks);
     (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
     (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "compress", config.http_io.compress_alg ? config.http_io.compress_alg->name : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %u", "key_length", config.http_io.key_length);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");

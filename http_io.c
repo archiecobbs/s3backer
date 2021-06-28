@@ -37,6 +37,7 @@
 #include "s3backer.h"
 #include "block_part.h"
 #include "http_io.h"
+#include "compress.h"
 #include "util.h"
 
 /* HTTP definitions */
@@ -54,7 +55,6 @@
 #define CONTENT_ENCODING_HEADER     "Content-Encoding"
 #define ACCEPT_ENCODING_HEADER      "Accept-Encoding"
 #define ETAG_HEADER                 "ETag"
-#define CONTENT_ENCODING_DEFLATE    "deflate"
 #define CONTENT_ENCODING_ENCRYPT    "encrypt"
 #define MD5_HEADER                  "Content-MD5"
 #define ACL_HEADER                  "x-amz-acl"
@@ -1456,12 +1456,13 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    char accepted_encodings[64];
+    char accept_encoding[128];
     const time_t now = time(NULL);
     int encrypted = 0;
     struct http_io io;
     u_int did_read;
     char *layer;
+    int i;
     int r;
 
     /* Sanity check */
@@ -1518,12 +1519,21 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
 
     /* Set Accept-Encoding header */
-    snprintf(accepted_encodings, sizeof(accepted_encodings), "%s", CONTENT_ENCODING_DEFLATE);
-    if (config->encryption != NULL) {
-        snprintf(accepted_encodings + strlen(accepted_encodings), sizeof(accepted_encodings) - strlen(accepted_encodings),
-          ", %s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
+    *accept_encoding = '\0';
+    for (i = 0; i < num_comp_algs; i++) {
+        const struct comp_alg *calg = &comp_algs[i];
+
+        if (*accept_encoding != '\0')
+            snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
+        snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), "%s", calg->name);
     }
-    io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accepted_encodings);
+    if (config->encryption != NULL) {
+        if (*accept_encoding != '\0')
+            snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
+        snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding),
+          "%s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
+    }
+    io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
 
     /* Add Authorization header */
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
@@ -1543,6 +1553,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     if (*io.content_encoding == '\0' && config->default_ce != NULL)
         snprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
     for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
+        const struct comp_alg *calg;
 
         /* Find next encoding layer, starting from the end and working backwards, trimming any whitespace */
         if ((layer = strrchr(io.content_encoding, ',')) != NULL)
@@ -1618,36 +1629,22 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         }
 
         /* Check for compression */
-        if (strcasecmp(layer, CONTENT_ENCODING_DEFLATE) == 0) {
-            u_long uclen = config->block_size;
+        if ((calg = comp_find(layer)) != NULL) {
+            size_t uclen = config->block_size;
 
-            switch (uncompress(dest, &uclen, io.dest, did_read)) {
-            case Z_OK:
-                did_read = uclen;
-                free(io.dest);
-                io.dest = NULL;         /* compression should have been first */
-                r = 0;
-                break;
-            case Z_MEM_ERROR:
-                (*config->log)(LOG_ERR, "zlib uncompress: %s", strerror(ENOMEM));
-                pthread_mutex_lock(&priv->mutex);
-                priv->stats.out_of_memory_errors++;
-                pthread_mutex_unlock(&priv->mutex);
-                r = ENOMEM;
-                break;
-            case Z_BUF_ERROR:
-                (*config->log)(LOG_ERR, "zlib uncompress: %s", "decompressed block is oversize");
-                r = EIO;
-                break;
-            case Z_DATA_ERROR:
-                (*config->log)(LOG_ERR, "zlib uncompress: %s", "data is corrupted or truncated");
-                r = EIO;
-                break;
-            default:
-                (*config->log)(LOG_ERR, "unknown zlib compress2() error %d", r);
-                r = EIO;
-                break;
+            if ((r == (*calg->dfunc)(config->log, io.dest, did_read, dest, &uclen)) != 0)  {
+                if (r == ENOMEM) {
+                    pthread_mutex_lock(&priv->mutex);
+                    priv->stats.out_of_memory_errors++;
+                    pthread_mutex_unlock(&priv->mutex);
+                }
+                continue;
             }
+
+            /* Update data */
+            did_read = uclen;
+            free(io.dest);
+            io.dest = NULL;         /* compression should have been first, so decompression should always be last */
 
             /* Proceed */
             continue;
@@ -1817,35 +1814,17 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.check_cancel_arg = check_cancel_arg;
 
     /* Compress block if desired */
-    if (src != NULL && config->compress != Z_NO_COMPRESSION) {
-        u_long compress_len;
-
-        /* Allocate buffer */
-        compress_len = compressBound(io.buf_size);
-        if ((encoded_buf = malloc(compress_len)) == NULL) {
-            (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
-            pthread_mutex_lock(&priv->mutex);
-            priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
-            r = ENOMEM;
-            goto fail;
-        }
+    if (src != NULL && config->compress_alg != NULL) {
+        size_t compress_len;
 
         /* Compress data */
-        r = compress2(encoded_buf, &compress_len, io.src, io.buf_size, config->compress);
-        switch (r) {
-        case Z_OK:
-            break;
-        case Z_MEM_ERROR:
-            (*config->log)(LOG_ERR, "zlib compress: %s", strerror(ENOMEM));
-            pthread_mutex_lock(&priv->mutex);
-            priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
-            r = ENOMEM;
-            goto fail;
-        default:
-            (*config->log)(LOG_ERR, "unknown zlib compress2() error %d", r);
-            r = EIO;
+        if ((r = (*config->compress_alg->cfunc)(config->log, io.src,
+          io.buf_size, &encoded_buf, &compress_len, config->compress_level)) != 0) {
+            if (r == ENOMEM) {
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.out_of_memory_errors++;
+                pthread_mutex_unlock(&priv->mutex);
+            }
             goto fail;
         }
 
@@ -1893,7 +1872,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
         snprintf(ebuf, sizeof(ebuf), "%s: ", CONTENT_ENCODING_HEADER);
         if (compressed)
-            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", CONTENT_ENCODING_DEFLATE);
+            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", config->compress_alg->name);
         if (encrypted) {
             snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
               compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);

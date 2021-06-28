@@ -247,7 +247,9 @@ supports block-level compression, which minimizes transfer time and storage cost
 .Pp
 Compression is configured via the
 .Fl \-compress
-flag.
+and
+.Fl \-compress-level
+flags.
 Compression is automatically enabled when encryption is enabled.
 .Ss Server Side Encryption
 .Nm
@@ -529,25 +531,37 @@ Equivalent to the
 .Fl \-cacert
 flag documented in
 .Xr curl 1 .
-.It Fl \-compress[=LEVEL]
-Compress blocks before sending them over the network.
+.It Fl \-compress[=ALGORITHM]
+Compress blocks using the specified compression algorithm before sending them over the network.
 This should result in less network traffic (in both directions) and lower storage costs.
 .Pp
-The compression level is optional; if given, it must be between 1 (fast compression) and 9 (most compression), inclusive.
-If omitted, the default compression level is used.
+The
+.Ar ALGORITHM
+is optional; currently, the default value (and the only supported algorithm) is
+.Ar deflate .
 .Pp
 This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropriate.
 Therefore, it is safe to switch this flag on or off between different invocations of
 .Nm
 on the same filesystem.
 .Pp
-This flag is automatically enabled when
+This flag is implied when
 .Fl \-encrypt
-is used, though you may also specify
-.Fl \-compress=LEVEL
-to set a non-default compression level.
+is used.
 .Pp
 When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
+.It Fl \-compress-level=LEVEL
+Configure the compression level for the selected compression algorithm, which must be specified via
+.Fl \-compress .
+.Pp
+The interpretation of
+.Ar LEVEL
+depends on the algorithm;
+for
+.Ar deflate ,
+it must be an integer between 1 (maximum speed) and 9 (maximum compression), inclusive.
+.Pp
+If this flag is omitted, the default compression level for the selected algorithm is used.
 .It Fl \-configFile=FILE
 Insert command line flags and arguments read from the specified file in place of this flag.
 .Pp
