@@ -1544,11 +1544,15 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         snprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
     for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
 
-        /* Find next encoding layer */
+        /* Find next encoding layer, starting from the end and working backwards, trimming any whitespace */
         if ((layer = strrchr(io.content_encoding, ',')) != NULL)
             *layer++ = '\0';
         else
             layer = io.content_encoding;
+        while (isspace(*layer))
+            layer++;
+        while (*layer != '\0' && isspace(layer[strlen(layer) - 1]))
+            layer[strlen(layer) - 1] = '\0';
 
         /* Sanity check */
         if (io.dest == NULL)
