@@ -648,7 +648,7 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
         survey->callback_arg = arg;
 
         /* Configure this thread's portion of the range, but being careful to handle weird corner cases */
-        survey->min_name = thread_index > 0 ? survey[thread_index - 1].max_name + 1 : (s3b_block_t)0;
+        survey->min_name = thread_index > 0 ? survey[-1].max_name + 1 : (s3b_block_t)0;
         if (survey->min_name > last_possible_name)
             survey->min_name = last_possible_name;
         if (thread_index == max_threads - 1)

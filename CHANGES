@@ -1,3 +1,7 @@
+Version Next
+
+    - Fixed bug with `--listBlocks' threads doing redundant overlapping queries
+
 Version 1.6.2 released June 14, 2020
 
     - Require test directory to be absolute unless `-f' flag given (issue #143)
