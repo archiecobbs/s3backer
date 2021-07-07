@@ -1632,7 +1632,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         if ((calg = comp_find(layer)) != NULL) {
             size_t uclen = config->block_size;
 
-            if ((r == (*calg->dfunc)(config->log, io.dest, did_read, dest, &uclen)) != 0)  {
+            if ((r = (*calg->dfunc)(config->log, io.dest, did_read, dest, &uclen)) != 0)  {
                 if (r == ENOMEM) {
                     pthread_mutex_lock(&priv->mutex);
                     priv->stats.out_of_memory_errors++;
