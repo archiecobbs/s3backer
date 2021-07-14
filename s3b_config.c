@@ -1348,8 +1348,12 @@ validate_config(void)
     }
 
     /* Apply backwards-compatibility for "--compress" flag */
-    if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag)
-        config.compress_alg = s3bquote(Z_DEFAULT_COMPRESSION);
+    if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag) {
+        static char buf[16];
+
+        snprintf(buf, sizeof(buf), "%d", Z_DEFAULT_COMPRESSION);
+        config.compress_alg = buf;
+    }
     if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
         config.compress_level = config.compress_alg;
         config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
