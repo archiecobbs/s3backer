@@ -87,13 +87,15 @@
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 #define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
 
+/* Macro for quoting stuff */
+#define s3bquote0(x)                    #x
+#define s3bquote(x)                     s3bquote0(x)
+
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
 #ifndef FUSE_MAX_DAEMON_TIMEOUT
 #define FUSE_MAX_DAEMON_TIMEOUT         600
 #endif
-#define s3bquote0(x)                    #x
-#define s3bquote(x)                     s3bquote0(x)
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
 #endif  /* __APPLE__ */
 
@@ -448,6 +450,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--insecure",
         .offset=    offsetof(struct s3b_config, http_io.insecure),
+        .value=     1
+    },
+    {
+        .templ=     "--compress",
+        .offset=    offsetof(struct s3b_config, compress_flag),
         .value=     1
     },
     {
@@ -1341,6 +1348,8 @@ validate_config(void)
     }
 
     /* Apply backwards-compatibility for "--compress" flag */
+    if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag)
+        config.compress_alg = s3bquote(Z_DEFAULT_COMPRESSION);
     if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
         config.compress_level = config.compress_alg;
         config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
