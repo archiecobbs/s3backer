@@ -394,7 +394,7 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
         src = NULL;
     zero = src == NULL;
 
-    /* Handle the case where we think this block is zero */
+    /* Handle the case where we know this block is zero */
     pthread_mutex_lock(&priv->mutex);
     if (bitmap_test(priv->zeros, block_num)) {
         if (zero) {                                             /* ok, it's still zero -> return immediately */
