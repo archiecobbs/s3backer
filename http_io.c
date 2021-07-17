@@ -206,7 +206,10 @@ struct http_io {
     // I/O buffers
     struct http_io_bufs bufs;
 
-    // XML parser and bucket listing info
+    // Configuration
+    struct http_io_conf *config;                // configuration
+
+    // XML parser info
     XML_Parser          xml;                    // XML parser
     int                 xml_error;              // XML parse error (if any)
     int                 xml_error_line;         // XML parse error line
@@ -215,14 +218,15 @@ struct http_io {
     char                *xml_text;              // Current XML text
     int                 xml_text_len;           // # chars in 'xml_text' buffer
     int                 xml_text_max;           // max chars in 'xml_text' buffer
+    int                 handler_error;          // error encountered during parsing
+
+    // Bucket object listing info
     int                 list_truncated;         // returned list was truncated
     char                *start_after;           // where to start next round of listing
     s3b_block_t         min_name;               // inclusive lower bound for block name/prefix
     s3b_block_t         max_name;               // inclusive upper bound for block name/prefix
     s3b_block_t         *block_list;            // the blocks we found this iteration
     u_int               num_blocks;             // number of blocks in "block_list"
-    int                 handler_error;          // error encountered during parsing
-    struct http_io_conf *config;                // configuration
 
     // Other info that needs to be passed around
     CURL                *curl;                  // back reference to CURL instance
