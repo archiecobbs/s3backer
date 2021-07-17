@@ -121,12 +121,12 @@ parse_size_string(const char *s, uintmax_t *valp)
 }
 
 void
-unparse_size_string(char *buf, size_t bmax, uintmax_t value)
+unparse_size_string(char *buf, int bmax, uintmax_t value)
 {
     int i;
 
     if (value == 0) {
-        snprintf(buf, bmax, "0");
+        snvprintf(buf, bmax, "0");
         return;
     }
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
@@ -137,15 +137,15 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
             continue;
         unit = (uintmax_t)1 << ss->bits;
         if (value % unit == 0) {
-            snprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
+            snvprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
             return;
         }
     }
-    snprintf(buf, bmax, "%ju", value);
+    snvprintf(buf, bmax, "%ju", value);
 }
 
 void
-describe_size(char *buf, size_t bmax, uintmax_t value)
+describe_size(char *buf, int bmax, uintmax_t value)
 {
     int i;
 
@@ -157,11 +157,11 @@ describe_size(char *buf, size_t bmax, uintmax_t value)
             continue;
         unit = (uintmax_t)1 << ss->bits;
         if (value >= unit) {
-            snprintf(buf, bmax, "%.2f%s", (double)(value >> (ss->bits - 8)) / (double)(1 << 8), ss->suffix);
+            snvprintf(buf, bmax, "%.2f%s", (double)(value >> (ss->bits - 8)) / (double)(1 << 8), ss->suffix);
             return;
         }
     }
-    snprintf(buf, bmax, "%ju", value);
+    snvprintf(buf, bmax, "%ju", value);
 }
 
 int
@@ -369,4 +369,26 @@ stderr_logger(int level, const char *fmt, ...)
     fprintf(stderr, "\n");
     pthread_mutex_unlock(&stderr_log_mutex);
     va_end(args);
+}
+
+// Like snprintf(), but aborts if the buffer is overflowed and gracefully handles negative buffer lengths
+int
+snvprintf(char *buf, int size, const char *format, ...)
+{
+    va_list args;
+    int len;
+
+    /* Format string (unless size is zero or less) */
+    va_start(args, format);
+    len = size > 0 ? vsnprintf(buf, size, format, args) : 0;
+    va_end(args);
+
+    /* Check for overflow */
+    if (len > size - 1) {
+        fprintf(stderr, "buffer overflow: \"%s\": %d > %d", format, len, (int)size);
+        abort();
+    }
+
+    /* Done */
+    return len;
 }

@@ -563,7 +563,7 @@ s3backer_get_config(int argc, char **argv)
     config.fuse_ops.gid = getgid();
 
     /* Set user-agent */
-    snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
+    snvprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
 
     /* Copy program name */
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
@@ -650,7 +650,7 @@ s3backer_get_config(int argc, char **argv)
         return NULL;
 
     /* Set fsname based on configuration */
-    snprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
+    snvprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
     insert_fuse_arg(1, buf);
 
     /* Set up fuse_ops callbacks */
@@ -1065,7 +1065,7 @@ validate_config(void)
         char buf[PATH_MAX];
 
         if (home != NULL) {
-            snprintf(buf, sizeof(buf), "%s/%s", home, S3BACKER_DEFAULT_PWD_FILE);
+            snvprintf(buf, sizeof(buf), "%s/%s", home, S3BACKER_DEFAULT_PWD_FILE);
             if ((config.accessFile = strdup(buf)) == NULL)
                 err(1, "strdup");
         }
@@ -1163,7 +1163,7 @@ validate_config(void)
                 warn("malloc");
                 return -1;
             }
-            snprintf(pbuf, strlen(p) + 2, "%s/", p);
+            snvprintf(pbuf, strlen(p) + 2, "%s/", p);
             config.prefix = pbuf;
         }
     } else {
@@ -1218,9 +1218,9 @@ validate_config(void)
     /* Set default base URL */
     if (config.http_io.baseURL == NULL) {
         if (customRegion && strcmp(config.http_io.region, S3BACKER_DEFAULT_REGION) != 0)
-            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
+            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
         else
-            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
+            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
         if ((config.http_io.baseURL = strdup(urlbuf)) == NULL) {
             warn("malloc");
             return -1;
@@ -1262,7 +1262,7 @@ validate_config(void)
         buflen = strlen(config.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
         if ((buf = malloc(buflen)) == NULL)
             err(1, "malloc(%u)", (u_int)buflen);
-        snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL, config.bucket, config.http_io.baseURL + schemelen);
+        snvprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL, config.bucket, config.http_io.baseURL + schemelen);
         config.http_io.baseURL = buf;
     }
 
@@ -1351,7 +1351,7 @@ validate_config(void)
     if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag) {
         static char buf[16];
 
-        snprintf(buf, sizeof(buf), "%d", Z_DEFAULT_COMPRESSION);
+        snvprintf(buf, sizeof(buf), "%d", Z_DEFAULT_COMPRESSION);
         config.compress_alg = buf;
     }
     if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
@@ -1499,11 +1499,11 @@ validate_config(void)
 
     /* Format descriptive string of what we're mounting */
     if (config.test)
-        snprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
     else if (config.http_io.vhost)
-        snprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
     else
-        snprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
 
     /*
      * Read the first block (if any) to determine existing file and block size,

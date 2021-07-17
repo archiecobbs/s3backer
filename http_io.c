@@ -285,7 +285,7 @@ static void http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct ht
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth2(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
-static size_t url_encode(const char *src, size_t len, char *dst, size_t buflen, int encode_slash);
+static size_t url_encode(const char *src, size_t len, char *dst, int buflen, int encode_slash);
 static void digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encode_slash);
 
 /* EC2 IAM thread */
@@ -447,7 +447,7 @@ http_io_create(struct http_io_conf *config)
         }
 
         /* Hash password to get bulk data encryption key */
-        snprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
+        snvprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
           (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
@@ -769,7 +769,7 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
     }
 
     /* Determine the last possible valid block name (or block hash prefix) we want to search for */
-    snprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
+    snvprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
 
     /* Initialize "io.start_after", which says where to continue listing names each time around the loop */
     if (min == (s3b_block_t)0)
@@ -800,7 +800,7 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
 
         /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
         url_encode(io.start_after, strlen(io.start_after), start_after_urlencoded, sizeof(start_after_urlencoded), 1);
-        snprintf(urlbuf, sizeof(urlbuf), "%s%s?%s=%s&%s=%u", config->baseURL, config->vhost ? "" : config->bucket,
+        snvprintf(urlbuf, sizeof(urlbuf), "%s%s?%s=%s&%s=%u", config->baseURL, config->vhost ? "" : config->bucket,
           LIST_PARAM_MARKER, start_after_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
         io.url = urlbuf;
 
@@ -1099,7 +1099,7 @@ http_io_format_block_hash(int blockHashPrefix, char *buf, size_t bufsiz, s3b_blo
 {
     assert(bufsiz >= S3B_BLOCK_NUM_DIGITS + 2);
     if (blockHashPrefix)
-        snprintf(buf, bufsiz, "%0*jx-", S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num));
+        snvprintf(buf, bufsiz, "%0*jx-", S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num));
     else
         *buf = '\0';
 }
@@ -1412,7 +1412,7 @@ parse_json_field(struct http_io_private *priv, const char *json, const char *fie
     size_t vlen;
     int r;
 
-    snprintf(buf, sizeof(buf), "\"%s\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"", field);
+    snvprintf(buf, sizeof(buf), "\"%s\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"", field);
     memset(&regex, 0, sizeof(regex));
     if ((r = regcomp(&regex, buf, REG_EXTENDED)) != 0) {
         regerror(r, &regex, buf, sizeof(buf));
@@ -1528,13 +1528,13 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         const struct comp_alg *calg = &comp_algs[i];
 
         if (*accept_encoding != '\0')
-            snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
-        snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), "%s", calg->name);
+            snvprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
+        snvprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), "%s", calg->name);
     }
     if (config->encryption != NULL) {
         if (*accept_encoding != '\0')
-            snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
-        snprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding),
+            snvprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding), ", ");
+        snvprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding),
           "%s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
     }
     io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
@@ -1555,7 +1555,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
     /* Check Content-Encoding and decode if necessary */
     if (*io.content_encoding == '\0' && config->default_ce != NULL)
-        snprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
+        snvprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
     for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
         const struct comp_alg *calg;
 
@@ -1874,11 +1874,11 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (compressed || encrypted) {
         char ebuf[128];
 
-        snprintf(ebuf, sizeof(ebuf), "%s: ", CONTENT_ENCODING_HEADER);
+        snvprintf(ebuf, sizeof(ebuf), "%s: ", CONTENT_ENCODING_HEADER);
         if (compressed)
-            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", config->compress_alg->name);
+            snvprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s", config->compress_alg->name);
         if (encrypted) {
-            snprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
+            snvprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
               compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);
         }
         io.headers = http_io_add_header(priv, io.headers, "%s", ebuf);
@@ -2309,8 +2309,8 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 
     /* Snapshot current credentials */
     pthread_mutex_lock(&priv->mutex);
-    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
-    snprintf(access_key, sizeof(access_key), "%s", config->accessKey);
+    snvprintf(access_id, sizeof(access_id), "%s", config->accessId);
+    snvprintf(access_key, sizeof(access_key), "%s", config->accessKey);
     pthread_mutex_unlock(&priv->mutex);
 
     /* Initialize HMAC */
@@ -2326,7 +2326,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(hmac_ctx, (const u_char *)io->method, strlen(io->method));
     HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
     update_hmac_from_header(hmac_ctx, io, MD5_HEADER, 1, sigbuf, sizeof(sigbuf));
     update_hmac_from_header(hmac_ctx, io, CTYPE_HEADER, 1, sigbuf, sizeof(sigbuf));
@@ -2361,7 +2361,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
     HMAC_Update(hmac_ctx, (const u_char *)resource, resource_len);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, (int)resource_len, resource);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, (int)resource_len, resource);
 #endif
 
     /* Finish up */
@@ -2439,8 +2439,8 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
     /* Snapshot current credentials */
     pthread_mutex_lock(&priv->mutex);
-    snprintf(access_id, sizeof(access_id), "%s", config->accessId);
-    snprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
+    snvprintf(access_id, sizeof(access_id), "%s", config->accessId);
+    snvprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
     if (config->iam_token != NULL && (iam_token = strdup(config->iam_token)) == NULL) {
         r = errno;
         pthread_mutex_unlock(&priv->mutex);
@@ -2497,7 +2497,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     EVP_DigestInit_ex(hash_ctx, EVP_sha256(), NULL);
 
     /* Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us */
-    snprintf(hosthdr, sizeof(hosthdr), "host:%.*s", (int)host_len, host);
+    snvprintf(hosthdr, sizeof(hosthdr), "host:%.*s", (int)host_len, host);
     for (num_sorted_hdrs = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
         num_sorted_hdrs++;
     if ((sorted_hdrs = malloc(num_sorted_hdrs * sizeof(*sorted_hdrs))) == NULL) {
@@ -2514,21 +2514,21 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     EVP_DigestUpdate(hash_ctx, (const u_char *)io->method, strlen(io->method));
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
 
     /* Canonical URI */
     digest_url_encoded(hash_ctx, uripath, uripath_len, 0);
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
 #endif
 
     /* Canonical query string */
     EVP_DigestUpdate(hash_ctx, (const u_char *)query_params, query_params_len);
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
 #endif
 
     /* Canonical headers */
@@ -2547,7 +2547,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
             lcase = tolower(*s);
             EVP_DigestUpdate(hash_ctx, (const u_char *)&lcase, 1);
 #if DEBUG_AUTHENTICATION
-            snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%c", lcase);
+            snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%c", lcase);
 #endif
             header_names_length++;
         } while (*s++ != ':');
@@ -2556,12 +2556,12 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
         EVP_DigestUpdate(hash_ctx, (const u_char *)s, strlen(s));
         EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-        snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", s);
+        snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", s);
 #endif
     }
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "\n");
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "\n");
 #endif
 
     /* Signed headers */
@@ -2584,13 +2584,13 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     EVP_DigestUpdate(hash_ctx, (const u_char *)header_names, strlen(header_names));
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", header_names);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", header_names);
 #endif
 
     /* Hashed payload */
     EVP_DigestUpdate(hash_ctx, (const u_char *)payload_hash_buf, strlen(payload_hash_buf));
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", payload_hash_buf);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", payload_hash_buf);
 #endif
 
     /* Get canonical request hash as a string */
@@ -2649,12 +2649,12 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
     HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", SIGNATURE_ALGORITHM);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", SIGNATURE_ALGORITHM);
 #endif
     HMAC_Update(hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
     HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", datebuf);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", datebuf);
 #endif
     HMAC_Update(hmac_ctx, (const u_char *)datebuf, 8);
     HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
@@ -2665,12 +2665,12 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
     HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
       datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
 #endif
     HMAC_Update(hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", creq_hash_buf);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", creq_hash_buf);
 #endif
     HMAC_Final(hmac_ctx, hmac, &hmac_len);
     http_io_prhex(hmac_buf, hmac, hmac_len);
@@ -2713,27 +2713,28 @@ digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encod
 
 /*
  * URL-encode the given input.
+ *
+ * Aborts if buffer is not big enough.
  */
 static size_t
-url_encode(const char *src, size_t len, char *dst, size_t buflen, int encode_slash)
+url_encode(const char *src, size_t len, char *dst, int buflen, int encode_slash)
 {
     char *const dst_base = dst;
+    int empty = 1;
     size_t elen;
 
     while (len-- > 0) {
         const char ch = *src++;
-        if (isalnum(ch) || ch == '_' || ch == '-' || ch == '~' || ch == '.' || (ch == '/' && !encode_slash)) {
-            snprintf(dst, buflen, "%c", ch);
-            elen = 1;
-        } else {
-            snprintf(dst, buflen, "%%%02X", (int)ch & 0xff);
-            elen = 3;
-        }
+        if (isalnum(ch) || ch == '_' || ch == '-' || ch == '~' || ch == '.' || (ch == '/' && !encode_slash))
+            elen = snvprintf(dst, buflen, "%c", ch);
+        else
+            elen = snvprintf(dst, buflen, "%%%02X", (int)ch & 0xff);
         dst += elen;
         buflen -= elen;
+        empty = 0;
     }
-    if (buflen > 0)
-        *dst = '\0';
+    if (empty)
+        snvprintf(dst, buflen, "%s", "");   // this catches the oddball case where len == buflen == 0
     return dst - dst_base;
 }
 
@@ -2744,18 +2745,15 @@ static void
 http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
     char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
-    int len;
 
     http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
     if (config->vhost) {
-        len = snprintf(buf, bufsiz, "%s%s%s%0*jx", config->baseURL,
+        snvprintf(buf, bufsiz, "%s%s%s%0*jx", config->baseURL,
           config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     } else {
-        len = snprintf(buf, bufsiz, "%s%s/%s%s%0*jx", config->baseURL,
+        snvprintf(buf, bufsiz, "%s%s/%s%s%0*jx", config->baseURL,
           config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     }
-    (void)len;                  /* avoid compiler warning when NDEBUG defined */
-    assert(len < bufsiz);
 }
 
 /*
@@ -2764,14 +2762,10 @@ http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b
 static void
 http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct http_io_conf *config)
 {
-    int len;
-
     if (config->vhost)
-        len = snprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNT_TOKEN_FILE);
+        snvprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNT_TOKEN_FILE);
     else
-        len = snprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNT_TOKEN_FILE);
-    (void)len;                  /* avoid compiler warning when NDEBUG defined */
-    assert(len < bufsiz);
+        snvprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNT_TOKEN_FILE);
 }
 
 /*
@@ -2940,7 +2934,7 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
         for (s = strtok_r(buf + sizeof(CONTENT_ENCODING_HEADER), WHITESPACE ",", &state);
           s != NULL; s = strtok_r(NULL, WHITESPACE ",", &state)) {
             celen = strlen(io->content_encoding);
-            snprintf(io->content_encoding + celen, sizeof(io->content_encoding) - celen, "%s%s", celen > 0 ? "," : "", s);
+            snvprintf(io->content_encoding + celen, sizeof(io->content_encoding) - celen, "%s%s", celen > 0 ? "," : "", s);
         }
     }
 
@@ -3068,7 +3062,7 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
     BIO_write(b64, data, len);
     (void)BIO_flush(b64);
     BIO_get_mem_ptr(b64, &bptr);
-    snprintf(buf, bufsiz, "%.*s", (int)bptr->length - 1, (char *)bptr->data);
+    snvprintf(buf, bufsiz, "%.*s", (int)bptr->length - 1, (char *)bptr->data);
     BIO_free_all(b64);
 }
 
@@ -3108,7 +3102,7 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 
     /* Generate initialization vector by encrypting the block number using previously generated IV */
     memset(blockbuf, 0, sizeof(blockbuf));
-    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Initialize cipher for IV generation */
     r = EVP_EncryptInit_ex(ctx, priv->cipher, NULL, priv->ivkey, priv->ivkey);
@@ -3165,7 +3159,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     HMAC_CTX* ctx;
 
     /* Sign the block number, the name of the encryption algorithm, and the block data */
-    snprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     ctx = HMAC_CTX_new();
     assert(NULL != ctx);
     HMAC_Init_ex(ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
@@ -3193,14 +3187,14 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
             if (!value_only) {
                 HMAC_Update(ctx, (const u_char *)header->data, name_len + 1);
 #if DEBUG_AUTHENTICATION
-                snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", (int)name_len + 1, header->data);
+                snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", (int)name_len + 1, header->data);
 #endif
             }
             for (value = header->data + name_len + 1; isspace(*value); value++)
                 ;
             HMAC_Update(ctx, (const u_char *)value, strlen(value));
 #if DEBUG_AUTHENTICATION
-            snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%s", value);
+            snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%s", value);
 #endif
             break;
         }
@@ -3209,7 +3203,7 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
     /* Add newline whether or not header was found */
     HMAC_Update(ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "\n");
+    snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "\n");
 #endif
 }
 
