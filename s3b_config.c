@@ -1252,19 +1252,21 @@ validate_config(void)
         return -1;
     }
 
-    /* Handle virtual host style URL (prefix hostname with bucket name) */
-    if (config.http_io.vhost) {
-        size_t buflen;
-        int schemelen;
+    /* Construct the virtual host style URL (prefix hostname with bucket name) */
+    {
+        int scheme_len;
         char *buf;
 
-        schemelen = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
-        buflen = strlen(config.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
-        if ((buf = malloc(buflen)) == NULL)
-            err(1, "malloc(%u)", (u_int)buflen);
-        snvprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL, config.bucket, config.http_io.baseURL + schemelen);
-        config.http_io.baseURL = buf;
+        scheme_len = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
+        if (asprintf(&buf, "%.*s%s.%s", scheme_len,
+          config.http_io.baseURL, config.bucket, config.http_io.baseURL + scheme_len) == -1)
+            err(1, "asprintf");
+        config.http_io.vhostURL = buf;
     }
+
+    /* Always use the virtual host style URL if configured to do so */
+    if (config.http_io.vhost)
+        config.http_io.baseURL = config.http_io.vhostURL;
 
     /* Check S3 access privilege */
     if (!find_string_in_table(s3_acls, config.http_io.accessType)) {

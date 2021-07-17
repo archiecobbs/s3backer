@@ -66,6 +66,7 @@ struct http_io_conf {
     const char              *storage_class;
     const char              *authVersion;
     const char              *baseURL;
+    const char              *vhostURL;                  // "baseURL" in --vhost format
     const char              *region;
     const char              *bucket;
     const char              *prefix;
