@@ -197,6 +197,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = ec_protect_survey_non_zero;
     s3b->shutdown = ec_protect_shutdown;
     s3b->destroy = ec_protect_destroy;

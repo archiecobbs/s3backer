@@ -84,6 +84,7 @@ test_io_create(struct test_io_conf *config)
     s3b->write_block = test_io_write_block;
     s3b->read_block_part = test_io_read_block_part;
     s3b->write_block_part = test_io_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = test_io_survey_non_zero;
     s3b->shutdown = test_io_shutdown;
     s3b->destroy = test_io_destroy;

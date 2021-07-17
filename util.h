@@ -71,3 +71,6 @@ extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);
 extern void block_list_init(struct block_list *list);
 extern int block_list_append(struct block_list *list, s3b_block_t block_num);
 extern void block_list_free(struct block_list *list);
+
+/* Generic s3backer_store functions */
+extern int generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);

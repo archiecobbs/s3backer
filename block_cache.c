@@ -256,6 +256,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = block_cache_survey_non_zero;
     s3b->shutdown = block_cache_shutdown;
     s3b->destroy = block_cache_destroy;

@@ -96,6 +96,7 @@ static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks);
 static int zero_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int zero_cache_shutdown(struct s3backer_store *s3b);
 static void zero_cache_destroy(struct s3backer_store *s3b);
@@ -133,6 +134,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->write_block = zero_cache_write_block;
     s3b->read_block_part = zero_cache_read_block_part;
     s3b->write_block_part = zero_cache_write_block_part;
+    s3b->bulk_zero = zero_cache_bulk_zero;
     s3b->survey_non_zero = zero_cache_survey_non_zero;
     s3b->shutdown = zero_cache_shutdown;
     s3b->destroy = zero_cache_destroy;
@@ -439,6 +441,56 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     struct zero_cache_conf *const config = priv->config;
 
     return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
+}
+
+static int
+zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+    s3b_block_t *edited_block_nums;
+    u_int edited_num_blocks = 0;
+    int r;
+
+    /* Create array we can modify */
+    if ((edited_block_nums = malloc(sizeof(*block_nums) * num_blocks)) == NULL) {
+        r = errno;
+        (*config->log)(LOG_ERR, "malloc(): %s", strerror(r));
+        return r;
+    }
+
+    /* Filter out blocks we know are already zero */
+    pthread_mutex_lock(&priv->mutex);
+    while (num_blocks-- > 0) {
+        const s3b_block_t block_num = *block_nums++;
+
+        if (bitmap_test(priv->zeros, block_num))
+            priv->stats.write_hits++;
+        else
+            edited_block_nums[edited_num_blocks++] = block_num;
+    }
+    pthread_mutex_unlock(&priv->mutex);
+
+    /* Any blocks left? */
+    if (edited_num_blocks == 0) {
+        free(edited_block_nums);
+        return 0;
+    }
+
+    /* Perform the bulk zero on the edited array */
+    if ((r = (*priv->inner->bulk_zero)(priv->inner, edited_block_nums, edited_num_blocks)) != 0)
+        goto fail;
+
+    /* Update cache to mark all those blocks zero now */
+    pthread_mutex_lock(&priv->mutex);
+    while (edited_num_blocks-- > 0)
+        zero_cache_update_block(priv, *edited_block_nums++, 1);
+    pthread_mutex_unlock(&priv->mutex);
+
+fail:
+    /* Done */
+    free(edited_block_nums);
+    return r;
 }
 
 void

@@ -45,6 +45,7 @@
 #define HTTP_PUT                    "PUT"
 #define HTTP_DELETE                 "DELETE"
 #define HTTP_HEAD                   "HEAD"
+#define HTTP_POST                   "POST"
 #define HTTP_NOT_MODIFIED           304
 #define HTTP_UNAUTHORIZED           401
 #define HTTP_FORBIDDEN              403
@@ -101,8 +102,18 @@
 #define LIST_ELEM_KEY               "Key"
 #define LIST_TRUE                   "true"
 
-/* How many blocks to list at a time */
+/* Bulk Delete API constants */
+#define DELETE_ELEM_DELETE          "Delete"
+#define DELETE_ELEM_OBJECT          "Object"
+#define DELETE_ELEM_KEY             "Key"
+#define DELETE_ELEM_DELETE_RESULT   "DeleteResult"
+#define DELETE_ELEM_ERROR           "Error"
+#define DELETE_ELEM_CODE            "Code"
+#define DELETE_ELEM_MESSAGE         "Message"
+
+/* How many blocks to list or delete at a time */
 #define LIST_BLOCKS_CHUNK           1000
+#define DELETE_BLOCKS_CHUNK         1000
 
 /* Maximum error payload size in bytes */
 #define MAX_ERROR_PAYLOAD_SIZE      0x100000
@@ -226,6 +237,11 @@ struct http_io {
     s3b_block_t         *block_list;            // the blocks we found this iteration
     u_int               num_blocks;             // number of blocks in "block_list"
 
+    // Bulk delete info
+    char                *bulk_delete_err_key;
+    char                *bulk_delete_err_code;
+    char                *bulk_delete_err_msg;
+
     // Other info that needs to be passed around
     CURL                *curl;                  // back reference to CURL instance
     const char          *method;                // HTTP method
@@ -266,6 +282,7 @@ static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks);
 static int http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_shutdown(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
@@ -298,6 +315,9 @@ static void *http_io_list_blocks_worker_main(void *arg);
 static void http_io_list_blocks_elem_end(void *arg, const XML_Char *name);
 static block_list_func_t http_io_list_blocks_callback;
 static void http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv);
+
+/* Bulk delete */
+static void http_io_bulk_delete_elem_end(void *arg, const XML_Char *name);
 
 /* XML query functions */
 static int http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, const char *method, char *url);
@@ -381,6 +401,7 @@ http_io_create(struct http_io_conf *config)
     s3b->write_block = http_io_write_block;
     s3b->read_block_part = http_io_read_block_part;
     s3b->write_block_part = http_io_write_block_part;
+    s3b->bulk_zero = http_io_bulk_zero;
     s3b->survey_non_zero = http_io_survey_non_zero;
     s3b->shutdown = http_io_shutdown;
     s3b->destroy = http_io_destroy;
@@ -815,6 +836,10 @@ done:
 static void
 http_io_xml_prepper(CURL *curl, struct http_io *io)
 {
+    if (io->bufs.wrdata != NULL) {
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
+        curl_easy_setopt(curl, CURLOPT_READDATA, io);
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
@@ -1975,6 +2000,133 @@ http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_in
     struct http_io_conf *const config = priv->config;
 
     return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
+}
+
+static int
+http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    struct http_io_private *const priv = s3b->data;
+    struct http_io_conf *const config = priv->config;
+    char urlbuf[URL_BUF_SIZE(config)];
+    size_t max_object_name;
+    struct http_io io;
+    char *buf = NULL;
+    int r;
+
+    /* Set URL */
+    snvprintf(urlbuf, sizeof(urlbuf), "%s?delete", config->vhostURL);
+
+    /* Initialize XML query */
+    if ((r = http_io_xml_io_init(priv, &io, HTTP_POST, urlbuf)) != 0)
+        return r;
+
+    /* Calculate the length of one object name */
+    max_object_name = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1 + S3B_BLOCK_NUM_DIGITS + 1; // [PREFIX][HASH]-[BLOCK]
+
+    /* Delete blocks in chunks of DELETE_BLOCKS_CHUNK */
+    while (num_blocks > 0) {
+        const int count = num_blocks <= DELETE_BLOCKS_CHUNK ? num_blocks : DELETE_BLOCKS_CHUNK;
+        size_t max_object_elem;
+        size_t max_payload;
+        size_t payload_len;
+        char *new_buf;
+        u_int i;
+
+        /* Calculate upper bound on size of query payload */
+        max_object_elem = strlen(DELETE_ELEM_OBJECT) + 2                                            // <Object>
+          + strlen(DELETE_ELEM_KEY) + 2 + max_object_name + strlen(DELETE_ELEM_KEY) + 3             //   <Key>xxx</Key>
+          + strlen(DELETE_ELEM_OBJECT) + 3;                                                         // </Object>
+        max_payload = strlen(DELETE_ELEM_DELETE) + 2                                                // <Delete>
+          + (count * max_object_elem)                                                               //   <Object>...
+          + strlen(DELETE_ELEM_DELETE) + 3                                                          // </Delete>
+          + 2;                                                                                      // nul byte, plus one extra
+
+        /* Allocate buffer */
+        if ((new_buf = realloc(buf, max_payload)) == NULL) {
+            r = errno;
+            (*config->log)(LOG_ERR, "realloc: %s", strerror(r));
+            break;
+        }
+        buf = new_buf;
+
+        /* Build XML payload */
+        payload_len = snvprintf(buf, max_payload, "<%s>", DELETE_ELEM_DELETE);
+        for (i = 0; i < count; i++) {
+            const s3b_block_t block_num = block_nums[i];
+            char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
+            char object_buf[max_object_name + 1];
+
+            http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
+            snvprintf(object_buf, sizeof(object_buf), "%s%s%0*jx",
+              config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            payload_len += snvprintf(buf + payload_len, max_payload - payload_len, "<%s><%s>%s</%s></%s>",
+              DELETE_ELEM_OBJECT, DELETE_ELEM_KEY, object_buf, DELETE_ELEM_KEY, DELETE_ELEM_OBJECT);
+        }
+        payload_len += snvprintf(buf + payload_len, max_payload - payload_len, "</%s>", DELETE_ELEM_DELETE);
+
+        /* Initialize buffer */
+        io.bufs.wrdata = buf;
+        io.bufs.wrremain = payload_len;
+
+        /* Perform operation */
+        if ((r = http_io_xml_io_exec(priv, &io, http_io_bulk_delete_elem_end)) != 0)
+            break;
+
+        /* Advance */
+        block_nums += count;
+        num_blocks -= count;
+    }
+
+    /* Done */
+    http_io_xml_io_destroy(priv, &io);
+    free(buf);
+    return r;
+}
+
+static void
+http_io_bulk_delete_elem_end(void *arg, const XML_Char *name)
+{
+    struct http_io *const io = (struct http_io *)arg;
+    struct http_io_conf *const config = io->config;
+    char **copy_ptr = NULL;
+
+    /* If we are in an error state, just bail */
+    if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
+        return;
+
+    /* Handle <DeleteResult>/<Error>/<Foo> tags */
+    if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_KEY) == 0)
+        copy_ptr = &io->bulk_delete_err_key;
+    else if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_CODE) == 0)
+        copy_ptr = &io->bulk_delete_err_code;
+    else if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_MESSAGE) == 0)
+        copy_ptr = &io->bulk_delete_err_msg;
+    if (copy_ptr != NULL) {
+        free(*copy_ptr);
+        if ((*copy_ptr = strdup(io->xml_text)) == NULL) {
+            io->handler_error = errno;
+            (*config->log)(LOG_ERR, "strdup: %s", strerror(errno));
+        }
+        goto done;
+    }
+
+    /* Handle end of <DeleteResult>/<Error> */
+    if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR) == 0) {
+        (*config->log)(LOG_ERR, "bulk delete error: key=\"%s\" code=\"%s\" message=\"%s\"",
+          io->bulk_delete_err_key != NULL ? io->bulk_delete_err_key : "(none)",
+          io->bulk_delete_err_code != NULL ? io->bulk_delete_err_code : "(none)",
+          io->bulk_delete_err_msg != NULL ? io->bulk_delete_err_msg : "(none)");
+        io->handler_error = EIO;
+        goto done;
+    }
+
+done:
+    /* Update current XML path */
+    assert(strrchr(io->xml_path, '/') != NULL);
+    *strrchr(io->xml_path, '/') = '\0';
+
+    /* Reset text buffer */
+    io->xml_text[0] = '\0';
 }
 
 static int

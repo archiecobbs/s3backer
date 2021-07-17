@@ -309,6 +309,18 @@ block_list_free(struct block_list *list)
     memset(list, 0, sizeof(*list));
 }
 
+int
+generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    int r;
+
+    while (num_blocks-- > 0) {
+        if ((r = (s3b->write_block)(s3b, *block_nums++, NULL, NULL, NULL, NULL)) != 0)
+            return r;
+    }
+    return 0;
+}
+
 void
 syslog_logger(int level, const char *fmt, ...)
 {

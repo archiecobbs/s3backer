@@ -233,6 +233,15 @@ struct s3backer_store {
     int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
+     * Bulk block zeroing (i.e., deletion).
+     *
+     * If a block to be deleted does not exist, then that's not an error - just do nothing in that case.
+     *
+     * Returns zero on success or a (positive) errno value if one or more blocks exist but cannot be deleted.
+     */
+    int         (*bulk_zero)(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);
+
+    /*
      * Identify all blocks that are, or could possibly be, non-zero.
      *
      * The callback must be invoked for all blocks which could possibly be non-zero. Note: the same block
