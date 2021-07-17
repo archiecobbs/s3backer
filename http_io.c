@@ -216,8 +216,6 @@ struct http_io {
     int                 xml_error_column;       // XML parse error column
     char                *xml_path;              // Current XML path
     char                *xml_text;              // Current XML text
-    int                 xml_text_len;           // # chars in 'xml_text' buffer
-    int                 xml_text_max;           // max chars in 'xml_text' buffer
     int                 handler_error;          // error encountered during parsing
 
     // Bucket object listing info
@@ -276,7 +274,7 @@ static void http_io_destroy(struct s3backer_store *s3b);
 static http_io_curl_prepper_t http_io_head_prepper;
 static http_io_curl_prepper_t http_io_read_prepper;
 static http_io_curl_prepper_t http_io_write_prepper;
-static http_io_curl_prepper_t http_io_list_prepper;
+static http_io_curl_prepper_t http_io_xml_prepper;
 static http_io_curl_prepper_t http_io_iamcreds_prepper;
 
 /* S3 REST API functions */
@@ -297,12 +295,18 @@ static char *parse_json_field(struct http_io_private *priv, const char *json, co
 static int http_io_list_blocks_range(struct http_io_private *priv,
     s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg);
 static void *http_io_list_blocks_worker_main(void *arg);
-static size_t http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
-static void http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
-static void http_io_list_elem_end(void *arg, const XML_Char *name);
-static void http_io_list_text(void *arg, const XML_Char *s, int len);
+static void http_io_list_blocks_elem_end(void *arg, const XML_Char *name);
 static block_list_func_t http_io_list_blocks_callback;
 static void http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv);
+
+/* XML query functions */
+static int http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, const char *method, char *url);
+static int http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io,
+    void (*end_handler)(void *arg, const XML_Char *name));
+static void http_io_xml_io_destroy(struct http_io_private *const priv, struct http_io *io);
+static size_t http_io_curl_xml_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
+static void http_io_xml_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
+static void http_io_xml_text(void *arg, const XML_Char *s, int len);
 
 /* HTTP and curl functions */
 static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper);
@@ -744,29 +748,12 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
     struct http_io io;
     int r;
 
-    /* Initialize I/O info */
-    http_io_init_io(priv, &io, HTTP_GET, NULL);         // io.url is set below
-    io.xml_error = XML_ERROR_NONE;
+    /* Initialize XML query */
+    if ((r = http_io_xml_io_init(priv, &io, HTTP_GET, NULL)) != 0)              // "url" is set below
+        return r;
     io.block_list = block_list;
     io.min_name = min;
     io.max_name = max;
-
-    /* Create XML parser */
-    if ((io.xml = XML_ParserCreate(NULL)) == NULL) {
-        (*config->log)(LOG_ERR, "failed to create XML parser");
-        return ENOMEM;
-    }
-
-    /* Allocate buffers for XML path and tag text content */
-    io.xml_text_max = strlen(config->prefix) + (S3B_BLOCK_NUM_DIGITS * 2) + 16;
-    if ((io.xml_text = malloc(io.xml_text_max + 1)) == NULL) {
-        (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
-        goto oom;
-    }
-    if ((io.xml_path = calloc(1, 1)) == NULL) {
-        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
-        goto oom;
-    }
 
     /* Determine the last possible valid block name (or block hash prefix) we want to search for */
     snvprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
@@ -777,9 +764,10 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
     else
         r = asprintf(&io.start_after, "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)(min - 1));
     if (r == -1) {
+        r = errno;
         (*config->log)(LOG_ERR, "asprintf: %s", strerror(r));
         io.start_after = NULL;
-        goto oom;
+        goto done;
     }
 
     /* List blocks */
@@ -789,14 +777,6 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
           + strlen(config->bucket)
           + sizeof("?" LIST_PARAM_MARKER "=") + sizeof(start_after_urlencoded)
           + sizeof("&" LIST_PARAM_MAX_KEYS "=") + 16];
-        const time_t now = time(NULL);
-
-        /* Reset XML parser state */
-        XML_ParserReset(io.xml, NULL);
-        XML_SetUserData(io.xml, &io);
-        XML_SetElementHandler(io.xml, http_io_list_elem_start, http_io_list_elem_end);
-        XML_SetCharacterDataHandler(io.xml, http_io_list_text);
-        assert(io.num_blocks == 0);
 
         /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
         url_encode(io.start_after, strlen(io.start_after), start_after_urlencoded, sizeof(start_after_urlencoded), 1);
@@ -804,46 +784,14 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
           LIST_PARAM_MARKER, start_after_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
         io.url = urlbuf;
 
-        /* Add Date header */
-        http_io_add_date(priv, &io, now);
-
-        /* Add Authorization header */
-        if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
-            break;
-
         /* Perform operation */
+        assert(io.num_blocks == 0);
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: querying range [%0*jx, %0*jx] starting after \"%s\"",
             S3B_BLOCK_NUM_DIGITS, (uintmax_t)min, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max, io.start_after);
 #endif
-        r = http_io_perform_io(priv, &io, http_io_list_prepper);
-
-        /* Clean up headers */
-        curl_slist_free_all(io.headers);
-        io.headers = NULL;
-
-        /* Check for error from curl */
-        if (r != 0)
+        if ((r = http_io_xml_io_exec(priv, &io, http_io_list_blocks_elem_end)) != 0)
             break;
-
-        /* Check for error from handlers */
-        if ((r = io.handler_error) != 0)
-            break;
-
-        /* Finalize parse */
-        if (XML_Parse(io.xml, NULL, 0, 1) != XML_STATUS_OK) {
-            io.xml_error = XML_GetErrorCode(io.xml);
-            io.xml_error_line = XML_GetCurrentLineNumber(io.xml);
-            io.xml_error_column = XML_GetCurrentColumnNumber(io.xml);
-        }
-
-        /* Check for XML error */
-        if (io.xml_error != XML_ERROR_NONE) {
-            (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
-              io.xml_error_line, io.xml_error_column, XML_ErrorString(io.xml_error));
-            r = EIO;
-            break;
-        }
 
         /* Invoke callback with the blocks we found */
         if (io.num_blocks > 0) {
@@ -859,25 +807,15 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
 
 done:
     /* Done */
-    XML_ParserFree(io.xml);
+    http_io_xml_io_destroy(priv, &io);
     free(io.start_after);
-    free(io.xml_path);
-    free(io.xml_text);
     return r;
-
-oom:
-    /* Update stats */
-    pthread_mutex_lock(&priv->mutex);
-    priv->stats.out_of_memory_errors++;
-    pthread_mutex_unlock(&priv->mutex);
-    r = ENOMEM;
-    goto done;
 }
 
 static void
-http_io_list_prepper(CURL *curl, struct http_io *io)
+http_io_xml_prepper(CURL *curl, struct http_io *io)
 {
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_list_reader);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     curl_easy_setopt(curl, CURLOPT_ENCODING, "");
@@ -885,7 +823,7 @@ http_io_list_prepper(CURL *curl, struct http_io *io)
 }
 
 static size_t
-http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
+http_io_curl_xml_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
 {
     struct http_io *const io = (struct http_io *)stream;
     size_t total = size * nmemb;
@@ -894,23 +832,31 @@ http_io_curl_list_reader(const void *ptr, size_t size, size_t nmemb, void *strea
     if (http_io_reader_error_check(io, ptr, total))
         return total;
 
-    /* Run new payload bytes through XML parser */
+    /* If we are in an error state, just bail */
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return total;
+
+    /* Run new payload bytes through XML parser */
     if (XML_Parse(io->xml, ptr, total, 0) != XML_STATUS_OK) {
         io->xml_error = XML_GetErrorCode(io->xml);
         io->xml_error_line = XML_GetCurrentLineNumber(io->xml);
         io->xml_error_column = XML_GetCurrentColumnNumber(io->xml);
     }
+
+    /* Done */
     return total;
 }
 
 static void
-http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
+http_io_xml_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
 {
     struct http_io *const io = (struct http_io *)arg;
     const size_t plen = strlen(io->xml_path);
     char *newbuf;
+
+    /* If we are in an error state, just bail */
+    if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
+        return;
 
     /* Update current path */
     if ((newbuf = realloc(io->xml_path, plen + 1 + strlen(name) + 1)) == NULL) {
@@ -922,8 +868,7 @@ http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
     io->xml_path[plen] = '/';
     strcpy(io->xml_path + plen + 1, name);
 
-    /* Reset buffer */
-    io->xml_text_len = 0;
+    /* Reset text buffer */
     io->xml_text[0] = '\0';
 
 #if DEBUG_BLOCK_LIST
@@ -933,10 +878,14 @@ http_io_list_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
 }
 
 static void
-http_io_list_elem_end(void *arg, const XML_Char *name)
+http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
 {
     struct http_io *const io = (struct http_io *)arg;
     struct http_io_conf *const config = io->config;
+
+    /* If we are in an error state, just bail */
+    if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
+        return;
 
     /* Handle <Truncated> tag */
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0) {
@@ -993,24 +942,33 @@ done:
     assert(strrchr(io->xml_path, '/') != NULL);
     *strrchr(io->xml_path, '/') = '\0';
 
-    /* Reset buffer */
-    io->xml_text_len = 0;
+    /* Reset text buffer */
     io->xml_text[0] = '\0';
 }
 
 static void
-http_io_list_text(void *arg, const XML_Char *s, int len)
+http_io_xml_text(void *arg, const XML_Char *s, int len)
 {
     struct http_io *const io = (struct http_io *)arg;
-    int avail;
+    struct http_io_conf *const config = io->config;
+    size_t current_len;
+    char *new_buf;
+
+    /* If we are in an error state, just bail */
+    if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
+        return;
+
+    /* Extend text buffer */
+    current_len = strlen(io->xml_text);
+    if ((new_buf = realloc(io->xml_text, current_len + len + 1)) == NULL) {
+        io->handler_error = errno;
+        (*config->log)(LOG_ERR, "realloc(%u + %d): %s", (u_int)current_len, len + 1, strerror(errno));
+        return;
+    }
 
     /* Append text to buffer */
-    avail = io->xml_text_max - io->xml_text_len;
-    if (len > avail)
-        len = avail;
-    memcpy(io->xml_text + io->xml_text_len, s, len);
-    io->xml_text_len += len;
-    io->xml_text[io->xml_text_len] = '\0';
+    memcpy(io->xml_text + current_len, s, len);
+    io->xml_text[current_len + len] = '\0';
 }
 
 /*
@@ -2017,6 +1975,115 @@ http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_in
     struct http_io_conf *const config = priv->config;
 
     return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
+}
+
+static int
+http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, const char *method, char *url)
+{
+    struct http_io_conf *const config = priv->config;
+    int r;
+
+    /* Initialize I/O info */
+    http_io_init_io(priv, io, method, url);
+    io->xml_error = XML_ERROR_NONE;
+
+    /* Create XML parser */
+    if ((io->xml = XML_ParserCreate(NULL)) == NULL) {
+        (*config->log)(LOG_ERR, "failed to create XML parser");
+        r = ENOMEM;
+        goto fail;
+    }
+
+    /* Allocate buffers for XML path and tag text content */
+    if ((io->xml_text = calloc(1, 1)) == NULL) {
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        goto fail;
+    }
+    if ((io->xml_path = calloc(1, 1)) == NULL) {
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        goto fail;
+    }
+
+    /* OK */
+    return 0;
+
+fail:
+    /* Update stats */
+    if (r == ENOMEM) {
+        pthread_mutex_lock(&priv->mutex);
+        priv->stats.out_of_memory_errors++;
+        pthread_mutex_unlock(&priv->mutex);
+    }
+
+    /* Cleanup */
+    http_io_xml_io_destroy(priv, io);
+    return r;
+}
+
+static int
+http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void (*end_handler)(void *arg, const XML_Char *name))
+{
+    struct http_io_conf *const config = priv->config;
+    const time_t now = time(NULL);
+    int r;
+
+    /* Reset XML parser state */
+    XML_ParserReset(io->xml, NULL);
+    XML_SetUserData(io->xml, io);
+    XML_SetElementHandler(io->xml, http_io_xml_elem_start, end_handler);
+    XML_SetCharacterDataHandler(io->xml, http_io_xml_text);
+
+    /* Add Date header */
+    http_io_add_date(priv, io, now);
+
+    /* Add Authorization header */
+    if ((r = http_io_add_auth(priv, io, now, NULL, 0)) != 0)
+        return r;
+
+    /* Perform operation */
+    r = http_io_perform_io(priv, io, http_io_xml_prepper);
+
+    /* Clean up headers */
+    curl_slist_free_all(io->headers);
+    io->headers = NULL;
+
+    /* Check for error from curl */
+    if (r != 0)
+        return r;
+
+    /* Check for error from handlers */
+    if ((r = io->handler_error) != 0)
+        return r;
+
+    /* Finalize parse (if not already busted) */
+    if (io->xml_error == XML_ERROR_NONE && XML_Parse(io->xml, NULL, 0, 1) != XML_STATUS_OK) {
+        io->xml_error = XML_GetErrorCode(io->xml);
+        io->xml_error_line = XML_GetCurrentLineNumber(io->xml);
+        io->xml_error_column = XML_GetCurrentColumnNumber(io->xml);
+    }
+
+    /* Check for XML error */
+    if (io->xml_error != XML_ERROR_NONE) {
+        (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
+          io->xml_error_line, io->xml_error_column, XML_ErrorString(io->xml_error));
+        return EIO;
+    }
+
+    /* Done */
+    return 0;
+}
+
+static void
+http_io_xml_io_destroy(struct http_io_private *const priv, struct http_io *io)
+{
+    if (io->xml != NULL) {
+        XML_ParserFree(io->xml);
+        io->xml = NULL;
+    }
+    free(io->xml_path);
+    io->xml_path = NULL;
+    free(io->xml_text);
+    io->xml_text = NULL;
 }
 
 /*
