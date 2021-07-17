@@ -1322,8 +1322,9 @@ update_iam_credentials(struct http_io_private *const priv)
 
     /* Build URL */
     if (asprintf(&urlbuf, "%s%s", EC2_IAM_META_DATA_URLBASE, config->ec2iam_role) == -1) {
-        (*config->log)(LOG_ERR, "%s: asprintf() failed: %s", "update_iam_credentials", strerror(ENOMEM));
-        return ENOMEM;
+        r = errno;
+        (*config->log)(LOG_ERR, "%s: asprintf() failed: %s", "update_iam_credentials", strerror(r));
+        return r;
     }
 
     /* Initialize I/O info */
@@ -2795,7 +2796,7 @@ http_io_add_header(struct http_io_private *priv, struct curl_slist *headers, con
 
     va_start(args, fmt);
     if (vasprintf(&buf, fmt, args) == -1)
-        (*priv->config->log)(LOG_ERR, "%s: vasprintf() failed: %s", "http_io_add_header", strerror(ENOMEM));
+        (*priv->config->log)(LOG_ERR, "%s: vasprintf() failed: %s", "http_io_add_header", strerror(errno));
     else {
         headers = curl_slist_append(headers, buf);
         free(buf);
