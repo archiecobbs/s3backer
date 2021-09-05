@@ -612,7 +612,7 @@ static int
 block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest)
 {
     struct block_cache_conf *const config = priv->config;
-    int r = 0;
+    int r;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
@@ -621,7 +621,8 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
     /* Sanity check */
     if (priv->num_threads == 0) {
         (*config->log)(LOG_ERR, "block_cache_read(): no threads created yet");
-        return ENOTCONN;
+        r = ENOTCONN;
+        goto done;
     }
 
     /* Update count of block(s) read sequentially by the upper layer */
@@ -642,6 +643,7 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
     /* Peform the read */
     r = block_cache_do_read(priv, block_num, off, len, dest, 1);
 
+done:
     /* Release lock */
     pthread_mutex_unlock(&priv->mutex);
     return r;
