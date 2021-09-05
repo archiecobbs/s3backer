@@ -842,13 +842,13 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
             write_hit_ratio = (double)block_cache_stats.write_hits / (double)total_writes;
         (*printer)(prarg, "%-28s %u blocks\n", "block_cache_current_size", block_cache_stats.current_size);
         (*printer)(prarg, "%-28s %u blocks\n", "block_cache_initial_size", block_cache_stats.initial_size);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_read_hit_ratio", read_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_write_hit_ratio", write_hit_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_write_hit_ratio", write_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_verified", block_cache_stats.verified);
         (*printer)(prarg, "%-28s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
         total_oom += block_cache_stats.out_of_memory_errors;
