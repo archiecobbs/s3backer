@@ -505,6 +505,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_cond_destroy(&priv->worker_work);
     pthread_cond_destroy(&priv->end_reading);
     pthread_cond_destroy(&priv->space_avail);
+    pthread_mutex_unlock(&priv->mutex);
     pthread_mutex_destroy(&priv->mutex);
     free(priv);
     free(s3b);

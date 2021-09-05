@@ -3,6 +3,7 @@ Version Next
     - Fixed bug with `--listBlocks' threads doing redundant overlapping queries
     - Refactor to support multiple different compression algorithms
     - Fixed mutex handling bug in block cache (issue #152)
+    - Release mutexs prior to destruction (issue #151)
 
 Version 1.6.2 released June 14, 2020
 
