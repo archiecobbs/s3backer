@@ -991,6 +991,8 @@ http_io_xml_text(void *arg, const XML_Char *s, int len)
         return;
     }
 
+    io->xml_text = new_buf;
+
     /* Append text to buffer */
     memcpy(io->xml_text + current_len, s, len);
     io->xml_text[current_len + len] = '\0';
