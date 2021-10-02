@@ -47,7 +47,7 @@
  * Blocks in the cache are in one of these states:
  *
  *  CLEAN       Data is consistent with underlying s3backer_store
- *  CLEAN2      Data is belived consistent with underlying s3backer_store, but need to verify ETag
+ *  CLEAN2      Data is believed consistent with underlying s3backer_store, but need to verify ETag
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
  *  READING     Data is being read from the underlying s3backer_store
  *  READING2    Data is being read/verified from the underlying s3backer_store
@@ -75,7 +75,7 @@
  * its write attempt, the worker thread then checks for this condition and, if indeed
  * the block has changed to WRITING2, it knows to free the original buffer.
  *
- * Blocks in the READING, WRITING and WRITING2 states are not in either list.
+ * Blocks in the READING/READING2 and WRITING/WRITING2 states are not in either list.
  *
  * Only CLEAN and CLEAN2 blocks are eligible to be evicted from the cache. We evict entries
  * either when they timeout or the cache is full and we need to add a new entry to it.
