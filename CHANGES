@@ -4,6 +4,7 @@ Version Next
     - Refactor to support multiple different compression algorithms
     - Fixed mutex handling bug in block cache (issue #152)
     - Release mutexs prior to destruction (issue #151)
+    - Fixed use-after-free bug in XML parser (pr #154)
 
 Version 1.6.2 released June 14, 2020
 

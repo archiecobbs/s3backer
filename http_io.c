@@ -990,6 +990,7 @@ http_io_xml_text(void *arg, const XML_Char *s, int len)
         (*config->log)(LOG_ERR, "realloc(%u + %d): %s", (u_int)current_len, len + 1, strerror(errno));
         return;
     }
+    io->xml_text = new_buf;
 
     /* Append text to buffer */
     memcpy(io->xml_text + current_len, s, len);
