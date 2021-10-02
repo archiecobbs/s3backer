@@ -389,18 +389,18 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 {
     struct zero_cache_private *const priv = s3b->data;
     struct zero_cache_conf *const config = priv->config;
-    int zero;
+    int known_zero;
     int r;
 
     /* Detect zero blocks */
     if (src != NULL && block_is_zeros(src, config->block_size))
         src = NULL;
-    zero = src == NULL;
+    known_zero = src == NULL;
 
     /* Handle the case where we know this block is zero */
     pthread_mutex_lock(&priv->mutex);
     if (bitmap_test(priv->zeros, block_num)) {
-        if (zero) {                                             /* ok, it's still zero -> return immediately */
+        if (known_zero) {                                       /* ok, it's still zero -> return immediately */
             priv->stats.write_hits++;
             pthread_mutex_unlock(&priv->mutex);
             if (caller_etag != NULL)
@@ -412,14 +412,12 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     pthread_mutex_unlock(&priv->mutex);
 
     /* Perform the actual write */
-    r = (*priv->inner->write_block)(priv->inner, block_num, src, caller_etag, check_cancel, check_cancel_arg);
+    if ((r = (*priv->inner->write_block)(priv->inner, block_num, src, caller_etag, check_cancel, check_cancel_arg)) != 0)
+        known_zero = 0;                                         /* be conservative and say we are no longer sure */
 
     /* Update cache */
     pthread_mutex_lock(&priv->mutex);
-    if (r == 0)
-        zero_cache_update_block(priv, block_num, zero);         /* update block status based on successful write */
-    else
-        zero_cache_update_block(priv, block_num, 0);            /* error: be conservative and say we are no longer sure */
+    zero_cache_update_block(priv, block_num, known_zero);
     pthread_mutex_unlock(&priv->mutex);
 
     /* Done */
