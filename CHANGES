@@ -1,4 +1,4 @@
-Version Next
+Version 1.6.3 released October 2, 2021
 
     - Fixed bug with `--listBlocks' threads doing redundant overlapping queries
     - Refactor to support multiple different compression algorithms
