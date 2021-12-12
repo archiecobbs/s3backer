@@ -1174,7 +1174,7 @@ block_cache_worker_main(void *arg)
         /* Get current time */
         now = block_cache_get_time(priv);
 
-        /* Evict low priority any CLEAN[2] blocks that have timed out (if enabled) */
+        /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL && now >= clean_entry->timeout) {
                 block_cache_free_entry(priv, &clean_entry);
