@@ -92,6 +92,13 @@
 #define FUSE_OPT_KEY_DISCARD -4
 #endif
 
+/* Bail out on error (implies bug) */
+#define CHECK_RETURN(x)         do {                                                                    \
+                                    const int _r = (x);                                                 \
+                                    (void)_r;                                                           \
+                                    assert(_r == 0);                                                    \
+                                } while (0)
+
 /* In case we don't have glibc >= 2.18 */
 #ifndef FALLOC_FL_KEEP_SIZE
 #define FALLOC_FL_KEEP_SIZE     0x01
