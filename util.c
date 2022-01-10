@@ -379,7 +379,7 @@ stderr_logger(int level, const char *fmt, ...)
     fprintf(stderr, "%s %s: ", timebuf, levelstr);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
-    pthread_mutex_unlock(&stderr_log_mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
     va_end(args);
 }
 

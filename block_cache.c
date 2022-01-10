@@ -311,7 +311,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return s3b;
 
 fail9:
@@ -428,7 +428,7 @@ block_cache_create_threads(struct s3backer_store *s3b)
     }
 
 fail:
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -475,7 +475,7 @@ block_cache_shutdown(struct s3backer_store *const s3b)
     }
 
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Propagate to lower layer */
     return (*priv->inner->shutdown)(priv->inner);
@@ -505,7 +505,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_cond_destroy(&priv->worker_work);
     pthread_cond_destroy(&priv->end_reading);
     pthread_cond_destroy(&priv->space_avail);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
     free(priv);
     free(s3b);
@@ -520,7 +520,7 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
     memcpy(stats, &priv->stats, sizeof(*stats));
     stats->current_size = s3b_hash_size(priv->hashtable);
     stats->dirty_ratio = block_cache_dirty_ratio(priv);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 void
@@ -530,7 +530,7 @@ block_cache_clear_stats(struct s3backer_store *s3b)
 
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 static int
@@ -554,7 +554,7 @@ block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callb
         goto done;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Report all blocks inventoried above */
     (*callback)(arg, list.blocks, list.num_blocks);
@@ -573,7 +573,7 @@ block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callb
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -646,7 +646,7 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
 
 done:
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -752,7 +752,7 @@ again:
 read:
     /* Read the block from the underlying s3backer_store */
     assert(ENTRY_GET_STATE(entry) == READING || ENTRY_GET_STATE(entry) == READING2);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     r = (*priv->inner->read_block)(priv->inner, block_num, data, etag, entry->verify ? entry->etag : NULL, 0);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv, 0);
@@ -1017,7 +1017,7 @@ success:
 
 fail:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -1212,7 +1212,7 @@ block_cache_worker_main(void *arg)
             assert(ENTRY_GET_STATE(entry) == WRITING);
 
             /* Attempt to write the block */
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, etag, block_cache_check_cancel, priv);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv, 1);
@@ -1286,7 +1286,7 @@ block_cache_worker_main(void *arg)
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     free(buf);
     return NULL;
 }
@@ -1317,7 +1317,7 @@ block_cache_check_cancel(void *arg, s3b_block_t block_num)
     r = entry->dirty;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 

@@ -210,7 +210,7 @@ zero_cache_create_threads(struct s3backer_store *s3b)
     priv->survey_running = 1;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Done */
     return 0;
@@ -218,7 +218,7 @@ zero_cache_create_threads(struct s3backer_store *s3b)
 fail2:
     bitmap_free(&priv->survey_zeros);
 fail1:
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -241,14 +241,14 @@ zero_cache_survey_main(void *arg)
     if (r == 0)
         bitmap_or(priv->zeros, priv->survey_zeros, config->num_blocks);
     survey_count = priv->survey_count;
-    pthread_mutex_unlock(&priv->survey_mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
 
     /* Finish up */
     bitmap_free(&priv->survey_zeros);
     priv->survey_running = 0;
 
     /* Unlock main mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Done */
     (*config->log)(LOG_INFO, "non-zero block survey %s (%ju non-zero blocks reported)",
@@ -276,7 +276,7 @@ zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_b
         bitmap_set(priv->survey_zeros, block_num, 0);
         priv->survey_count++;
     }
-    pthread_mutex_unlock(&priv->survey_mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
 
     /* Done */
     return 0;
@@ -309,12 +309,12 @@ zero_cache_shutdown(struct s3backer_store *const s3b)
     pthread_mutex_lock(&priv->mutex);
     if (priv->survey_running) {
         priv->stopping = 1;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         if ((r = pthread_join(priv->survey_thread, NULL)) != 0)
             (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
         pthread_mutex_lock(&priv->mutex);
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Propagate to lower layer */
     return (*priv->inner->shutdown)(priv->inner);
@@ -332,7 +332,7 @@ zero_cache_destroy(struct s3backer_store *const s3b)
     (*priv->inner->destroy)(priv->inner);
 
     /* Free structures */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
     assert(priv->survey_zeros == NULL);
     bitmap_free(&priv->zeros);
@@ -358,7 +358,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     pthread_mutex_lock(&priv->mutex);
     if (bitmap_test(priv->zeros, block_num)) {
         priv->stats.read_hits++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         if (expect_etag != NULL && strict && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
             return EIO;
         if (actual_etag != NULL)
@@ -366,7 +366,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
         memset(dest, 0, config->block_size);
         return 0;
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Perform the actual read */
     r = (*priv->inner->read_block)(priv->inner, block_num, dest, actual_etag, expect_etag, strict);
@@ -376,7 +376,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
         const int zero = block_is_zeros(dest, config->block_size);
         pthread_mutex_lock(&priv->mutex);
         zero_cache_update_block(priv, block_num, zero);
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
     /* Done */
@@ -402,14 +402,14 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     if (bitmap_test(priv->zeros, block_num)) {
         if (known_zero) {                                       /* ok, it's still zero -> return immediately */
             priv->stats.write_hits++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             if (caller_etag != NULL)
                 memcpy(caller_etag, zero_etag, MD5_DIGEST_LENGTH);
             return 0;
         }
         zero_cache_update_block(priv, block_num, 0);            /* be conservative and say we are no longer sure */
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Perform the actual write */
     if ((r = (*priv->inner->write_block)(priv->inner, block_num, src, caller_etag, check_cancel, check_cancel_arg)) != 0)
@@ -418,7 +418,7 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     /* Update cache */
     pthread_mutex_lock(&priv->mutex);
     zero_cache_update_block(priv, block_num, known_zero);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Done */
     return r;
@@ -468,7 +468,7 @@ zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_
         else
             edited_block_nums[edited_num_blocks++] = block_num;
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Any blocks left? */
     if (edited_num_blocks == 0) {
@@ -484,7 +484,7 @@ zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_
     pthread_mutex_lock(&priv->mutex);
     while (edited_num_blocks-- > 0)
         zero_cache_update_block(priv, *edited_block_nums++, 1);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
 fail:
     /* Done */
@@ -499,7 +499,7 @@ zero_cache_get_stats(struct s3backer_store *s3b, struct zero_cache_stats *stats)
 
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 void
@@ -510,7 +510,7 @@ zero_cache_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     priv->stats.read_hits = 0;
     priv->stats.write_hits = 0;
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 // This assumes mutex is held

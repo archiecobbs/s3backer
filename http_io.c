@@ -599,7 +599,7 @@ http_io_shutdown(struct s3backer_store *const s3b)
         priv->iam_thread_alive = 0;
 
         /* Reap IAM thread */
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
         if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
             (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
@@ -612,7 +612,7 @@ http_io_shutdown(struct s3backer_store *const s3b)
     http_io_wait_for_survey_threads_to_exit(priv);
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Done */
     return 0;
@@ -625,7 +625,7 @@ http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats)
 
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 void
@@ -635,7 +635,7 @@ http_io_clear_stats(struct s3backer_store *s3b)
 
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 static int
@@ -706,7 +706,7 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -740,7 +740,7 @@ http_io_list_blocks_worker_main(void *arg)
         priv->survey_error = r;
     if (priv->num_survey_threads > 0 && --priv->num_survey_threads == 0)
         pthread_cond_broadcast(&priv->survey_done);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return NULL;
 }
 
@@ -1122,7 +1122,7 @@ http_io_create_threads(struct s3backer_store *s3b)
         else
             (*config->log)(LOG_ERR, "failed to create IAM updater thread: %s", strerror(r));
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Done */
     return r;
@@ -1356,7 +1356,7 @@ update_iam_credentials(struct http_io_private *const priv)
     config->accessId = access_id;
     config->accessKey = access_key;
     config->iam_token = iam_token;
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     (*config->log)(LOG_INFO, "successfully updated EC2 IAM credentials from %s", io.url);
     free(urlbuf);
 
@@ -1463,13 +1463,13 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         pthread_mutex_lock(&priv->mutex);
         if (!bitmap_test(priv->non_zero, block_num)) {
             priv->stats.empty_blocks_read++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             memset(dest, 0, config->block_size);
             if (actual_etag != NULL)
                 memset(actual_etag, 0, MD5_DIGEST_LENGTH);
             return 0;
         }
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
     /* Initialize I/O info */
@@ -1482,7 +1482,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
         pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         return ENOMEM;
     }
 
@@ -1602,7 +1602,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.out_of_memory_errors++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 r = ENOMEM;
                 break;
             }
@@ -1625,7 +1625,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 if (r == ENOMEM) {
                     pthread_mutex_lock(&priv->mutex);
                     priv->stats.out_of_memory_errors++;
-                    pthread_mutex_unlock(&priv->mutex);
+                    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 }
                 continue;
             }
@@ -1676,7 +1676,7 @@ bad_encoding:
     default:
         break;
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Check expected ETag */
     if (expect_etag != NULL) {
@@ -1702,12 +1702,12 @@ bad_encoding:
             case 0:
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_mismatch++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 break;
             case EEXIST:
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_verified++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 break;
             default:
                 break;
@@ -1784,14 +1784,14 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         if (src == NULL) {
             if (!bitmap_test(priv->non_zero, block_num)) {
                 priv->stats.empty_blocks_written++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 if (caller_etag != NULL)
                     memset(caller_etag, 0, MD5_DIGEST_LENGTH);
                 return 0;
             }
         } else
             bitmap_set(priv->non_zero, block_num, 1);
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
     /* Initialize I/O info */
@@ -1812,7 +1812,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             if (r == ENOMEM) {
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.out_of_memory_errors++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             }
             goto fail;
         }
@@ -1835,7 +1835,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
             pthread_mutex_lock(&priv->mutex);
             priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             r = ENOMEM;
             goto fail;
         }
@@ -1941,7 +1941,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             priv->stats.zero_blocks_written++;
         else
             priv->stats.normal_blocks_written++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
 fail:
@@ -2165,7 +2165,7 @@ fail:
     if (r == ENOMEM) {
         pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
     /* Cleanup */
@@ -2348,7 +2348,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 priv->stats.http_heads.count++;
                 priv->stats.http_heads.time += curl_time;
             }
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
             /* Done */
             http_io_release_curl(priv, &curl, r == 0);
@@ -2365,14 +2365,14 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_DEBUG, "write aborted: %s %s", io->method, io->url);
             pthread_mutex_lock(&priv->mutex);
             priv->stats.http_canceled_writes++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             http_io_free_error_payload(io);
             return ECONNABORTED;
         case CURLE_OPERATION_TIMEDOUT:
             (*config->log)(LOG_NOTICE, "operation timeout: %s %s", io->method, io->url);
             pthread_mutex_lock(&priv->mutex);
             priv->stats.curl_timeouts++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             break;
         case CURLE_HTTP_RETURNED_ERROR:                 /* special handling for some specific HTTP codes */
             switch (http_code) {
@@ -2385,7 +2385,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_unauthorized++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
                 http_io_free_error_payload(io);
                 return EACCES;
@@ -2393,7 +2393,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_forbidden++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
                 http_io_free_error_payload(io);
                 return EPERM;
@@ -2401,7 +2401,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_INFO, "rec'd stale content: %s %s", io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_stale++;
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 break;
             case HTTP_NOT_MODIFIED:
                 if (io->expect_304) {
@@ -2424,7 +2424,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                     priv->stats.http_other_error++;
                     break;
                 }
-                pthread_mutex_unlock(&priv->mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
                 break;
             }
@@ -2447,7 +2447,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 priv->stats.curl_other_error++;
                 break;
             }
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             break;
         }
 
@@ -2468,7 +2468,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         pthread_mutex_lock(&priv->mutex);
         priv->stats.num_retries++;
         priv->stats.retry_delay += retry_pause;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
     /* Give up */
@@ -2532,7 +2532,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     pthread_mutex_lock(&priv->mutex);
     snvprintf(access_id, sizeof(access_id), "%s", config->accessId);
     snvprintf(access_key, sizeof(access_key), "%s", config->accessKey);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Initialize HMAC */
     hmac_ctx = HMAC_CTX_new();
@@ -2664,11 +2664,11 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     snvprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
     if (config->iam_token != NULL && (iam_token = strdup(config->iam_token)) == NULL) {
         r = errno;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         (*config->log)(LOG_ERR, "%s: strdup: %s", "http_io_add_auth4", strerror(r));
         goto fail;
     }
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Extract host, URI path, and query parameters from URL */
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
@@ -3037,17 +3037,17 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
         curl = holder->curl;
         LIST_REMOVE(holder, link);
         priv->stats.curl_handles_reused++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         free(holder);
         curl_easy_reset(curl);
     } else {
         priv->stats.curl_handles_created++;             // optimistic
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         if ((curl = curl_easy_init()) == NULL) {
             pthread_mutex_lock(&priv->mutex);
             priv->stats.curl_handles_created--;         // undo optimistic
             priv->stats.curl_other_error++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             (*config->log)(LOG_ERR, "curl_easy_init() failed");
             return NULL;
         }
@@ -3191,13 +3191,13 @@ http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
         curl_easy_cleanup(curl);
         pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         return;
     }
     holder->curl = curl;
     pthread_mutex_lock(&priv->mutex);
     LIST_INSERT_HEAD(&priv->curls, holder, link);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 static int
@@ -3261,7 +3261,7 @@ http_io_openssl_locker(int mode, int i, const char *file, int line)
     if ((mode & CRYPTO_LOCK) != 0)
         pthread_mutex_lock(&openssl_locks[i]);
     else
-        pthread_mutex_unlock(&openssl_locks[i]);
+        CHECK_RETURN(pthread_mutex_unlock(&openssl_locks[i]));
 }
 
 static u_long
