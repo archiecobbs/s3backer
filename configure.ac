@@ -32,11 +32,11 @@
 # this exception statement from all source files in the program, then
 # also delete it here.
 
-AC_INIT([s3backer FUSE filesystem backed by Amazon S3], [1.6.3], [https://github.com/archiecobbs/s3backer], [s3backer])
+AC_INIT([s3backer FUSE filesystem backed by Amazon S3],[1.6.3],[https://github.com/archiecobbs/s3backer],[s3backer])
 AC_CONFIG_AUX_DIR(scripts)
 AM_INIT_AUTOMAKE(foreign)
 dnl AM_MAINTAINER_MODE
-AC_PREREQ(2.59)
+AC_PREREQ([2.71])
 AC_PREFIX_DEFAULT(/usr)
 AC_PROG_MAKE_SET
 
@@ -106,27 +106,22 @@ esac
 AC_CHECK_DECLS(fdatasync)
 
 # Check for required header files
-AC_HEADER_STDC
 AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h sys/statvfs.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h zlib.h, [],
 	[AC_MSG_ERROR([required header file '$ac_header' missing])])
 
 # Optional features
 AC_ARG_ENABLE(assertions,
-    AC_HELP_STRING([--enable-assertions],
-        [enable debugging sanity checks (default NO)]),
+    AS_HELP_STRING([--enable-assertions],[enable debugging sanity checks (default NO)]),
     [test x"$enableval" = "xyes" || AC_DEFINE(NDEBUG, 1, [disable assertions])],
     [AC_DEFINE(NDEBUG, 1, [disable assertions])])
 AC_ARG_ENABLE(gprof,
-    AC_HELP_STRING([--enable-gprof],
-        [Compile and link with gprof(1) support (default NO)]),
+    AS_HELP_STRING([--enable-gprof],[Compile and link with gprof(1) support (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -pg"])
 AC_ARG_ENABLE(Werror,
-    AC_HELP_STRING([--enable-Werror],
-        [enable compilation with -Werror flag (default NO)]),
+    AS_HELP_STRING([--enable-Werror],[enable compilation with -Werror flag (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -Werror"])
 AC_ARG_ENABLE(sanitize,
-    AC_HELP_STRING([--enable-sanitize],
-        [enable compilation with -fsanitize=address and -fsanitize=undefined (default NO)]),
+    AS_HELP_STRING([--enable-sanitize],[enable compilation with -fsanitize=address and -fsanitize=undefined (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -fsanitize=address -fsanitize=undefined"])
 
 # Generated files
