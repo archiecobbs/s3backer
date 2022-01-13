@@ -94,7 +94,10 @@ main(int argc, char **argv)
 
     /* Random initialization */
     srandom((u_int)time(NULL));
-    pthread_mutex_init(&mutex, NULL);
+    
+    if(pthread_mutex_init(&mutex, NULL)!=0)
+        err(1, "lock initialization");
+    
     start_time = get_time();
 
     /* Zero all blocks */
