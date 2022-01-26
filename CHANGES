@@ -1,3 +1,7 @@
+Version Next
+
+    - Fix bug where "(null)" was appearing in usage message (issue #161).
+
 Version 1.6.3 released October 2, 2021
 
     - Fixed bug with `--listBlocks' threads doing redundant overlapping queries
