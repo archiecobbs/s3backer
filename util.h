@@ -48,7 +48,7 @@ extern int log_enable_debug;
 extern const void *zero_block;
 
 /* Misc */
-extern int parse_size_string(const char *s, uintmax_t *valp);
+extern int parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp);
 extern void unparse_size_string(char *buf, int bmax, uintmax_t value);
 extern void describe_size(char *buf, int bmax, uintmax_t value);
 extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));

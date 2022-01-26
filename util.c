@@ -90,34 +90,31 @@ static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
+// Returns 0 if found, -1 if not found or unsupported (too big)
 int
-parse_size_string(const char *s, uintmax_t *valp)
+parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp)
 {
     char suffix[3] = { '\0' };
     int nconv;
+    int i;
 
     nconv = sscanf(s, "%ju%2s", valp, suffix);
-    if (nconv < 1)
-        return -1;
-    if (nconv >= 2) {
-        int found = 0;
-        int i;
-
+    if (nconv >= 2 && *valp != 0) {
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
             const struct size_suffix *const ss = &size_suffixes[i];
 
-            if (ss->bits >= sizeof(uintmax_t) * 8)
-                break;
-            if (strcasecmp(suffix, ss->suffix) == 0) {
-                *valp <<= ss->bits;
-                found = 1;
-                break;
+            if (strcasecmp(suffix, ss->suffix) != 0)
+                continue;
+            if (ss->bits >= max_bytes * 8) {
+                warnx("%s value `%s' is too big for this build of s3backer", description, s);
+                return -1;
             }
+            *valp <<= ss->bits;
+            return 0;
         }
-        if (!found)
-            return -1;
     }
-    return 0;
+    warnx("invalid %s `%s'", description, s);
+    return -1;
 }
 
 void

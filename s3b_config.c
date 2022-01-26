@@ -1413,40 +1413,33 @@ validate_config(void)
 
     /* Parse block and file sizes */
     if (config.block_size_str != NULL) {
-        if (parse_size_string(config.block_size_str, &value) == -1 || value == 0) {
-            warnx("invalid block size `%s'", config.block_size_str);
+        if (parse_size_string(config.block_size_str, "block size", sizeof(u_int), &value) == -1)
             return -1;
-        }
-        if ((u_int)value != value) {
-            warnx("block size `%s' is too big", config.block_size_str);
-            return -1;
-        }
         config.block_size = value;
     }
     if (config.file_size_str != NULL) {
-        if (parse_size_string(config.file_size_str, &value) == -1 || value == 0) {
-            warnx("invalid file size `%s'", config.file_size_str);
+        if (parse_size_string(config.file_size_str, "file size", sizeof(uintmax_t), &value) == -1)
             return -1;
-        }
         config.file_size = value;
     }
 
     /* Parse upload/download speeds */
     for (i = 0; i < 2; i++) {
+        char speed_desc[32];
+
+        snprintf(speed_desc, sizeof(speed_desc), "max %s speed", upload_download_names[i]);
         if (config.max_speed_str[i] != NULL) {
-            if (parse_size_string(config.max_speed_str[i], &value) == -1 || value == 0) {
-                warnx("invalid max %s speed `%s'", upload_download_names[i], config.max_speed_str[i]);
+            if (parse_size_string(config.max_speed_str[i], speed_desc, sizeof(uintmax_t), &value) == -1)
                 return -1;
-            }
             if ((curl_off_t)(value / 8) != (value / 8)) {
-                warnx("max %s speed `%s' is too big", upload_download_names[i], config.max_speed_str[i]);
+                warnx("%s `%s' is too big", speed_desc, config.max_speed_str[i]);
                 return -1;
             }
             config.http_io.max_speed[i] = value;
         }
         if (config.http_io.max_speed[i] != 0 && config.block_size / (config.http_io.max_speed[i] / 8) >= config.http_io.timeout) {
-            warnx("configured timeout of %us is too short for block size of %u bytes and max %s speed %s bps",
-              config.http_io.timeout, config.block_size, upload_download_names[i], config.max_speed_str[i]);
+            warnx("configured timeout of %us is too short for block size of %u bytes and %s %s bps",
+              config.http_io.timeout, config.block_size, speed_desc, config.max_speed_str[i]);
             return -1;
         }
     }
