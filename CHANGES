@@ -2,6 +2,7 @@ Version Next
 
     - Fix bug where "(null)" was appearing in usage message (issue #161).
     - Give more meaningful usage error when size limits are exceeded (issue #162)
+    - Treat 3xx HTTP response codes as errors
 
 Version 1.6.3 released October 2, 2021
 

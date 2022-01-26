@@ -125,6 +125,7 @@ struct http_io_stats {
     u_int               http_mismatch;
     u_int               http_5xx_error;
     u_int               http_4xx_error;
+    u_int               http_3xx_error;
     u_int               http_other_error;
     u_int               http_canceled_writes;
 

@@ -2291,12 +2291,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             break;
         }
 
-        /* Pretend like the CURLOPT_FAILONERROR option was used */
-        if (curl_code == 0 && http_code >= 400)
-            curl_code = CURLE_HTTP_RETURNED_ERROR;
-
-        /* Work around the fact that libcurl treats a 304 HTTP code as success */
-        if (curl_code == 0 && http_code == HTTP_NOT_MODIFIED)
+        /* Pretend like the CURLOPT_FAILONERROR option was used; treat all 3xx codes as "errors" */
+        if (curl_code == 0 && http_code >= 300)
             curl_code = CURLE_HTTP_RETURNED_ERROR;
 
         /* In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful */
@@ -2414,6 +2410,9 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 switch (http_code / 100) {
+                case 3:
+                    priv->stats.http_3xx_error++;
+                    break;
                 case 4:
                     priv->stats.http_4xx_error++;
                     break;
