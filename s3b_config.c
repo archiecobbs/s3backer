@@ -1856,7 +1856,7 @@ dump_config(void)
 static void
 usage(void)
 {
-    int i;
+    const char *const *sptr;
 
     fprintf(stderr, "Usage:\n");
     fprintf(stderr, "\ts3backer [options] bucket[/subdir] /mount/point\n");
@@ -1870,13 +1870,13 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "accessKeyEnv=VARNAME", "S3 secret access key from environment variable");
     fprintf(stderr, "\t--%-27s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
     fprintf(stderr, "\t  %-27s ", "");
-    for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
-        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
+    for (sptr = s3_acls; *sptr != NULL; sptr++)
+        fprintf(stderr, "%s%s", sptr != s3_acls ? ", " : "  ", *sptr);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "authVersion=TYPE", "Specify S3 authentication style; one of:");
     fprintf(stderr, "\t  %-27s ", "");
-    for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++)
-        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_auth_types[i]);
+    for (sptr = s3_auth_types; *sptr != NULL; sptr++)
+        fprintf(stderr, "%s%s", sptr != s3_auth_types ? ", " : "  ", *sptr);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM=ROLE", "Acquire S3 credentials from EC2 machine via IAM role");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
