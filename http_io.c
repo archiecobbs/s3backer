@@ -70,6 +70,9 @@
 #define IF_MATCH_HEADER             "If-Match"
 #define IF_NONE_MATCH_HEADER        "If-None-Match"
 
+/* Minumum HTTP status code we consider an error */
+#define HTTP_STATUS_ERROR_MINIMUM   300                     /* we don't support redirects */
+
 /* MIME type for blocks */
 #define CONTENT_TYPE                "application/x-s3backer-block"
 
@@ -2291,8 +2294,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             break;
         }
 
-        /* Pretend like the CURLOPT_FAILONERROR option was used; treat all 3xx codes as "errors" */
-        if (curl_code == 0 && http_code >= 300)
+        /* Pretend like the CURLOPT_FAILONERROR option was used */
+        if (curl_code == 0 && http_code >= HTTP_STATUS_ERROR_MINIMUM)
             curl_code = CURLE_HTTP_RETURNED_ERROR;
 
         /* In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful */
@@ -3211,7 +3214,7 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
         io->http_status = 999;                          /* this should never happen */
 
     /* If status is not an error status, proceed normally */
-    if (io->http_status < 400)
+    if (io->http_status < HTTP_STATUS_ERROR_MINIMUM)
         return 0;
 
     /* If no debug flag was given, just discard error payloads */
