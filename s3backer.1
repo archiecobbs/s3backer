@@ -583,6 +583,8 @@ This will force the kernel to always pass reads and writes directly to
 This reduces performance but also eliminates one source of inconsistency.
 .It Fl \-debug
 Enable logging of debug messages.
+This includes logging HTTP error response payloads.
+.Pp
 Note that this flag is different from
 .Fl d ,
 which is a flag to FUSE;
@@ -590,7 +592,7 @@ however, the
 .Fl d
 FUSE flag implies this flag.
 .It Fl \-debug-http
-Capture and print any HTTP error response payloads to the log, and configure
+Configure
 .Xr libcurl 3
 to print debugging information (e.g., HTTP request and response headers) to standard error.
 .Pp
@@ -598,7 +600,7 @@ With this flag you would normally also specify
 .Fl f
 so
 .Nm
-runs in the foreground.
+runs in the foreground and standard error is visible.
 .It Fl \-defaultContentEncoding=VALUE
 Use this to workaround S3 backends that fail to send back the
 .Pa "Content-Encoding"

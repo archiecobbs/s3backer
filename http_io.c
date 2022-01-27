@@ -3218,7 +3218,7 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
         return 0;
 
     /* If no debug flag was given, just discard error payloads */
-    if (!config->debug_http)
+    if (!config->debug)
         return 1;
 
     /* Impose limit on how much error payload we'll remember */
