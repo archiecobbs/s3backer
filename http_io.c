@@ -88,11 +88,15 @@
 #define DATE_BUF_SIZE               64
 
 /* Upper bound on the length of an URL representing one block */
-#define URL_BUF_SIZE(config)        (strlen((config)->baseURL)          \
-                                      + strlen((config)->bucket) + 1    \
-                                      + strlen((config)->prefix)        \
-                                      + S3B_BLOCK_NUM_DIGITS + 1        \
+#define URL_BUF_SIZE(config)        (strlen((config)->baseURL)                  \
+                                      + strlen((config)->bucket) + 1            \
+                                      + strlen((config)->prefix)                \
+                                      + S3B_BLOCK_NUM_DIGITS                    \
+                                      + strlen(BLOCK_HASH_PREFIX_SEPARATOR)     \
                                       + S3B_BLOCK_NUM_DIGITS + 2)
+
+/* Separator string used when "--blockHashPrefix" is in effect */
+#define BLOCK_HASH_PREFIX_SEPARATOR "-"
 
 /* Bucket listing API constants */
 #define LIST_PARAM_MARKER           "marker"
@@ -1018,13 +1022,14 @@ http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPre
         return -1;
     name += plen;
 
-    /* Parse block hash prefix followed by dash (if so configured) */
+    /* Parse block hash prefix followed by BLOCK_HASH_PREFIX_SEPARATOR (if so configured) */
     if (blockHashPrefix) {
         if (http_io_parse_hex_block_num(name, &hash_value) == -1)
             return -1;
         name += S3B_BLOCK_NUM_DIGITS;
-        if (*name++ != '-')
+        if (strncmp(name, BLOCK_HASH_PREFIX_SEPARATOR, strlen(BLOCK_HASH_PREFIX_SEPARATOR)) != 0)
             return -1;
+        name += strlen(BLOCK_HASH_PREFIX_SEPARATOR);
     }
 
     /* Parse block number */
@@ -1084,10 +1089,11 @@ http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
 void
 http_io_format_block_hash(int blockHashPrefix, char *buf, size_t bufsiz, s3b_block_t block_num)
 {
-    assert(bufsiz >= S3B_BLOCK_NUM_DIGITS + 2);
-    if (blockHashPrefix)
-        snvprintf(buf, bufsiz, "%0*jx-", S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num));
-    else
+    assert(bufsiz >= S3B_BLOCK_NUM_DIGITS + strlen(BLOCK_HASH_PREFIX_SEPARATOR) + 1);
+    if (blockHashPrefix) {
+        snvprintf(buf, bufsiz, "%0*jx%s",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)http_io_block_hash_prefix(block_num), BLOCK_HASH_PREFIX_SEPARATOR);
+    } else
         *buf = '\0';
 }
 
@@ -2024,8 +2030,9 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
     if ((r = http_io_xml_io_init(priv, &io, HTTP_POST, urlbuf)) != 0)
         return r;
 
-    /* Calculate the length of one object name */
-    max_object_name = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS + 1 + S3B_BLOCK_NUM_DIGITS + 1; // [PREFIX][HASH]-[BLOCK]
+    /* Calculate the maximum length of one object name */
+    max_object_name = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS
+      + strlen(BLOCK_HASH_PREFIX_SEPARATOR) + S3B_BLOCK_NUM_DIGITS + 1;           // [PREFIX]([HASH][SEPARATOR])?[BLOCK]
 
     /* Delete blocks in chunks of DELETE_BLOCKS_CHUNK */
     while (num_blocks > 0) {
@@ -2057,7 +2064,7 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
         payload_len = snvprintf(buf, max_payload, "<%s>", DELETE_ELEM_DELETE);
         for (i = 0; i < count; i++) {
             const s3b_block_t block_num = block_nums[i];
-            char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
+            char block_hash_buf[S3B_BLOCK_NUM_DIGITS + strlen(BLOCK_HASH_PREFIX_SEPARATOR) + 1];
             char object_buf[max_object_name + 1];
 
             http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
@@ -2967,7 +2974,7 @@ url_encode(const char *src, size_t len, char *dst, int buflen, int encode_slash)
 static void
 http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num)
 {
-    char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
+    char block_hash_buf[S3B_BLOCK_NUM_DIGITS + strlen(BLOCK_HASH_PREFIX_SEPARATOR) + 1];
 
     http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
     if (config->vhost) {
