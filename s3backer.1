@@ -86,9 +86,8 @@ This arrangement has several benefits compared to more complete S3 filesystem im
 .It o
 By not attempting to implement a complete filesystem, which is a complex undertaking and difficult to get right,
 .Nm
-can stay very lightweight and simple. Only three HTTP operations are used: GET, PUT, and DELETE.
-All of the experience and knowledge about how to properly implement filesystems that already exists can
-be reused.
+can stay very lightweight and simple.
+All of the experience and knowledge about how to properly implement filesystems that already exists can be reused.
 .It o
 By utilizing existing filesystems, you get full UNIX filesystem semantics.
 Subtle bugs or missing functionality relating to hard links, extended attributes, POSIX locking, etc. are avoided.
@@ -580,7 +579,7 @@ This option may also be specified as
 Disable kernel caching of the backed file.
 This will force the kernel to always pass reads and writes directly to
 .Nm .
-This reduces performance but also eliminates one source of inconsistency.
+This may reduce performance but also eliminates one source of inconsistency.
 .It Fl \-debug
 Enable logging of debug messages.
 This includes logging HTTP error response payloads.
