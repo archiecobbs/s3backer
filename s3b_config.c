@@ -1219,7 +1219,7 @@ validate_config(void)
     /* Set default base URL */
     if (config.http_io.baseURL == NULL) {
         if (customRegion && strcmp(config.http_io.region, S3BACKER_DEFAULT_REGION) != 0)
-            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
+            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
         else
             snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
         if ((config.http_io.baseURL = strdup(urlbuf)) == NULL) {
