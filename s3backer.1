@@ -374,6 +374,11 @@ is the default setting starting in version 1.4, and is required for certain non-
 may still be required by some non-Amazon S3 providers.
 .It Fl \-baseURL=URL
 Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
+.Pp
+Use this flag to specify FIPS and dual-stack endpoints.
+.Pp
+Note: the region name is used in authentication, so if you include a region name you probably also need to specify it via
+.Fl \-region .
 .It Fl \-blockCacheFile=FILE
 Specify a file in which to store cached data blocks.
 Without this flag, the block cache lives entirely in process memory and the cached data disappears when
@@ -859,6 +864,9 @@ This flag changes the default base URL to include the region name and automatica
 flag, unless the
 .Fl \-no-vhost
 flag is used.
+.Pp
+The default region is
+.Pa us-east-1 .
 .It Fl \-reset-mounted-flag
 Reset the 'already mounted' flag on the underlying S3 data store.
 .Pp
