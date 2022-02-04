@@ -78,6 +78,7 @@ struct http_io_conf {
     u_int                   key_length;
     int                     debug;
     int                     debug_http;
+    int                     http_11;                    // restrict to HTTP 1.1
     int                     quiet;
     const struct comp_alg   *compress_alg;              // compression algorithm, or NULL for none
     void                    *compress_level;            // compression level info

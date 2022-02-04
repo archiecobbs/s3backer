@@ -3082,6 +3082,8 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     }
     if (config->debug_http)
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+    if (config->http_11)
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     return curl;
 }
 

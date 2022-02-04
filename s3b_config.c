@@ -354,6 +354,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--http11",
+        .offset=    offsetof(struct s3b_config, http_io.http_11),
+        .value=     1
+    },
+    {
         .templ=     "--quiet",
         .offset=    offsetof(struct s3b_config, quiet),
         .value=     1
@@ -1822,6 +1827,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_download",
       config.max_speed_str[HTTP_DOWNLOAD] != NULL ? config.max_speed_str[HTTP_DOWNLOAD] : "-",
       config.http_io.max_speed[HTTP_DOWNLOAD]);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "http_11", config.http_io.http_11 ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse", config.http_io.sse);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse-key-id", config.http_io.sse_key_id);
@@ -1898,6 +1904,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
+    fprintf(stderr, "\t--%-27s %s\n", "http11", "Restrict to HTTP version 1.1");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Initial retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
