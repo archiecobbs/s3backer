@@ -190,6 +190,8 @@ This permits larger cache sizes and allows
 to reload cached data after a restart.
 Reloaded data is verified via MD5 checksum with Amazon S3 before reuse.
 .Pp
+Having said all that, Linux users may want to consider instead using the kernel "bcache" mechanism for local caching of blocks.
+.Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheFile ,
 .Fl \-blockCacheMaxDirty ,
@@ -1065,6 +1067,10 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .Rs
 .%T "Google Search for `linux page cache'"
 .%O http://www.google.com/search?q=linux+page+cache
+.Re
+.Rs
+.%T "Linux Block Layer Cache (bcache)"
+.%O https://www.kernel.org/doc/Documentation/bcache.txt
 .Re
 .Sh BUGS
 Due to a design flaw in FUSE, an unmount of the
