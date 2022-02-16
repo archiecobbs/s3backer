@@ -513,6 +513,7 @@ this flag must be used consistently once a disk image is established.
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+The total number of blocks must fit into 32 bits.
 .Pp
 .Nm
 supports partial block operations, though this forces a read before each write;
@@ -1100,11 +1101,7 @@ Therefore, the block size must be increased beyond the default 4K when very larg
 .Pp
 .Nm
 should really be implemented as a device rather than a filesystem.
-However, this would require writing a kernel module instead of a simple user-space daemon,
-because Linux does not provide a user-space API for devices like it does for filesystems with FUSE.
-Implementing
-.Nm
-as a filesystem and then using the loopback mount is a simple workaround.
+In Linux this is possible via NBD; see issue #147.
 .Pp
 On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically
 unmounts the filesystem when this limit is reached.
