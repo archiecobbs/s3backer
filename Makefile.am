@@ -98,3 +98,34 @@ AM_CFLAGS=          $(FUSE_CFLAGS)
 gitrev.c:
 			printf 'const char *const s3backer_version = "%s";\n' "`git describe`" > gitrev.c
 
+
+# Uncomment the following to build the NBDKit plugin. This will fail with
+# "Makefile.am: error: object 'block_cache.$(OBJEXT)' created both with libtool
+# and without" and install the library in the wrong directory. It can be worked
+# around by commenting out the bin_PROGRAMS and noinst_PROGRAMS above (i.e., by
+# building only the NBDKit plugin) and moving the file to the right position
+# manually. Hopefully at some point someone more familiar with Autotools can solve
+# this. Until then, it's easier to build the NBDKit plugin using Meson.
+
+# lib_LTLIBRARIES =   nbdkit-s3backer-plugin.la
+# nbdkit_s3backer_plugin_la_SOURCES = \
+# 	nbdkit.c \
+# 		    block_cache.c \
+# 		    block_part.c \
+# 		    dcache.c \
+# 		    ec_protect.c \
+# 		    zero_cache.c \
+# 		    erase.c \
+# 		    fuse_ops.c \
+# 		    hash.c \
+# 		    util.c \
+# 		    http_io.c \
+# 		    reset.c \
+# 		    s3b_config.c \
+# 		    test_io.c \
+# 		    sslcompat.c \
+# 		    gitrev.c
+# nbdkit_s3backer_plugin_la_LDFLAGS = \
+# 	-module -avoid-version -shared
+
+

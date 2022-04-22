@@ -5,6 +5,7 @@ config.h.in
 config.log
 config.status
 configure
+libtool
 debian/Makefile
 debian/Makefile.in
 .deps
@@ -12,6 +13,8 @@ gitrev.c
 Makefile
 Makefile.in
 *.o
+*.la
+*.lo
 s3backer
 s3backer.spec
 scripts
@@ -20,3 +23,7 @@ tags
 TAGS
 tester
 build/
+.libs/
+test_mount.sh
+s3backer.conf
+

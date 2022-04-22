@@ -61,6 +61,7 @@ expat_dep = dependency('expat')
 libcurl_dep = dependency('libcurl') 
 zlib_dep = dependency('zlib') 
 ssl_dep = dependency('libcrypto') 
+nbdkit_dep = dependency('nbdkit') 
 fuse_dep = dependency('fuse') 
 
 #
@@ -85,3 +86,15 @@ tester = executable('tester',
     dependencies: [thread_dep, expat_dep, libcurl_dep, zlib_dep, ssl_dep, fuse_dep], 
    install: true,
 )
+
+nbdkit_s3backer_plugin = shared_library('nbdkit-s3backer-plugin', 
+   [ 'nbdkit.c' ] + common_sources, 
+   dependencies: [thread_dep, expat_dep, libcurl_dep, zlib_dep, ssl_dep, nbdkit_dep], 
+   override_options: [ 'b_lundef=false' ],
+   install: true,
+   install_dir: run_command(
+      'pkg-config', 'nbdkit', '--variable=plugindir', check: true).stdout().strip(),
+   name_prefix: '',
+)
+
+
