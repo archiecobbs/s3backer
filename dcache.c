@@ -37,6 +37,8 @@
 #include "s3backer.h"
 #include "dcache.h"
 #include "util.h"
+#include <fcntl.h>
+#include <unistd.h>
 
 /*
  * This file implements a simple on-disk storage area for cached blocks.
@@ -131,6 +133,7 @@ struct s3b_dcache {
     u_int                           free_list_len;
     u_int                           free_list_alloc;
     s3b_block_t                     *free_list;
+    int                             pagesize;
 };
 
 /* Internal functions */
@@ -180,6 +183,7 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
     priv->log = log;
     priv->block_size = block_size;
     priv->max_blocks = max_blocks;
+    priv->pagesize = getpagesize();
     if ((priv->filename = strdup(filename)) == NULL) {
         r = errno;
         goto fail1;
@@ -948,18 +952,47 @@ s3b_dcache_read(struct s3b_dcache *priv, off_t offset, void *data, size_t len)
     for (sofar = 0; sofar < len; sofar += r) {
         const off_t posn = offset + sofar;
 
-        if ((r = pread(priv->fd, (char *)data + sofar, len - sofar, offset + sofar)) == -1) {
+        if ((r = pread(priv->fd, (char *)data + sofar, len - sofar, posn)) == -1) {
             r = errno;
             (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: %s",
               priv->filename, (uintmax_t)posn, strerror(r));
             return r;
         }
+
         if (r == 0) {           /* truncated input */
             (*priv->log)(LOG_ERR, "error reading cache file `%s' at offset %ju: file is truncated",
               priv->filename, (uintmax_t)posn);
             return EINVAL;
         }
     }
+
+    /* When data is read from the block cache, then this is because the kernel
+     * has issued a read request for the file in the FUSE filesystem. This means
+     * that the data will end-up in the page-cache for the FUSE file. Keeping
+     * the same data in the page cache for the on-disk block cache does not make
+     * sense. */
+
+    /* Requests need to be page-aligned. Unfortunately, it's not clear what we
+     * need to do here to support huge pages. getpagesize() does not take an
+     * argument, so how can we find out if a given offset in the file is backed
+     * by a regular or huge page. For now, just assume that it's a regular page.
+     * This is most likely true often enough, and if not, the call just does
+     * nothing. */
+    int ps = priv->pagesize;
+    if (len % ps != 0) {
+        len = (len / ps) * ps;
+    }
+    if (offset % ps != 0) {
+        offset = (offset / ps + 1) * ps;
+        len -= ps;
+    }
+    if ((r = posix_fadvise(priv->fd, len, offset, POSIX_FADV_DONTNEED)) != 0) {
+        r = errno;
+        (*priv->log)(LOG_ERR, "error from fadvise() on cache file `%s' at offset %ju: %s",
+            priv->filename, (uintmax_t)offset, strerror(r));
+        return r;
+    }
+
     return 0;
 }
 
@@ -985,6 +1018,34 @@ s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t o
             return r;
         }
     }
+
+    /* When data is written to block cache, then this is because the kernel has
+    * issued a write request for the file in the FUSE filesystem. This means
+    * that if the data is still needed, it is still available in the page cache
+    * for the FUSE file and there is no point in keeping it in the page cache
+    * for the on-disk cache. */
+
+    /* Requests need to be page-aligned. Unfortunately, it's not clear what we
+     * need to do here to support huge pages. getpagesize() does not take an
+     * argument, so how can we find out if a given offset in the file is backed
+     * by a regular or huge page. For now, just assume that it's a regular page.
+     * This is most likely true often enough, and if not, the call just does
+     * nothing. */
+    int ps = priv->pagesize;
+    if (len % ps != 0) {
+        len = (len / ps) * ps;
+    }
+    if (offset % ps != 0) {
+        offset = (offset / ps + 1) * ps;
+        len -= ps;
+    }
+    if ((r = posix_fadvise(priv->fd, offset, len, POSIX_FADV_DONTNEED)) != 0) {
+        r = errno;
+        (*priv->log)(LOG_ERR, "error from fadvise() on cache file `%s' at offset %ju: %s",
+            priv->filename, (uintmax_t)offset, strerror(r));
+        return r;
+    }
+
     return 0;
 }
 
