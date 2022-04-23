@@ -60,16 +60,6 @@ struct stat_file {
     int     memerr;         // we got a memory error
 };
 
-/* Private information */
-struct fuse_ops_private {
-    struct s3backer_store   *s3b;
-    u_int                   block_bits;
-    off_t                   file_size;
-    time_t                  start_time;
-    time_t                  file_atime;
-    time_t                  file_mtime;
-    time_t                  stats_atime;
-};
 
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *

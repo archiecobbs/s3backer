@@ -60,6 +60,17 @@ struct fuse_ops_conf {
     log_func_t              *log;
 };
 
+/* Private information */
+struct fuse_ops_private {
+    struct s3backer_store   *s3b;
+    u_int                   block_bits;
+    off_t                   file_size;
+    time_t                  start_time;
+    time_t                  file_atime;
+    time_t                  file_mtime;
+    time_t                  stats_atime;
+};
+
 /* fuse_ops.c */
 const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *s3b);
 
