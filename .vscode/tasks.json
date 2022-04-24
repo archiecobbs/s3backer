@@ -2,20 +2,14 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "process",
-			"label": "Make project",
-			"command": "/usr/bin/make",
-			"args": [],
-			"options": {
-				"cwd": "${workspaceFolder}"
-			},
-			"problemMatcher": [
-				"$gcc"
-			],
+			"type": "meson",
+			"mode": "build",
 			"group": {
 				"kind": "build",
 				"isDefault": true
 			},
+			"problemMatcher": [],
+			"label": "Meson: Build all targets"
 		}
 	]
 }
