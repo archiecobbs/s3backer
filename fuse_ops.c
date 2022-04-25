@@ -164,6 +164,14 @@ fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
     return &s3backer_fuse_ops;
 }
 
+void
+fuse_ops_destroy(void)
+{
+    struct fuse_ops_private *const priv = the_priv;
+
+    fuse_op_destroy(priv);
+}
+
 /****************************************************************************
  *                    FUSE OPERATION FUNCTIONS                              *
  ****************************************************************************/

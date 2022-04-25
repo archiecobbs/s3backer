@@ -85,6 +85,13 @@ main(int argc, char **argv)
 
     /* Start */
     (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    return fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL);
+    if (fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL) != 0) {
+        (*config->log)(LOG_ERR, "error starting FUSE");
+        fuse_ops_destroy();
+        return 1;
+    }
+
+    /* Done */
+    return 0;
 }
 

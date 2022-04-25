@@ -3,6 +3,7 @@ Version Next
     - Fix bug where "(null)" was appearing in usage message (issue #161).
     - Give more meaningful usage error when size limits are exceeded (issue #162)
     - Added flag "--http11" to restrict cURL to HTTP 1.1 (issue #168)
+    - Clean up mount token if FUSE itself fails to start (issue #175)
     - Added man page reference to Linux bcache (issue #169)
     - Treat 3xx HTTP response codes as errors
 
