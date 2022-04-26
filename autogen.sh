@@ -10,26 +10,5 @@
 set -e
 
 . ./cleanup.sh
-mkdir -p scripts
-
-ACLOCAL="aclocal"
-AUTOHEADER="autoheader"
-AUTOMAKE="automake"
-AUTOCONF="autoconf"
-LIBTOOLIZE="libtoolize"
-
-echo "running libtoolize"
-${LIBTOOLIZE}
-
-echo "running aclocal"
-${ACLOCAL} ${ACLOCAL_ARGS} -I scripts -I .
-
-echo "running autoheader"
-${AUTOHEADER}
-
-echo "running automake"
-${AUTOMAKE} --add-missing -c --foreign
-
-echo "running autoconf"
-${AUTOCONF} -I . -f -i
-
+mkdir -p scripts m4
+exec autoreconf -iv
