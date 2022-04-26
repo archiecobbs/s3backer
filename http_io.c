@@ -46,7 +46,11 @@
 #define HTTP_DELETE                 "DELETE"
 #define HTTP_HEAD                   "HEAD"
 #define HTTP_POST                   "POST"
+#define HTTP_MOVED_PERMANENTLY      301
+#define HTTP_FOUND                  302
 #define HTTP_NOT_MODIFIED           304
+#define HTTP_TEMPORARY_REDIRECT     307
+#define HTTP_PERMANENT_REDIRECT     308
 #define HTTP_UNAUTHORIZED           401
 #define HTTP_FORBIDDEN              403
 #define HTTP_NOT_FOUND              404
@@ -2407,6 +2411,16 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 (*config->log)(LOG_INFO, "rec'd stale content: %s %s", io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_stale++;
+                CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+                break;
+            case HTTP_MOVED_PERMANENTLY:
+            case HTTP_FOUND:
+            case HTTP_TEMPORARY_REDIRECT:
+            case HTTP_PERMANENT_REDIRECT:
+                (*config->log)(LOG_ERR, "rec'd %ld redirect: %s %s", http_code, io->method, io->url);
+                (*config->log)(LOG_ERR, "hint: you may need the \"--vhost\" and/or \"--region\" flags");
+                pthread_mutex_lock(&priv->mutex);
+                priv->stats.http_redirect++;
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 break;
             case HTTP_NOT_MODIFIED:

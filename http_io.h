@@ -122,6 +122,7 @@ struct http_io_stats {
     u_int               http_unauthorized;
     u_int               http_forbidden;
     u_int               http_stale;
+    u_int               http_redirect;
     u_int               http_verified;
     u_int               http_mismatch;
     u_int               http_5xx_error;
