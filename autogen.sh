@@ -16,6 +16,10 @@ ACLOCAL="aclocal"
 AUTOHEADER="autoheader"
 AUTOMAKE="automake"
 AUTOCONF="autoconf"
+LIBTOOLIZE="libtoolize"
+
+echo "running libtoolize"
+${LIBTOOLIZE}
 
 echo "running aclocal"
 ${ACLOCAL} ${ACLOCAL_ARGS} -I scripts -I .

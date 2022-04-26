@@ -22,8 +22,4 @@ stamp-h1
 tags
 TAGS
 tester
-build/
 .libs/
-test_mount.sh
-s3backer.conf
-

@@ -44,6 +44,9 @@ AC_PROG_MAKE_SET
 [CFLAGS="-g -O3 -pipe -Wall -Waggregate-return -Wcast-align -Wchar-subscripts -Wcomment -Wformat -Wimplicit -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wno-long-long -Wparentheses -Wpointer-arith -Wredundant-decls -Wreturn-type -Wswitch -Wtrigraphs -Wuninitialized -Wunused -Wwrite-strings -Wshadow -Wstrict-prototypes -Wcast-qual $CFLAGS"]
 AC_SUBST(CFLAGS)
 
+# Not sure why this is needed but it seems to help
+AC_CONFIG_MACRO_DIRS([m4])
+
 # Compile flags for Linux. See https://stackoverflow.com/a/29201732
 AC_DEFINE(_GNU_SOURCE, 1, GNU functions)
 AC_DEFINE(_BSD_SOURCE, 1, BSD functions)
@@ -66,6 +69,13 @@ PKG_CHECK_MODULES(FUSE, fuse,
     [CFLAGS="${CFLAGS} ${FUSE_CFLAGS}"
     LDFLAGS="${LDFLAGS} ${FUSE_LIBS}"],
     [AC_MSG_ERROR(["fuse" not found in pkg-config])])
+
+# Check for NBDKit
+PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.29])
+PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
+AC_MSG_CHECKING([NBDKit plugins directory])
+AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
+    [AC_MSG_FAILURE([Unable to identify the NBDKit plugin directory.])])
 
 # Check for required libraries
 AC_CHECK_LIB(curl, curl_version,,

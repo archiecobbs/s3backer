@@ -7,11 +7,11 @@ Simplified instructions:
         libcurl-devel
         libexpat-devel
         libopenssl-devel
+        nbdkit-devel
         pkg-config
         zlib-devel
 
-    2. Either run `mkdir build; cd build; meson ..; ninja install` or 
-       `./configure && make && sudo make install`
+    2. ./configure && make && sudo make install
 
 Please see
 
