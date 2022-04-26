@@ -47,7 +47,7 @@
  * Blocks in the cache are in one of these states:
  *
  *  CLEAN       Data is consistent with underlying s3backer_store
- *  CLEAN2      Data is belived consistent with underlying s3backer_store, but need to verify ETag
+ *  CLEAN2      Data is believed consistent with underlying s3backer_store, but need to verify ETag
  *  DIRTY       Data is inconsistent with underlying s3backer_store (needs writing)
  *  READING     Data is being read from the underlying s3backer_store
  *  READING2    Data is being read/verified from the underlying s3backer_store
@@ -75,7 +75,7 @@
  * its write attempt, the worker thread then checks for this condition and, if indeed
  * the block has changed to WRITING2, it knows to free the original buffer.
  *
- * Blocks in the READING, WRITING and WRITING2 states are not in either list.
+ * Blocks in the READING/READING2 and WRITING/WRITING2 states are not in either list.
  *
  * Only CLEAN and CLEAN2 blocks are eligible to be evicted from the cache. We evict entries
  * either when they timeout or the cache is full and we need to add a new entry to it.
@@ -256,6 +256,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = block_cache_survey_non_zero;
     s3b->shutdown = block_cache_shutdown;
     s3b->destroy = block_cache_destroy;
@@ -310,7 +311,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return s3b;
 
 fail9:
@@ -427,7 +428,7 @@ block_cache_create_threads(struct s3backer_store *s3b)
     }
 
 fail:
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -474,7 +475,7 @@ block_cache_shutdown(struct s3backer_store *const s3b)
     }
 
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Propagate to lower layer */
     return (*priv->inner->shutdown)(priv->inner);
@@ -504,6 +505,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_cond_destroy(&priv->worker_work);
     pthread_cond_destroy(&priv->end_reading);
     pthread_cond_destroy(&priv->space_avail);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
     free(priv);
     free(s3b);
@@ -518,7 +520,7 @@ block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stat
     memcpy(stats, &priv->stats, sizeof(*stats));
     stats->current_size = s3b_hash_size(priv->hashtable);
     stats->dirty_ratio = block_cache_dirty_ratio(priv);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 void
@@ -528,7 +530,7 @@ block_cache_clear_stats(struct s3backer_store *s3b)
 
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 static int
@@ -552,7 +554,7 @@ block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callb
         goto done;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Report all blocks inventoried above */
     (*callback)(arg, list.blocks, list.num_blocks);
@@ -571,7 +573,7 @@ block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callb
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -611,7 +613,7 @@ static int
 block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, u_int off, u_int len, void *dest)
 {
     struct block_cache_conf *const config = priv->config;
-    int r = 0;
+    int r;
 
     /* Grab lock */
     pthread_mutex_lock(&priv->mutex);
@@ -620,7 +622,8 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
     /* Sanity check */
     if (priv->num_threads == 0) {
         (*config->log)(LOG_ERR, "block_cache_read(): no threads created yet");
-        return ENOTCONN;
+        r = ENOTCONN;
+        goto done;
     }
 
     /* Update count of block(s) read sequentially by the upper layer */
@@ -641,8 +644,9 @@ block_cache_read(struct block_cache_private *const priv, s3b_block_t block_num, 
     /* Peform the read */
     r = block_cache_do_read(priv, block_num, off, len, dest, 1);
 
+done:
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -748,7 +752,7 @@ again:
 read:
     /* Read the block from the underlying s3backer_store */
     assert(ENTRY_GET_STATE(entry) == READING || ENTRY_GET_STATE(entry) == READING2);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     r = (*priv->inner->read_block)(priv->inner, block_num, data, etag, entry->verify ? entry->etag : NULL, 0);
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv, 0);
@@ -1013,7 +1017,7 @@ success:
 
 fail:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -1170,7 +1174,7 @@ block_cache_worker_main(void *arg)
         /* Get current time */
         now = block_cache_get_time(priv);
 
-        /* Evict low priority any CLEAN[2] blocks that have timed out (if enabled) */
+        /* Evict any CLEAN[2] blocks that have timed out (if enabled) */
         if (priv->clean_timeout != 0) {
             while ((clean_entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL && now >= clean_entry->timeout) {
                 block_cache_free_entry(priv, &clean_entry);
@@ -1208,7 +1212,7 @@ block_cache_worker_main(void *arg)
             assert(ENTRY_GET_STATE(entry) == WRITING);
 
             /* Attempt to write the block */
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             r = (*priv->inner->write_block)(priv->inner, entry->block_num, buf, etag, block_cache_check_cancel, priv);
             pthread_mutex_lock(&priv->mutex);
             S3BCACHE_CHECK_INVARIANTS(priv, 1);
@@ -1282,7 +1286,7 @@ block_cache_worker_main(void *arg)
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     free(buf);
     return NULL;
 }
@@ -1313,7 +1317,7 @@ block_cache_check_cancel(void *arg, s3b_block_t block_num)
     r = entry->dirty;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 

@@ -84,6 +84,7 @@ test_io_create(struct test_io_conf *config)
     s3b->write_block = test_io_write_block;
     s3b->read_block_part = test_io_read_block_part;
     s3b->write_block_part = test_io_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = test_io_survey_non_zero;
     s3b->shutdown = test_io_shutdown;
     s3b->destroy = test_io_destroy;
@@ -176,7 +177,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
         /* Generate path */
         http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
-        snprintf(path, sizeof(path), "%s/%s%s%0*jx",
+        snvprintf(path, sizeof(path), "%s/%s%s%0*jx",
           config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
         /* Open and read file */
@@ -332,7 +333,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     /* Generate path */
     http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
-    snprintf(path, sizeof(path), "%s/%s%s%0*jx",
+    snvprintf(path, sizeof(path), "%s/%s%s%0*jx",
       config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
     /* Delete zero blocks */
@@ -346,7 +347,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
     /* Write into temporary file */
-    snprintf(temp, sizeof(temp), "%s.XXXXXX", path);
+    snvprintf(temp, sizeof(temp), "%s.XXXXXX", path);
     if ((fd = mkstemp(temp)) == -1) {
         r = errno;
         (*config->log)(LOG_ERR, "%s: %s", temp, strerror(r));

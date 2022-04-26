@@ -92,6 +92,13 @@
 #define FUSE_OPT_KEY_DISCARD -4
 #endif
 
+/* Bail out on error (implies bug) */
+#define CHECK_RETURN(x)         do {                                                                    \
+                                    const int _r = (x);                                                 \
+                                    (void)_r;                                                           \
+                                    assert(_r == 0);                                                    \
+                                } while (0)
+
 /* In case we don't have glibc >= 2.18 */
 #ifndef FALLOC_FL_KEEP_SIZE
 #define FALLOC_FL_KEEP_SIZE     0x01
@@ -231,6 +238,15 @@ struct s3backer_store {
      * May return ENOTCONN if create_threads() has not yet been invoked.
      */
     int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+
+    /*
+     * Bulk block zeroing (i.e., deletion).
+     *
+     * If a block to be deleted does not exist, then that's not an error - just do nothing in that case.
+     *
+     * Returns zero on success or a (positive) errno value if one or more blocks exist but cannot be deleted.
+     */
+    int         (*bulk_zero)(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);
 
     /*
      * Identify all blocks that are, or could possibly be, non-zero.

@@ -1,3 +1,21 @@
+Version Next
+
+    - Fix bug where "(null)" was appearing in usage message (issue #161).
+    - Give more meaningful usage error when size limits are exceeded (issue #162)
+    - Added flag "--http11" to restrict cURL to HTTP 1.1 (issue #168)
+    - Clean up mount token if FUSE itself fails to start (issue #175)
+    - Detect HTTP redirects and emit appropriate hint/warning (issue #174)
+    - Added man page reference to Linux bcache (issue #169)
+    - Treat 3xx HTTP response codes as errors
+
+Version 1.6.3 released October 2, 2021
+
+    - Fixed bug with `--listBlocks' threads doing redundant overlapping queries
+    - Refactor to support multiple different compression algorithms
+    - Fixed mutex handling bug in block cache (issue #152)
+    - Release mutexs prior to destruction (issue #151)
+    - Fixed use-after-free bug in XML parser (pr #154)
+
 Version 1.6.2 released June 14, 2020
 
     - Require test directory to be absolute unless `-f' flag given (issue #143)

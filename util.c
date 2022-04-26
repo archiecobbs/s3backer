@@ -90,43 +90,40 @@ static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
  *                      PUBLIC FUNCTION DEFINITIONS                         *
  ****************************************************************************/
 
+// Returns 0 if found, -1 if not found or unsupported (too big)
 int
-parse_size_string(const char *s, uintmax_t *valp)
+parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp)
 {
     char suffix[3] = { '\0' };
     int nconv;
+    int i;
 
     nconv = sscanf(s, "%ju%2s", valp, suffix);
-    if (nconv < 1)
-        return -1;
-    if (nconv >= 2) {
-        int found = 0;
-        int i;
-
+    if (nconv >= 2 && *valp != 0) {
         for (i = 0; i < sizeof(size_suffixes) / sizeof(*size_suffixes); i++) {
             const struct size_suffix *const ss = &size_suffixes[i];
 
-            if (ss->bits >= sizeof(uintmax_t) * 8)
-                break;
-            if (strcasecmp(suffix, ss->suffix) == 0) {
-                *valp <<= ss->bits;
-                found = 1;
-                break;
+            if (strcasecmp(suffix, ss->suffix) != 0)
+                continue;
+            if (ss->bits >= max_bytes * 8) {
+                warnx("%s value `%s' is too big for this build of s3backer", description, s);
+                return -1;
             }
+            *valp <<= ss->bits;
+            return 0;
         }
-        if (!found)
-            return -1;
     }
-    return 0;
+    warnx("invalid %s `%s'", description, s);
+    return -1;
 }
 
 void
-unparse_size_string(char *buf, size_t bmax, uintmax_t value)
+unparse_size_string(char *buf, int bmax, uintmax_t value)
 {
     int i;
 
     if (value == 0) {
-        snprintf(buf, bmax, "0");
+        snvprintf(buf, bmax, "0");
         return;
     }
     for (i = sizeof(size_suffixes) / sizeof(*size_suffixes); i-- > 0; ) {
@@ -137,15 +134,15 @@ unparse_size_string(char *buf, size_t bmax, uintmax_t value)
             continue;
         unit = (uintmax_t)1 << ss->bits;
         if (value % unit == 0) {
-            snprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
+            snvprintf(buf, bmax, "%ju%s", value / unit, ss->suffix);
             return;
         }
     }
-    snprintf(buf, bmax, "%ju", value);
+    snvprintf(buf, bmax, "%ju", value);
 }
 
 void
-describe_size(char *buf, size_t bmax, uintmax_t value)
+describe_size(char *buf, int bmax, uintmax_t value)
 {
     int i;
 
@@ -157,11 +154,11 @@ describe_size(char *buf, size_t bmax, uintmax_t value)
             continue;
         unit = (uintmax_t)1 << ss->bits;
         if (value >= unit) {
-            snprintf(buf, bmax, "%.2f%s", (double)(value >> (ss->bits - 8)) / (double)(1 << 8), ss->suffix);
+            snvprintf(buf, bmax, "%.2f%s", (double)(value >> (ss->bits - 8)) / (double)(1 << 8), ss->suffix);
             return;
         }
     }
-    snprintf(buf, bmax, "%ju", value);
+    snvprintf(buf, bmax, "%ju", value);
 }
 
 int
@@ -309,6 +306,18 @@ block_list_free(struct block_list *list)
     memset(list, 0, sizeof(*list));
 }
 
+int
+generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks)
+{
+    int r;
+
+    while (num_blocks-- > 0) {
+        if ((r = (s3b->write_block)(s3b, *block_nums++, NULL, NULL, NULL, NULL)) != 0)
+            return r;
+    }
+    return 0;
+}
+
 void
 syslog_logger(int level, const char *fmt, ...)
 {
@@ -367,6 +376,28 @@ stderr_logger(int level, const char *fmt, ...)
     fprintf(stderr, "%s %s: ", timebuf, levelstr);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
-    pthread_mutex_unlock(&stderr_log_mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
     va_end(args);
+}
+
+// Like snprintf(), but aborts if the buffer is overflowed and gracefully handles negative buffer lengths
+int
+snvprintf(char *buf, int size, const char *format, ...)
+{
+    va_list args;
+    int len;
+
+    /* Format string (unless size is zero or less) */
+    va_start(args, format);
+    len = size > 0 ? vsnprintf(buf, size, format, args) : 0;
+    va_end(args);
+
+    /* Check for overflow */
+    if (len > size - 1) {
+        fprintf(stderr, "buffer overflow: \"%s\": %d > %d", format, len, (int)size);
+        abort();
+    }
+
+    /* Done */
+    return len;
 }

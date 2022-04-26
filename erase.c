@@ -145,7 +145,7 @@ s3backer_erase(struct s3b_config *config)
     pthread_mutex_lock(&priv->mutex);
     while (priv->qlen > 0)
         pthread_cond_wait(&priv->queue_empty, &priv->mutex);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Clear mount token */
     if ((r = (*priv->s3b->set_mount_token)(priv->s3b, NULL, 0)) != 0) {
@@ -161,7 +161,7 @@ fail5:
     pthread_mutex_lock(&priv->mutex);
     priv->stopping = 1;
     pthread_cond_broadcast(&priv->thread_wakeup);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     while (num_threads > 0) {
         if ((r = pthread_join(priv->threads[--num_threads], NULL)) != 0)
             warnx("pthread_join: %s", strerror(r));
@@ -204,7 +204,7 @@ erase_list_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
         priv->queue[priv->qlen++] = block_num;
     }
     pthread_cond_broadcast(&priv->thread_wakeup);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return 0;
 }
 
@@ -232,7 +232,7 @@ erase_thread_main(void *arg)
                 pthread_cond_signal(&priv->queue_empty);
 
             /* Do block deletion */
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             r = (*priv->s3b->write_block)(priv->s3b, block_num, NULL, NULL, NULL, NULL);
             pthread_mutex_lock(&priv->mutex);
 
@@ -261,7 +261,7 @@ erase_thread_main(void *arg)
     }
 
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return NULL;
 }
 

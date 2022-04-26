@@ -58,41 +58,44 @@
 
 /* Configuration info structure for http_io store */
 struct http_io_conf {
-    char                *accessId;
-    char                *accessKey;
-    char                *iam_token;
-    const char          *accessType;
-    const char          *ec2iam_role;
-    const char          *storage_class;
-    const char          *authVersion;
-    const char          *baseURL;
-    const char          *region;
-    const char          *bucket;
-    const char          *prefix;
-    const char          *user_agent;
-    const char          *cacert;
-    const char          *password;
-    const char          *encryption;
-    const char          *default_ce;
-    u_int               key_length;
-    int                 debug;
-    int                 debug_http;
-    int                 quiet;
-    int                 compress;                   // zlib compression level
-    int                 vhost;                      // use virtual host style URL
-    bitmap_t            *nonzero_bitmap;            // is set to NULL by http_io_create()
-    int                 blockHashPrefix;
-    int                 insecure;
-    u_int               block_size;
-    s3b_block_t         num_blocks;
-    int                 list_blocks_threads;
-    u_int               timeout;
-    u_int               initial_retry_pause;
-    u_int               max_retry_pause;
-    uintmax_t           max_speed[2];
-    log_func_t          *log;
-    const char          *sse;
-    const char          *sse_key_id;
+    char                    *accessId;
+    char                    *accessKey;
+    char                    *iam_token;
+    const char              *accessType;
+    const char              *ec2iam_role;
+    const char              *storage_class;
+    const char              *authVersion;
+    const char              *baseURL;
+    const char              *vhostURL;                  // "baseURL" in --vhost format
+    const char              *region;
+    const char              *bucket;
+    const char              *prefix;
+    const char              *user_agent;
+    const char              *cacert;
+    const char              *password;
+    const char              *encryption;
+    const char              *default_ce;
+    u_int                   key_length;
+    int                     debug;
+    int                     debug_http;
+    int                     http_11;                    // restrict to HTTP 1.1
+    int                     quiet;
+    const struct comp_alg   *compress_alg;              // compression algorithm, or NULL for none
+    void                    *compress_level;            // compression level info
+    int                     vhost;                      // use virtual host style URL
+    bitmap_t                *nonzero_bitmap;            // is set to NULL by http_io_create()
+    int                     blockHashPrefix;
+    int                     insecure;
+    u_int                   block_size;
+    s3b_block_t             num_blocks;
+    int                     list_blocks_threads;
+    u_int                   timeout;
+    u_int                   initial_retry_pause;
+    u_int                   max_retry_pause;
+    uintmax_t               max_speed[2];
+    log_func_t              *log;
+    const char              *sse;
+    const char              *sse_key_id;
 };
 
 /* Statistics structure for http_io store */
@@ -119,10 +122,12 @@ struct http_io_stats {
     u_int               http_unauthorized;
     u_int               http_forbidden;
     u_int               http_stale;
+    u_int               http_redirect;
     u_int               http_verified;
     u_int               http_mismatch;
     u_int               http_5xx_error;
     u_int               http_4xx_error;
+    u_int               http_3xx_error;
     u_int               http_other_error;
     u_int               http_canceled_writes;
 

@@ -43,6 +43,7 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "dcache.h"
+#include "compress.h"
 #include "util.h"
 
 /****************************************************************************
@@ -82,17 +83,19 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_MAX_DIRTY      0
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
-#define S3BACKER_DEFAULT_COMPRESSION                Z_NO_COMPRESSION
+#define S3BACKER_DEFAULT_COMPRESSION                "deflate"
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 #define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
+
+/* Macro for quoting stuff */
+#define s3bquote0(x)                    #x
+#define s3bquote(x)                     s3bquote0(x)
 
 /* MacFUSE setting for kernel daemon timeout */
 #ifdef __APPLE__
 #ifndef FUSE_MAX_DAEMON_TIMEOUT
 #define FUSE_MAX_DAEMON_TIMEOUT         600
 #endif
-#define s3bquote0(x)                    #x
-#define s3bquote(x)                     s3bquote0(x)
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
 #endif  /* __APPLE__ */
 
@@ -164,7 +167,6 @@ static struct s3b_config config = {
         .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
         .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
         .user_agent=            user_agent_buf,
-        .compress=              S3BACKER_DEFAULT_COMPRESSION,
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
         .max_retry_pause=       S3BACKER_DEFAULT_MAX_RETRY_PAUSE,
@@ -352,6 +354,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--http11",
+        .offset=    offsetof(struct s3b_config, http_io.http_11),
+        .value=     1
+    },
+    {
         .templ=     "--quiet",
         .offset=    offsetof(struct s3b_config, quiet),
         .value=     1
@@ -452,12 +459,16 @@ static const struct fuse_opt option_list[] = {
     },
     {
         .templ=     "--compress",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
-        .value=     Z_DEFAULT_COMPRESSION
+        .offset=    offsetof(struct s3b_config, compress_flag),
+        .value=     1
     },
     {
-        .templ=     "--compress=%d",
-        .offset=    offsetof(struct s3b_config, http_io.compress),
+        .templ=     "--compress=%s",
+        .offset=    offsetof(struct s3b_config, compress_alg),
+    },
+    {
+        .templ=     "--compress-level=%s",
+        .offset=    offsetof(struct s3b_config, compress_level),
     },
     {
         .templ=     "--encrypt",
@@ -557,7 +568,7 @@ s3backer_get_config(int argc, char **argv)
     config.fuse_ops.gid = getgid();
 
     /* Set user-agent */
-    snprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
+    snvprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
 
     /* Copy program name */
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
@@ -644,7 +655,7 @@ s3backer_get_config(int argc, char **argv)
         return NULL;
 
     /* Set fsname based on configuration */
-    snprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
+    snvprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
     insert_fuse_arg(1, buf);
 
     /* Set up fuse_ops callbacks */
@@ -802,10 +813,12 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
         (*printer)(prarg, "%-28s %u\n", "http_forbidden", http_io_stats.http_forbidden);
         (*printer)(prarg, "%-28s %u\n", "http_stale", http_io_stats.http_stale);
+        (*printer)(prarg, "%-28s %u\n", "http_redirect", http_io_stats.http_redirect);
         (*printer)(prarg, "%-28s %u\n", "http_verified", http_io_stats.http_verified);
         (*printer)(prarg, "%-28s %u\n", "http_mismatch", http_io_stats.http_mismatch);
         (*printer)(prarg, "%-28s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
+        (*printer)(prarg, "%-28s %u\n", "http_3xx_error", http_io_stats.http_3xx_error);
         (*printer)(prarg, "%-28s %u\n", "http_other_error", http_io_stats.http_other_error);
         (*printer)(prarg, "%-28s %u\n", "http_canceled_writes", http_io_stats.http_canceled_writes);
         (*printer)(prarg, "%-28s %u\n", "http_num_retries", http_io_stats.num_retries);
@@ -836,13 +849,13 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
             write_hit_ratio = (double)block_cache_stats.write_hits / (double)total_writes;
         (*printer)(prarg, "%-28s %u blocks\n", "block_cache_current_size", block_cache_stats.current_size);
         (*printer)(prarg, "%-28s %u blocks\n", "block_cache_initial_size", block_cache_stats.initial_size);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_read_hit_ratio", read_hit_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_read_hit_ratio", read_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits", block_cache_stats.write_hits);
         (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses", block_cache_stats.write_misses);
-        (*printer)(prarg, "%-28s %.4f\n", "block_cache_write_hit_ratio", write_hit_ratio);
+        (*printer)(prarg, "%-28s %.8f\n", "block_cache_write_hit_ratio", write_hit_ratio);
         (*printer)(prarg, "%-28s %u\n", "block_cache_verified", block_cache_stats.verified);
         (*printer)(prarg, "%-28s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
         total_oom += block_cache_stats.out_of_memory_errors;
@@ -1059,7 +1072,7 @@ validate_config(void)
         char buf[PATH_MAX];
 
         if (home != NULL) {
-            snprintf(buf, sizeof(buf), "%s/%s", home, S3BACKER_DEFAULT_PWD_FILE);
+            snvprintf(buf, sizeof(buf), "%s/%s", home, S3BACKER_DEFAULT_PWD_FILE);
             if ((config.accessFile = strdup(buf)) == NULL)
                 err(1, "strdup");
         }
@@ -1157,7 +1170,7 @@ validate_config(void)
                 warn("malloc");
                 return -1;
             }
-            snprintf(pbuf, strlen(p) + 2, "%s/", p);
+            snvprintf(pbuf, strlen(p) + 2, "%s/", p);
             config.prefix = pbuf;
         }
     } else {
@@ -1212,9 +1225,9 @@ validate_config(void)
     /* Set default base URL */
     if (config.http_io.baseURL == NULL) {
         if (customRegion && strcmp(config.http_io.region, S3BACKER_DEFAULT_REGION) != 0)
-            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3-%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
+            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
         else
-            snprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
+            snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s/", config.ssl ? "s" : "", S3_DOMAIN);
         if ((config.http_io.baseURL = strdup(urlbuf)) == NULL) {
             warn("malloc");
             return -1;
@@ -1246,19 +1259,21 @@ validate_config(void)
         return -1;
     }
 
-    /* Handle virtual host style URL (prefix hostname with bucket name) */
-    if (config.http_io.vhost) {
-        size_t buflen;
-        int schemelen;
+    /* Construct the virtual host style URL (prefix hostname with bucket name) */
+    {
+        int scheme_len;
         char *buf;
 
-        schemelen = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
-        buflen = strlen(config.bucket) + 1 + strlen(config.http_io.baseURL) + 1;
-        if ((buf = malloc(buflen)) == NULL)
-            err(1, "malloc(%u)", (u_int)buflen);
-        snprintf(buf, buflen, "%.*s%s.%s", schemelen, config.http_io.baseURL, config.bucket, config.http_io.baseURL + schemelen);
-        config.http_io.baseURL = buf;
+        scheme_len = strchr(config.http_io.baseURL, ':') - config.http_io.baseURL + 3;
+        if (asprintf(&buf, "%.*s%s.%s", scheme_len,
+          config.http_io.baseURL, config.bucket, config.http_io.baseURL + scheme_len) == -1)
+            err(1, "asprintf");
+        config.http_io.vhostURL = buf;
     }
+
+    /* Always use the virtual host style URL if configured to do so */
+    if (config.http_io.vhost)
+        config.http_io.baseURL = config.http_io.vhostURL;
 
     /* Check S3 access privilege */
     if (!find_string_in_table(s3_acls, config.http_io.accessType)) {
@@ -1335,21 +1350,46 @@ validate_config(void)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--keyLength");
     }
 
-    /* We always want to compress if we are encrypting */
-    if (config.http_io.encryption != NULL && config.http_io.compress == Z_NO_COMPRESSION)
-        config.http_io.compress = Z_DEFAULT_COMPRESSION;
+    /* Disallow "--compress-level" without "--compress" */
+    if (config.compress_alg == NULL && config.compress_level != NULL) {
+        warnx("the `--compress-level' flag requires the `--compress' flag");
+        return -1;
+    }
 
-    /* Check compression level */
-    switch (config.http_io.compress) {
-    case Z_DEFAULT_COMPRESSION:
-    case Z_NO_COMPRESSION:
-        break;
-    default:
-        if (config.http_io.compress < Z_BEST_SPEED || config.http_io.compress > Z_BEST_COMPRESSION) {
-            warnx("illegal compression level `%d'", config.http_io.compress);
+    /* Apply backwards-compatibility for "--compress" flag */
+    if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag) {
+        static char buf[16];
+
+        snvprintf(buf, sizeof(buf), "%d", Z_DEFAULT_COMPRESSION);
+        config.compress_alg = buf;
+    }
+    if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
+        config.compress_level = config.compress_alg;
+        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+    }
+
+    /* We always want to compress if we are encrypting */
+    if (config.http_io.encryption != NULL && config.compress_alg == NULL)
+        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+
+    /* Parse compression, if any, and compression level, if any */
+    if (config.compress_alg != NULL) {
+        const struct comp_alg *calg;
+        void *level = NULL;
+
+        /* Find the compression algorithm */
+        if ((calg = comp_find(config.compress_alg)) == NULL) {
+            warnx("unknown compression algorithm `%s'", config.compress_alg);
             return -1;
         }
-        break;
+
+        /* Parse the compression level, if any */
+        if (config.compress_level != NULL && (level = (*calg->lparse)(config.compress_level)) == NULL)
+            return -1;
+
+        /* Done */
+        config.http_io.compress_alg = calg;
+        config.http_io.compress_level = level;
     }
 
     /* Disable md5 cache when in read only mode */
@@ -1380,40 +1420,33 @@ validate_config(void)
 
     /* Parse block and file sizes */
     if (config.block_size_str != NULL) {
-        if (parse_size_string(config.block_size_str, &value) == -1 || value == 0) {
-            warnx("invalid block size `%s'", config.block_size_str);
+        if (parse_size_string(config.block_size_str, "block size", sizeof(u_int), &value) == -1)
             return -1;
-        }
-        if ((u_int)value != value) {
-            warnx("block size `%s' is too big", config.block_size_str);
-            return -1;
-        }
         config.block_size = value;
     }
     if (config.file_size_str != NULL) {
-        if (parse_size_string(config.file_size_str, &value) == -1 || value == 0) {
-            warnx("invalid file size `%s'", config.file_size_str);
+        if (parse_size_string(config.file_size_str, "file size", sizeof(uintmax_t), &value) == -1)
             return -1;
-        }
         config.file_size = value;
     }
 
     /* Parse upload/download speeds */
     for (i = 0; i < 2; i++) {
+        char speed_desc[32];
+
+        snprintf(speed_desc, sizeof(speed_desc), "max %s speed", upload_download_names[i]);
         if (config.max_speed_str[i] != NULL) {
-            if (parse_size_string(config.max_speed_str[i], &value) == -1 || value == 0) {
-                warnx("invalid max %s speed `%s'", upload_download_names[i], config.max_speed_str[i]);
+            if (parse_size_string(config.max_speed_str[i], speed_desc, sizeof(uintmax_t), &value) == -1)
                 return -1;
-            }
             if ((curl_off_t)(value / 8) != (value / 8)) {
-                warnx("max %s speed `%s' is too big", upload_download_names[i], config.max_speed_str[i]);
+                warnx("%s `%s' is too big", speed_desc, config.max_speed_str[i]);
                 return -1;
             }
             config.http_io.max_speed[i] = value;
         }
         if (config.http_io.max_speed[i] != 0 && config.block_size / (config.http_io.max_speed[i] / 8) >= config.http_io.timeout) {
-            warnx("configured timeout of %us is too short for block size of %u bytes and max %s speed %s bps",
-              config.http_io.timeout, config.block_size, upload_download_names[i], config.max_speed_str[i]);
+            warnx("configured timeout of %us is too short for block size of %u bytes and %s %s bps",
+              config.http_io.timeout, config.block_size, speed_desc, config.max_speed_str[i]);
             return -1;
         }
     }
@@ -1468,11 +1501,11 @@ validate_config(void)
 
     /* Format descriptive string of what we're mounting */
     if (config.test)
-        snprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
     else if (config.http_io.vhost)
-        snprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
     else
-        snprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
+        snvprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
 
     /*
      * Read the first block (if any) to determine existing file and block size,
@@ -1785,7 +1818,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)config.num_blocks);
     (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
     (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %d", "compress", config.http_io.compress);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "compress", config.http_io.compress_alg ? config.http_io.compress_alg->name : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
     (*config.log)(LOG_DEBUG, "%24s: %u", "key_length", config.http_io.key_length);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");
@@ -1795,6 +1828,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_download",
       config.max_speed_str[HTTP_DOWNLOAD] != NULL ? config.max_speed_str[HTTP_DOWNLOAD] : "-",
       config.http_io.max_speed[HTTP_DOWNLOAD]);
+    (*config.log)(LOG_DEBUG, "%24s: %s", "http_11", config.http_io.http_11 ? "true" : "false");
     (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse", config.http_io.sse);
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse-key-id", config.http_io.sse_key_id);
@@ -1823,13 +1857,13 @@ dump_config(void)
 static void
 usage(void)
 {
-    int i;
+    const char *const *sptr;
 
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "\ts3backer [options] bucket /mount/point\n");
+    fprintf(stderr, "\ts3backer [options] bucket[/subdir] /mount/point\n");
     fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
-    fprintf(stderr, "\ts3backer --erase [options] bucket\n");
-    fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket\n");
+    fprintf(stderr, "\ts3backer --erase [options] bucket[/subdir]\n");
+    fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket[/subdir]\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
@@ -1837,13 +1871,13 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "accessKeyEnv=VARNAME", "S3 secret access key from environment variable");
     fprintf(stderr, "\t--%-27s %s\n", "accessType=TYPE", "S3 ACL used when creating new items; one of:");
     fprintf(stderr, "\t  %-27s ", "");
-    for (i = 0; i < sizeof(s3_acls) / sizeof(*s3_acls); i++)
-        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_acls[i]);
+    for (sptr = s3_acls; *sptr != NULL; sptr++)
+        fprintf(stderr, "%s%s", sptr != s3_acls ? ", " : "  ", *sptr);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "authVersion=TYPE", "Specify S3 authentication style; one of:");
     fprintf(stderr, "\t  %-27s ", "");
-    for (i = 0; i < sizeof(s3_auth_types) / sizeof(*s3_auth_types); i++)
-        fprintf(stderr, "%s%s", i > 0 ? ", " : "  ", s3_auth_types[i]);
+    for (sptr = s3_auth_types; *sptr != NULL; sptr++)
+        fprintf(stderr, "%s%s", sptr != s3_auth_types ? ", " : "  ", *sptr);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM=ROLE", "Acquire S3 credentials from EC2 machine via IAM role");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
@@ -1871,6 +1905,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "force", "Ignore different auto-detected block and file sizes");
     fprintf(stderr, "\t--%-27s %s\n", "help", "Show this information and exit");
+    fprintf(stderr, "\t--%-27s %s\n", "http11", "Restrict to HTTP version 1.1");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Initial retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");

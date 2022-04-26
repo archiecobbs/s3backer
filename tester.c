@@ -94,7 +94,8 @@ main(int argc, char **argv)
 
     /* Random initialization */
     srandom((u_int)time(NULL));
-    pthread_mutex_init(&mutex, NULL);
+    if (pthread_mutex_init(&mutex, NULL) != 0)
+        err(1, "mutex init");
     start_time = get_time();
 
     /* Zero all blocks */
@@ -141,7 +142,7 @@ thread_main(void *arg)
             // Snapshot block state
             pthread_mutex_lock(&mutex);
             memcpy(&before, state, sizeof(before));
-            pthread_mutex_unlock(&mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&mutex));
 
             // Do the read
             logit(id, "rd %0*jx START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
@@ -153,7 +154,7 @@ thread_main(void *arg)
             // Snapshot block state again
             pthread_mutex_lock(&mutex);
             memcpy(&after, state, sizeof(before));
-            pthread_mutex_unlock(&mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&mutex));
 
             // Verify content, but only if no write occurred while we were reading
             if (before.writing == 0 && after.writing == 0 && before.counter == after.counter) {
@@ -171,11 +172,11 @@ thread_main(void *arg)
             // Update block state
             pthread_mutex_lock(&mutex);
             if (state->writing) {                   // only one writer at a time
-                pthread_mutex_unlock(&mutex);
+                CHECK_RETURN(pthread_mutex_unlock(&mutex));
                 continue;
             }
             state->writing = 1;
-            pthread_mutex_unlock(&mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&mutex));
 
             // Write block
             content = (random() % ZERO_FACTOR) != 0 ? 0 : (u_int)random();
@@ -195,7 +196,7 @@ thread_main(void *arg)
                 state->content = content;
             }
             state->writing = 0;
-            pthread_mutex_unlock(&mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&mutex));
         }
     }
 }

@@ -73,4 +73,5 @@ struct fuse_ops_private {
 
 /* fuse_ops.c */
 const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *s3b);
+void fuse_ops_destroy(void);
 

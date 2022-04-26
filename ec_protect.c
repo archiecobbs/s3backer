@@ -197,6 +197,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->write_block = ec_protect_write_block;
     s3b->read_block_part = ec_protect_read_block_part;
     s3b->write_block_part = ec_protect_write_block_part;
+    s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = ec_protect_survey_non_zero;
     s3b->shutdown = ec_protect_shutdown;
     s3b->destroy = ec_protect_destroy;
@@ -281,7 +282,7 @@ ec_protect_shutdown(struct s3backer_store *const s3b)
         pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
 
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Propagate to lower layer */
     return (*priv->inner->shutdown)(priv->inner);
@@ -301,6 +302,7 @@ ec_protect_destroy(struct s3backer_store *const s3b)
     (*priv->inner->destroy)(priv->inner);
 
     /* Free structures */
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
     pthread_cond_destroy(&priv->sleepers_cond);
@@ -319,7 +321,7 @@ ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats)
     pthread_mutex_lock(&priv->mutex);
     memcpy(stats, &priv->stats, sizeof(*stats));
     stats->current_cache_size = s3b_hash_size(priv->hashtable);
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 void
@@ -329,7 +331,7 @@ ec_protect_clear_stats(struct s3backer_store *s3b)
 
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 }
 
 static int
@@ -353,7 +355,7 @@ ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callba
         goto done;
 
     /* Unlock mutex */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Report all blocks inventoried above */
     (*callback)(arg, list.blocks, list.num_blocks);
@@ -372,7 +374,7 @@ ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callba
 
 done:
     /* Done */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
 
@@ -418,7 +420,7 @@ again:
             if (actual_etag != NULL)
                 memset(actual_etag, 0, MD5_DIGEST_LENGTH);          // we don't know it yet!
             priv->stats.cache_data_hits++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             return 0;
         }
 
@@ -446,7 +448,7 @@ again:
             if (actual_etag != NULL)
                 memset(actual_etag, 0, MD5_DIGEST_LENGTH);
             priv->stats.cache_data_hits++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             return 0;
         }
 
@@ -459,7 +461,7 @@ again:
     }
 
     /* Release lock */
-    pthread_mutex_unlock(&priv->mutex);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     /* Read block normally */
     return (*priv->inner->read_block)(priv->inner, block_num, dest, actual_etag, expect_etag, strict);
@@ -523,7 +525,7 @@ again:
             r = errno;
             (*config->log)(LOG_ERR, "can't alloc new MD5 cache entry: %s", strerror(r));
             priv->stats.out_of_memory_errors++;
-            pthread_mutex_unlock(&priv->mutex);
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             return r;
         }
         binfo->block_num = block_num;
@@ -532,7 +534,7 @@ again:
 
 writeit:
         /* Write the block */
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         r = (*priv->inner->write_block)(priv->inner, block_num, src, etag, check_cancel, check_cancel_arg);
         pthread_mutex_lock(&priv->mutex);
         EC_PROTECT_CHECK_INVARIANTS(priv);
@@ -554,7 +556,7 @@ writeit:
         binfo->timestamp = ec_protect_get_time();
         memcpy(binfo->u.etag, r == 0 ? etag : unknown_etag, MD5_DIGEST_LENGTH);
         TAILQ_INSERT_TAIL(&priv->list, binfo, link);
-        pthread_mutex_unlock(&priv->mutex);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
         /* Copy expected ETag for caller */
         if (r == 0 && caller_etag != NULL)

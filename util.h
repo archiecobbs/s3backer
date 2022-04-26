@@ -47,13 +47,15 @@ extern int log_enable_debug;
 
 extern const void *zero_block;
 
-extern int parse_size_string(const char *s, uintmax_t *valp);
-extern void unparse_size_string(char *buf, size_t bmax, uintmax_t value);
-extern void describe_size(char *buf, size_t bmax, uintmax_t value);
+/* Misc */
+extern int parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp);
+extern void unparse_size_string(char *buf, int bmax, uintmax_t value);
+extern void describe_size(char *buf, int bmax, uintmax_t value);
 extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
+extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
 
 /* Bitmaps */
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
@@ -69,3 +71,6 @@ extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);
 extern void block_list_init(struct block_list *list);
 extern int block_list_append(struct block_list *list, s3b_block_t block_num);
 extern void block_list_free(struct block_list *list);
+
+/* Generic s3backer_store functions */
+extern int generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);

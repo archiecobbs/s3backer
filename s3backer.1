@@ -59,14 +59,14 @@
 .Bk -words
 .Fl \-erase
 .Op options
-.Ar bucket
+.Ar bucket[/subdir]
 .Ek
 .Pp
 .Nm s3backer
 .Bk -words
 .Fl \-reset-mounted-flag
 .Op options
-.Ar bucket
+.Ar bucket[/subdir]
 .Ek
 .Sh DESCRIPTION
 .Nm
@@ -86,9 +86,8 @@ This arrangement has several benefits compared to more complete S3 filesystem im
 .It o
 By not attempting to implement a complete filesystem, which is a complex undertaking and difficult to get right,
 .Nm
-can stay very lightweight and simple. Only three HTTP operations are used: GET, PUT, and DELETE.
-All of the experience and knowledge about how to properly implement filesystems that already exists can
-be reused.
+can stay very lightweight and simple.
+All of the experience and knowledge about how to properly implement filesystems that already exists can be reused.
 .It o
 By utilizing existing filesystems, you get full UNIX filesystem semantics.
 Subtle bugs or missing functionality relating to hard links, extended attributes, POSIX locking, etc. are avoided.
@@ -191,6 +190,8 @@ This permits larger cache sizes and allows
 to reload cached data after a restart.
 Reloaded data is verified via MD5 checksum with Amazon S3 before reuse.
 .Pp
+Having said all that, Linux users may want to consider instead using the kernel "bcache" mechanism for local caching of blocks.
+.Pp
 The block cache is configured by the following command line options:
 .Fl \-blockCacheFile ,
 .Fl \-blockCacheMaxDirty ,
@@ -247,7 +248,9 @@ supports block-level compression, which minimizes transfer time and storage cost
 .Pp
 Compression is configured via the
 .Fl \-compress
-flag.
+and
+.Fl \-compress-level
+flags.
 Compression is automatically enabled when encryption is enabled.
 .Ss Server Side Encryption
 .Nm
@@ -373,6 +376,11 @@ is the default setting starting in version 1.4, and is required for certain non-
 may still be required by some non-Amazon S3 providers.
 .It Fl \-baseURL=URL
 Specify the base URL, which must end in a forward slash. Default is `http://s3.amazonaws.com/'.
+.Pp
+Use this flag to specify FIPS and dual-stack endpoints.
+.Pp
+Note: the region name is used in authentication, so if you include a region name you probably also need to specify it via
+.Fl \-region .
 .It Fl \-blockCacheFile=FILE
 Specify a file in which to store cached data blocks.
 Without this flag, the block cache lives entirely in process memory and the cached data disappears when
@@ -505,6 +513,7 @@ this flag must be used consistently once a disk image is established.
 Specify the block size.
 This must be a power of two and should be a multiple of the kernel's native page size.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, etc.
+The total number of blocks must fit into 32 bits.
 .Pp
 .Nm
 supports partial block operations, though this forces a read before each write;
@@ -529,25 +538,37 @@ Equivalent to the
 .Fl \-cacert
 flag documented in
 .Xr curl 1 .
-.It Fl \-compress[=LEVEL]
-Compress blocks before sending them over the network.
+.It Fl \-compress[=ALGORITHM]
+Compress blocks using the specified compression algorithm before sending them over the network.
 This should result in less network traffic (in both directions) and lower storage costs.
 .Pp
-The compression level is optional; if given, it must be between 1 (fast compression) and 9 (most compression), inclusive.
-If omitted, the default compression level is used.
+The
+.Ar ALGORITHM
+is optional; currently, the default value (and the only supported algorithm) is
+.Ar deflate .
 .Pp
 This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropriate.
 Therefore, it is safe to switch this flag on or off between different invocations of
 .Nm
 on the same filesystem.
 .Pp
-This flag is automatically enabled when
+This flag is implied when
 .Fl \-encrypt
-is used, though you may also specify
-.Fl \-compress=LEVEL
-to set a non-default compression level.
+is used.
 .Pp
 When using an encrypted upper layer filesystem, this flag adds no value because the data will not be compressible.
+.It Fl \-compress-level=LEVEL
+Configure the compression level for the selected compression algorithm, which must be specified via
+.Fl \-compress .
+.Pp
+The interpretation of
+.Ar LEVEL
+depends on the algorithm;
+for
+.Ar deflate ,
+it must be an integer between 1 (maximum speed) and 9 (maximum compression), inclusive.
+.Pp
+If this flag is omitted, the default compression level for the selected algorithm is used.
 .It Fl \-configFile=FILE
 Insert command line flags and arguments read from the specified file in place of this flag.
 .Pp
@@ -566,9 +587,11 @@ This option may also be specified as
 Disable kernel caching of the backed file.
 This will force the kernel to always pass reads and writes directly to
 .Nm .
-This reduces performance but also eliminates one source of inconsistency.
+This may reduce performance but also eliminates one source of inconsistency.
 .It Fl \-debug
 Enable logging of debug messages.
+This includes logging HTTP error response payloads.
+.Pp
 Note that this flag is different from
 .Fl d ,
 which is a flag to FUSE;
@@ -576,7 +599,7 @@ however, the
 .Fl d
 FUSE flag implies this flag.
 .It Fl \-debug-http
-Capture and print any HTTP error response payloads to the log, and configure
+Configure
 .Xr libcurl 3
 to print debugging information (e.g., HTTP request and response headers) to standard error.
 .Pp
@@ -584,7 +607,7 @@ With this flag you would normally also specify
 .Fl f
 so
 .Nm
-runs in the foreground.
+runs in the foreground and standard error is visible.
 .It Fl \-defaultContentEncoding=VALUE
 Use this to workaround S3 backends that fail to send back the
 .Pa "Content-Encoding"
@@ -844,6 +867,9 @@ This flag changes the default base URL to include the region name and automatica
 flag, unless the
 .Fl \-no-vhost
 flag is used.
+.Pp
+The default region is
+.Pa us-east-1 .
 .It Fl \-reset-mounted-flag
 Reset the 'already mounted' flag on the underlying S3 data store.
 .Pp
@@ -859,7 +885,10 @@ will clear it manually.
 But see also BUGS below.
 .It Fl \-size=SIZE
 Specify the size (in bytes) of the backed file to be exported by the filesystem.
-The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes, or 'Y' for yottabytes.
+The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes (if supported), or 'Y' for yottabytes (if supported).
+The total number of blocks must fit into 32 bits.
+Suffixes represent powers of two.
+.Pp
 .Nm
 will attempt to auto-detect the size of the backed file by reading block number zero.
 If this option is not specified, the auto-detected value will be used.
@@ -1043,6 +1072,10 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .%T "Google Search for `linux page cache'"
 .%O http://www.google.com/search?q=linux+page+cache
 .Re
+.Rs
+.%T "Linux Block Layer Cache (bcache)"
+.%O https://www.kernel.org/doc/Documentation/bcache.txt
+.Re
 .Sh BUGS
 Due to a design flaw in FUSE, an unmount of the
 .Nm
@@ -1068,11 +1101,7 @@ Therefore, the block size must be increased beyond the default 4K when very larg
 .Pp
 .Nm
 should really be implemented as a device rather than a filesystem.
-However, this would require writing a kernel module instead of a simple user-space daemon,
-because Linux does not provide a user-space API for devices like it does for filesystems with FUSE.
-Implementing
-.Nm
-as a filesystem and then using the loopback mount is a simple workaround.
+In Linux this is possible via NBD; see issue #147.
 .Pp
 On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically
 unmounts the filesystem when this limit is reached.
