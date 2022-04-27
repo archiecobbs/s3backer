@@ -71,6 +71,7 @@ nbdkit_s3backer_plugin_la_SOURCES = \
 			fuse_ops.c \
 			hash.c \
 			util.c \
+			compress.c \
 			http_io.c \
 			reset.c \
 			s3b_config.c \
