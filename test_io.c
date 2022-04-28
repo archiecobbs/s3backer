@@ -40,16 +40,16 @@
 #include "test_io.h"
 #include "util.h"
 
-/* Do we want random errors? */
+// Do we want random errors?
 #define RANDOM_ERROR_PERCENT    0
 
-/* Internal state */
+// Internal state
 struct test_io_private {
     struct test_io_conf         *config;
     volatile int                shutdown;
 };
 
-/* s3backer_store functions */
+// s3backer_store functions
 static int test_io_create_threads(struct s3backer_store *s3b);
 static int test_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int test_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
@@ -74,7 +74,7 @@ test_io_create(struct test_io_conf *config)
     struct s3backer_store *s3b;
     struct test_io_private *priv;
 
-    /* Initialize structures */
+    // Initialize structures
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL)
         return NULL;
     s3b->create_threads = test_io_create_threads;
@@ -96,11 +96,11 @@ test_io_create(struct test_io_conf *config)
     priv->config = config;
     s3b->data = priv;
 
-    /* Random initialization */
+    // Random initialization
     if (config->random_delays || config->random_errors)
         srandom((u_int)time(NULL));
 
-    /* Done */
+    // Done
     return s3b;
 }
 
@@ -156,35 +156,35 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int fd;
     int r;
 
-    /* Logging */
+    // Logging
     if (config->debug)
         (*config->log)(LOG_DEBUG, "test_io: read %0*jx started", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
-    /* Random delay */
+    // Random delay
     if (config->random_delays)
         usleep((random() % 200) * 1000);
 
-    /* Random error */
+    // Random error
     if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure reading %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         return EAGAIN;
     }
 
-    /* Read block */
+    // Read block
     if (config->discard_data)
         r = ENOENT;
     else {
 
-        /* Generate path */
+        // Generate path
         http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
         snvprintf(path, sizeof(path), "%s/%s%s%0*jx",
           config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
-        /* Open and read file */
+        // Open and read file
         if ((fd = open(path, O_RDONLY)) != -1) {
             int total;
 
-            /* Read file */
+            // Read file
             for (total = 0; total < config->block_size; total += r) {
                 if ((r = read(fd, (char *)dest + total, config->block_size - total)) == -1) {
                     r = errno;
@@ -197,31 +197,31 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             }
             close(fd);
 
-            /* Check for short read */
+            // Check for short read
             if (total != config->block_size) {
                 (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
                 return EIO;
             }
 
-            /* Done */
+            // Done
             r = 0;
         } else
             r = errno;
     }
 
-    /* Convert ENOENT into a read of all zeros */
+    // Convert ENOENT into a read of all zeros
     if ((is_zero_block = (r == ENOENT))) {
         memset(dest, 0, config->block_size);
         r = 0;
     }
 
-    /* Check for other error */
+    // Check for other error
     if (r != 0) {
         (*config->log)(LOG_ERR, "can't open %s: %s", path, strerror(r));
         return r;
     }
 
-    /* Compute MD5 */
+    // Compute MD5
     if (is_zero_block)
         memset(md5, 0, MD5_DIGEST_LENGTH);
     else {
@@ -232,7 +232,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     if (actual_etag != NULL)
         memcpy(actual_etag, md5, MD5_DIGEST_LENGTH);
 
-    /* Check expected MD5 */
+    // Check expected MD5
     if (expect_etag != NULL) {
         const int match = memcmp(md5, expect_etag, MD5_DIGEST_LENGTH) == 0;
 
@@ -255,7 +255,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             r = EEXIST;
     }
 
-    /* Logging */
+    // Logging
     if (config->debug) {
         (*config->log)(LOG_DEBUG,
           "test_io: read %0*jx complete, MD5 %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%s%s",
@@ -267,7 +267,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
           is_zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
     }
 
-    /* Done */
+    // Done
     return r;
 }
 
@@ -286,11 +286,11 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     int fd;
     int r;
 
-    /* Check for zero block */
+    // Check for zero block
     if (src != NULL && memcmp(src, zero_block, config->block_size) == 0)
         src = NULL;
 
-    /* Compute MD5 */
+    // Compute MD5
     if (src != NULL) {
         MD5_Init(&ctx);
         MD5_Update(&ctx, src, config->block_size);
@@ -298,11 +298,11 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     } else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
-    /* Return MD5 to caller */
+    // Return MD5 to caller
     if (caller_etag != NULL)
         memcpy(caller_etag, md5, MD5_DIGEST_LENGTH);
 
-    /* Logging */
+    // Logging
     if (config->debug) {
         (*config->log)(LOG_DEBUG,
           "test_io: write %0*jx started, MD5 %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%s",
@@ -314,29 +314,29 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
           src == NULL ? " (zero block)" : "");
     }
 
-    /* Random delay */
+    // Random delay
     if (config->random_delays)
         usleep((random() % 200) * 1000);
 
-    /* Random error */
+    // Random error
     if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure writing %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         return EAGAIN;
     }
 
-    /* Discarding data? */
+    // Discarding data?
     if (config->discard_data) {
         if (config->debug)
             (*config->log)(LOG_DEBUG, "test_io: discard %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         return 0;
     }
 
-    /* Generate path */
+    // Generate path
     http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
     snvprintf(path, sizeof(path), "%s/%s%s%0*jx",
       config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
-    /* Delete zero blocks */
+    // Delete zero blocks
     if (src == NULL) {
         if (unlink(path) == -1 && errno != ENOENT) {
             r = errno;
@@ -346,7 +346,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         return 0;
     }
 
-    /* Write into temporary file */
+    // Write into temporary file
     snvprintf(temp, sizeof(temp), "%s.XXXXXX", path);
     if ((fd = mkstemp(temp)) == -1) {
         r = errno;
@@ -364,7 +364,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
     close(fd);
 
-    /* Rename file */
+    // Rename file
     if (rename(temp, path) == -1) {
         r = errno;
         (*config->log)(LOG_ERR, "can't rename %s: %s", temp, strerror(r));
@@ -372,11 +372,11 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         return r;
     }
 
-    /* Logging */
+    // Logging
     if (config->debug)
         (*config->log)(LOG_DEBUG, "test_io: write %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
-    /* Done */
+    // Done
     return 0;
 }
 
@@ -410,15 +410,15 @@ test_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
     DIR *dir;
     int i;
 
-    /* Discarding data? */
+    // Discarding data?
     if (config->discard_data)
         return 0;
 
-    /* Open directory */
+    // Open directory
     if ((dir = opendir(config->bucket)) == NULL)
         return errno;
 
-    /* Scan directory */
+    // Scan directory
     for (i = 0; (dent = readdir(dir)) != NULL; i++) {
         if (http_io_parse_block(config->prefix, config->num_blocks,
           config->blockHashPrefix, dent->d_name, &hash_value, &block_num) == 0) {
@@ -431,9 +431,9 @@ test_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
         }
     }
 
-    /* Close directory */
+    // Close directory
     closedir(dir);
 
-    /* Done */
+    // Done
     return r;
 }

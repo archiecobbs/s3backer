@@ -34,16 +34,16 @@
  * also delete it here.
  */
 
-/* Forward decl's */
+// Forward decl's
 struct s3b_config;
 struct s3backer_store;
 
-/* Function types */
+// Function types
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 typedef void print_stats_t(void *prarg, printer_t *printer);
 typedef void clear_stats_t(void);
 
-/* Configuration info structure for fuse_ops */
+// Configuration info structure for fuse_ops
 struct fuse_ops_conf {
     struct s3b_config       *s3bconf;
     print_stats_t           *print_stats;
@@ -60,7 +60,7 @@ struct fuse_ops_conf {
     log_func_t              *log;
 };
 
-/* Private information */
+// Private information
 struct fuse_ops_private {
     struct s3backer_store   *s3b;
     u_int                   block_bits;
@@ -71,7 +71,7 @@ struct fuse_ops_private {
     time_t                  stats_atime;
 };
 
-/* fuse_ops.c */
+// fuse_ops.c
 const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *s3b);
 void fuse_ops_destroy(void);
 

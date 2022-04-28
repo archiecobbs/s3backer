@@ -36,18 +36,38 @@
 
 typedef uintptr_t bitmap_t;
 
-/* A list of block numbers */
+// A list of block numbers
 struct block_list {
     s3b_block_t     *blocks;
     s3b_block_t     num_alloc;
     s3b_block_t     num_blocks;
 };
 
-extern int log_enable_debug;
+// Block boundary condition handling info
+struct boundary_info {
 
+    // Header portion
+    char            *beg_data;
+    s3b_block_t     beg_block;
+    u_int           beg_offset;
+    u_int           beg_length;
+
+    // Center block-aligned portion
+    char            *mid_data;
+    s3b_block_t     mid_block_start;
+    size_t          mid_block_count;
+
+    // Footer portion
+    char            *end_data;
+    s3b_block_t     end_block;
+    u_int           end_length;
+};
+
+// Globals
+extern int log_enable_debug;
 extern const void *zero_block;
 
-/* Misc */
+// Misc
 extern int parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp);
 extern void unparse_size_string(char *buf, int bmax, uintmax_t value);
 extern void describe_size(char *buf, int bmax, uintmax_t value);
@@ -56,8 +76,10 @@ extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__for
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
+extern char *prefix_log_format(int level, const char *fmt);
+extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
 
-/* Bitmaps */
+// Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
 extern void bitmap_free(bitmap_t **bitmapp);
 extern size_t bitmap_size(s3b_block_t num_blocks);
@@ -67,10 +89,10 @@ extern void bitmap_and(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_block
 extern void bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
 extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);
 
-/* Block lists */
+// Block lists
 extern void block_list_init(struct block_list *list);
 extern int block_list_append(struct block_list *list, s3b_block_t block_num);
 extern void block_list_free(struct block_list *list);
 
-/* Generic s3backer_store functions */
+// Generic s3backer_store functions
 extern int generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);

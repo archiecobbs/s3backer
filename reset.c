@@ -54,23 +54,23 @@ s3backer_reset(struct s3b_config *config)
     int ok = 0;
     int r;
 
-    /* Logging */
+    // Logging
     if (!config->quiet)
         warnx("resetting mount token for %s", config->description);
 
-    /* Create temporary lower layer */
+    // Create temporary lower layer
     if ((s3b = config->test ? test_io_create(&config->test_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
         goto fail;
     }
 
-    /* Clear mount token */
+    // Clear mount token
     if ((r = (*s3b->set_mount_token)(s3b, NULL, 0)) != 0) {
         warnx("error clearing s3 mount token: %s", strerror(r));
         goto fail;
     }
 
-    /* Open disk cache file, if any, and clear the mount token there too */
+    // Open disk cache file, if any, and clear the mount token there too
     if (config->block_cache.cache_file != NULL) {
         if (stat(config->block_cache.cache_file, &cache_file_stat) == -1) {
             if (errno != ENOENT) {
@@ -86,13 +86,13 @@ s3backer_reset(struct s3b_config *config)
         }
     }
 
-    /* Success */
+    // Success
     if (!config->quiet)
         warnx("done");
     ok = 1;
 
 fail:
-    /* Clean up */
+    // Clean up
     if (dcache != NULL)
         s3b_dcache_close(dcache);
     if (s3b != NULL) {

@@ -76,7 +76,7 @@ typedef int         comp_dfunc_t(log_func_t *log, const void *input, size_t inle
  */
 typedef void        *comp_lparse_t(const char *string);
 
-/* Compression algorithms */
+// Compression algorithms
 struct comp_alg {
     const char      *name;
     comp_cfunc_t    *cfunc;
@@ -84,9 +84,9 @@ struct comp_alg {
     comp_lparse_t   *lparse;
 };
 
-/* Globals */
+// Globals
 extern const size_t num_comp_algs;
 extern const struct comp_alg comp_algs[];
 
-/* Functions */
+// Functions
 extern const struct comp_alg *comp_find(const char *name);

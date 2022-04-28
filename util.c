@@ -37,7 +37,7 @@
 #include "s3backer.h"
 #include "util.h"
 
-/* Size suffixes */
+// Size suffixes
 struct size_suffix {
     const char  *suffix;
     int         bits;
@@ -77,13 +77,13 @@ static const struct size_suffix size_suffixes[] = {
     },
 };
 
-/* Debug logging flag */
+// Debug logging flag
 int log_enable_debug;
 
-/* A block's worth of data containing only zero bytes */
+// A block's worth of data containing only zero bytes
 const void *zero_block;
 
-/* stderr logging mutex */
+// stderr logging mutex
 static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /****************************************************************************
@@ -172,7 +172,7 @@ find_string_in_table(const char *const *table, const char *value)
     return 0;
 }
 
-/* Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits */
+// Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits
 size_t
 bitmap_size(s3b_block_t num_blocks)
 {
@@ -323,11 +323,11 @@ syslog_logger(int level, const char *fmt, ...)
 {
     va_list args;
 
-    /* Filter debug messages */
+    // Filter debug messages
     if (!log_enable_debug && level == LOG_DEBUG)
         return;
 
-    /* Send message to syslog */
+    // Send message to syslog
     va_start(args, fmt);
     vsyslog(level, fmt, args);
     va_end(args);
@@ -336,17 +336,39 @@ syslog_logger(int level, const char *fmt, ...)
 void
 stderr_logger(int level, const char *fmt, ...)
 {
-    const char *levelstr;
-    char timebuf[32];
     va_list args;
-    struct tm tm;
-    time_t now;
+    char *fmt2;
 
-    /* Filter debug messages */
+    // Filter debug messages
     if (!log_enable_debug && level == LOG_DEBUG)
         return;
 
-    /* Get level descriptor */
+    // Prefix format string
+    if ((fmt2 = prefix_log_format(level, fmt)) == NULL)
+        return;
+
+    // Print log message
+    va_start(args, fmt);
+    pthread_mutex_lock(&stderr_log_mutex);
+    vfprintf(stderr, fmt2, args);
+    fprintf(stderr, "\n");
+    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
+    va_end(args);
+    free(fmt2);
+}
+
+// Prefixes a printf() format string with timestamp and log level.
+// Caller must free the returned string.
+char *
+prefix_log_format(int level, const char *fmt)
+{
+    const char *levelstr;
+    char timebuf[32];
+    struct tm tm;
+    time_t now;
+    char *fmt2;
+
+    // Get level descriptor
     switch (level) {
     case LOG_ERR:
         levelstr = "ERROR";
@@ -368,16 +390,14 @@ stderr_logger(int level, const char *fmt, ...)
         break;
     }
 
-    /* Format and print log message */
+    // Prefix format string
     time(&now);
     strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
-    va_start(args, fmt);
-    pthread_mutex_lock(&stderr_log_mutex);
-    fprintf(stderr, "%s %s: ", timebuf, levelstr);
-    vfprintf(stderr, fmt, args);
-    fprintf(stderr, "\n");
-    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
-    va_end(args);
+    if (asprintf(&fmt2, "%s %s: %s", timebuf, levelstr, fmt) == -1)
+        return NULL;
+
+    // Done
+    return fmt2;
 }
 
 // Like snprintf(), but aborts if the buffer is overflowed and gracefully handles negative buffer lengths
@@ -387,17 +407,60 @@ snvprintf(char *buf, int size, const char *format, ...)
     va_list args;
     int len;
 
-    /* Format string (unless size is zero or less) */
+    // Format string (unless size is zero or less)
     va_start(args, format);
     len = size > 0 ? vsnprintf(buf, size, format, args) : 0;
     va_end(args);
 
-    /* Check for overflow */
+    // Check for overflow
     if (len > size - 1) {
         fprintf(stderr, "buffer overflow: \"%s\": %d > %d", format, len, (int)size);
         abort();
     }
 
-    /* Done */
+    // Done
     return len;
+}
+
+// Calculate the partial initial, partial trailing, and complete central blocks associated with a range of bytes
+void
+calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset)
+{
+    const u_int shift = ffs(block_size) - 1;
+    const off_t mask = block_size - 1;
+    s3b_block_t current_block;
+    char *current_data;
+
+    // Initialize
+    memset(info, 0, sizeof(*info));
+    current_block = offset >> shift;
+    current_data = (char *)(uintptr_t)buf;
+
+    // Handle header, if any
+    info->beg_offset = (u_int)(offset & mask);
+    if (info->beg_offset > 0) {
+        info->beg_data = current_data;
+        info->beg_block = current_block;
+        info->beg_length = block_size - info->beg_offset;
+        size -= info->beg_length;
+        offset += info->beg_length;
+        current_data += info->beg_length;
+        current_block++;
+    }
+
+    // Handle center, if any
+    info->mid_block_count = size >> shift;
+    if (info->mid_block_count > 0) {
+        info->mid_data = current_data;
+        info->mid_block_start = current_block;
+        current_data += info->mid_block_count * block_size;
+        current_block += info->mid_block_count;
+    }
+
+    // Handle footer, if any
+    info->end_length = (u_int)(offset & mask);
+    if (info->end_length > 0) {
+        info->end_data = current_data;
+        info->end_block = current_block;
+    }
 }

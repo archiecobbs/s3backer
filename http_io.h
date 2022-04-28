@@ -34,15 +34,15 @@
  * also delete it here.
  */
 
-/* Upload/download indexes */
+// Upload/download indexes
 #define HTTP_DOWNLOAD       0
 #define HTTP_UPLOAD         1
 
-/* Authentication types */
+// Authentication types
 #define AUTH_VERSION_AWS2   "aws2"
 #define AUTH_VERSION_AWS4   "aws4"
 
-/* Storage classes */
+// Storage classes
 #define STORAGE_CLASS_STANDARD              "STANDARD"
 #define STORAGE_CLASS_STANDARD_IA           "STANDARD_IA"
 #define STORAGE_CLASS_ONEZONE_IA            "ONEZONE_IA"
@@ -52,11 +52,11 @@
 #define STORAGE_CLASS_DEEP_ARCHIVE          "DEEP_ARCHIVE"
 #define STORAGE_CLASS_OUTPOSTS              "OUTPOSTS"
 
-/* Server side encryption types */
+// Server side encryption types
 #define SSE_AES256                          "AES256"
 #define SSE_AWS_KMS                         "aws:kms"
 
-/* Configuration info structure for http_io store */
+// Configuration info structure for http_io store
 struct http_io_conf {
     char                    *accessId;
     char                    *accessKey;
@@ -98,7 +98,7 @@ struct http_io_conf {
     const char              *sse_key_id;
 };
 
-/* Statistics structure for http_io store */
+// Statistics structure for http_io store
 struct http_io_evst {
     u_int               count;                      // number of occurrences
     double              time;                       // total time taken
@@ -106,7 +106,7 @@ struct http_io_evst {
 
 struct http_io_stats {
 
-    /* Block stats */
+    // Block stats
     u_int               normal_blocks_read;
     u_int               normal_blocks_written;
     u_int               zero_blocks_read;
@@ -114,7 +114,7 @@ struct http_io_stats {
     u_int               empty_blocks_read;          // only when nonzero_bitmap != NULL
     u_int               empty_blocks_written;       // only when nonzero_bitmap != NULL
 
-    /* HTTP transfer stats */
+    // HTTP transfer stats
     struct http_io_evst http_heads;                 // total successful
     struct http_io_evst http_gets;                  // total successful
     struct http_io_evst http_puts;                  // total successful
@@ -131,7 +131,7 @@ struct http_io_stats {
     u_int               http_other_error;
     u_int               http_canceled_writes;
 
-    /* CURL stats */
+    // CURL stats
     u_int               curl_handles_created;
     u_int               curl_handles_reused;
     u_int               curl_timeouts;
@@ -140,15 +140,15 @@ struct http_io_stats {
     u_int               curl_out_of_memory;
     u_int               curl_other_error;
 
-    /* Retry stats */
+    // Retry stats
     u_int               num_retries;
     uint64_t            retry_delay;
 
-    /* Misc */
+    // Misc
     u_int               out_of_memory_errors;
 };
 
-/* http_io.c */
+// http_io.c
 extern struct s3backer_store *http_io_create(struct http_io_conf *config);
 extern void http_io_get_stats(struct s3backer_store *s3b, struct http_io_stats *stats);
 extern void http_io_clear_stats(struct s3backer_store *s3b);

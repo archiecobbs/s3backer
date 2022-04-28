@@ -35,7 +35,7 @@
 
 #include "s3backer.h"
 
-/* Issue #64 OpenSSL 1.1.0 compatibility */
+// Issue #64 OpenSSL 1.1.0 compatibility
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 
 /*

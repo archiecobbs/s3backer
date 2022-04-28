@@ -119,7 +119,7 @@ struct block_info {
     } u;
 };
 
-/* Internal state */
+// Internal state
 struct ec_protect_private {
     struct ec_protect_conf      *config;
     struct s3backer_store       *inner;
@@ -135,7 +135,7 @@ struct ec_protect_private {
     pthread_cond_t              never_cond;     // never signaled; used for sleeping only
 };
 
-/* s3backer_store functions */
+// s3backer_store functions
 static int ec_protect_create_threads(struct s3backer_store *s3b);
 static int ec_protect_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
@@ -148,7 +148,7 @@ static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t b
 static int ec_protect_shutdown(struct s3backer_store *s3b);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
-/* Misc */
+// Misc
 static uint64_t ec_protect_sleep_until(struct ec_protect_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static void ec_protect_scrub_expired_writtens(struct ec_protect_private *priv, uint64_t current_time);
 static uint64_t ec_protect_get_time(void);
@@ -156,7 +156,7 @@ static int ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_fun
 static s3b_hash_visit_t ec_protect_append_block_list;
 static s3b_hash_visit_t ec_protect_free_one;
 
-/* Invariants checking */
+// Invariants checking
 #ifndef NDEBUG
 static s3b_hash_visit_t ec_protect_check_one;
 static void ec_protect_check_invariants(struct ec_protect_private *priv);
@@ -166,10 +166,10 @@ static void ec_protect_check_invariants(struct ec_protect_private *priv);
 #define EC_PROTECT_CHECK_INVARIANTS(priv)     do { } while (0)
 #endif
 
-/* Special all-zeros MD5 value signifying a zeroed block */
+// Special all-zeros MD5 value signifying a zeroed block
 static const u_char zero_etag[MD5_DIGEST_LENGTH];
 
-/* Special all-ones MD5 value signifying a just-written block whose content is unknown */
+// Special all-ones MD5 value signifying a just-written block whose content is unknown
 static u_char unknown_etag[MD5_DIGEST_LENGTH];
 
 /*
@@ -184,7 +184,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     struct ec_protect_private *priv;
     int r;
 
-    /* Initialize structures */
+    // Initialize structures
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
         r = errno;
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
@@ -222,7 +222,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->data = priv;
     memset(unknown_etag, 0xff, sizeof(unknown_etag));
 
-    /* Done */
+    // Done
     EC_PROTECT_CHECK_INVARIANTS(priv);
     return s3b;
 
@@ -273,18 +273,18 @@ ec_protect_shutdown(struct s3backer_store *const s3b)
 {
     struct ec_protect_private *const priv = s3b->data;
 
-    /* Grab lock and sanity check */
+    // Grab lock and sanity check
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
 
-    /* Wait for all sleeping writers to finish */
+    // Wait for all sleeping writers to finish
     while (priv->num_sleepers > 0)
         pthread_cond_wait(&priv->sleepers_cond, &priv->mutex);
 
-    /* Release lock */
+    // Release lock
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Propagate to lower layer */
+    // Propagate to lower layer
     return (*priv->inner->shutdown)(priv->inner);
 }
 
@@ -293,15 +293,15 @@ ec_protect_destroy(struct s3backer_store *const s3b)
 {
     struct ec_protect_private *const priv = s3b->data;
 
-    /* Grab lock and sanity check */
+    // Grab lock and sanity check
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
     assert(priv->num_sleepers == 0);
 
-    /* Destroy inner store */
+    // Destroy inner store
     (*priv->inner->destroy)(priv->inner);
 
-    /* Free structures */
+    // Free structures
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
     pthread_cond_destroy(&priv->space_cond);
@@ -341,39 +341,39 @@ ec_protect_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callba
     struct block_list list;
     int r;
 
-    /* Lock mutex */
+    // Lock mutex
     pthread_mutex_lock(&priv->mutex);
     assert(priv->survey_callback == NULL);
 
-    /* Record survey in progress */
+    // Record survey in progress
     priv->survey_callback = callback;
     priv->survey_arg = arg;
 
-    /* Inventory all blocks currently in the cache; we don't bother trying to discern the zero blocks */
+    // Inventory all blocks currently in the cache; we don't bother trying to discern the zero blocks
     block_list_init(&list);
     if ((r = s3b_hash_foreach(priv->hashtable, ec_protect_append_block_list, &list)) != 0)
         goto done;
 
-    /* Unlock mutex */
+    // Unlock mutex
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Report all blocks inventoried above */
+    // Report all blocks inventoried above
     (*callback)(arg, list.blocks, list.num_blocks);
     block_list_free(&list);
 
-    /* Invoke lower layer */
+    // Invoke lower layer
     r = (*priv->inner->survey_non_zero)(priv->inner, callback, arg);
 
-    /* Lock mutex */
+    // Lock mutex
     pthread_mutex_lock(&priv->mutex);
 
-    /* Finish up */
+    // Finish up
     assert(priv->survey_callback != NULL);
     priv->survey_callback = NULL;
     priv->survey_arg = NULL;
 
 done:
-    /* Done */
+    // Done
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
@@ -396,22 +396,22 @@ ec_protect_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
     u_char etag[MD5_DIGEST_LENGTH];
     struct block_info *binfo;
 
-    /* Sanity check */
+    // Sanity check
     if (config->block_size == 0)
         return EINVAL;
 
-    /* Grab lock and sanity check */
+    // Grab lock and sanity check
     pthread_mutex_lock(&priv->mutex);
     EC_PROTECT_CHECK_INVARIANTS(priv);
 
 again:
-    /* Scrub the list of WRITTENs */
+    // Scrub the list of WRITTENs
     ec_protect_scrub_expired_writtens(priv, ec_protect_get_time());
 
-    /* Find info for this block */
+    // Find info for this block
     if ((binfo = s3b_hash_get(priv->hashtable, block_num)) != NULL) {
 
-        /* In WRITING state: we have the data already! */
+        // In WRITING state: we have the data already!
         if (binfo->timestamp == 0) {
             if (binfo->u.data == NULL)
                 memset(dest, 0, config->block_size);
@@ -424,10 +424,10 @@ again:
             return 0;
         }
 
-        /* In WRITTEN state: special case: unknown ETag. Wait for settle time, then try again */
+        // In WRITTEN state: special case: unknown ETag. Wait for settle time, then try again
         if (memcmp(binfo->u.etag, unknown_etag, MD5_DIGEST_LENGTH) == 0) {
 
-            /* Have we waited long enough already? If so, reset block and try again */
+            // Have we waited long enough already? If so, reset block and try again
             if (ec_protect_get_time() >= binfo->timestamp + config->min_write_delay) {
                 TAILQ_REMOVE(&priv->list, binfo, link);
                 s3b_hash_remove(priv->hashtable, binfo->block_num);
@@ -435,12 +435,12 @@ again:
                 goto again;
             }
 
-            /* Sleep to allow previous failed write to resolve, and then try again */
+            // Sleep to allow previous failed write to resolve, and then try again
             ec_protect_sleep_until(priv, NULL, binfo->timestamp + config->min_write_delay);
             goto again;
         }
 
-        /* In WRITTEN state: special case: zero block */
+        // In WRITTEN state: special case: zero block
         if (memcmp(binfo->u.etag, zero_etag, MD5_DIGEST_LENGTH) == 0) {
             if (expect_etag != NULL && strict && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0)
                 (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected ETag?");
@@ -452,7 +452,7 @@ again:
             return 0;
         }
 
-        /* In WRITTEN state: we know the expected ETag */
+        // In WRITTEN state: we know the expected ETag
         memcpy(etag, binfo->u.etag, MD5_DIGEST_LENGTH);
         if (expect_etag != NULL && strict && memcmp(etag, expect_etag, MD5_DIGEST_LENGTH) != 0)
             (*config->log)(LOG_ERR, "ec_protect_read_block(): impossible expected ETag?");
@@ -460,10 +460,10 @@ again:
         strict = 1;
     }
 
-    /* Release lock */
+    // Release lock
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Read block normally */
+    // Read block normally
     return (*priv->inner->read_block)(priv->inner, block_num, dest, actual_etag, expect_etag, strict);
 }
 
@@ -479,48 +479,48 @@ ec_protect_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     uint64_t delay;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     if (config->block_size == 0)
         return EINVAL;
 
-    /* Grab lock */
+    // Grab lock
     pthread_mutex_lock(&priv->mutex);
 
-    /* Conservatively disqualify any non-zero block as being zero in any ongoing non-zero survey */
+    // Conservatively disqualify any non-zero block as being zero in any ongoing non-zero survey
     if (src != NULL && priv->survey_callback != NULL)
         (*priv->survey_callback)(priv->survey_arg, &block_num, 1);
 
 again:
-    /* Sanity check */
+    // Sanity check
     EC_PROTECT_CHECK_INVARIANTS(priv);
 
-    /* Scrub the list of WRITTENs */
+    // Scrub the list of WRITTENs
     current_time = ec_protect_get_time();
     ec_protect_scrub_expired_writtens(priv, current_time);
 
-    /* Find info for this block */
+    // Find info for this block
     binfo = s3b_hash_get(priv->hashtable, block_num);
 
-    /* CLEAN case: add new entry in state WRITING and write the block */
+    // CLEAN case: add new entry in state WRITING and write the block
     if (binfo == NULL) {
 
-        /* If we have reached max cache capacity, wait until there's more room */
+        // If we have reached max cache capacity, wait until there's more room
         if (s3b_hash_size(priv->hashtable) >= config->cache_size) {
 
-            /* Report deadlock situation */
+            // Report deadlock situation
             if (config->cache_time == 0)
                 (*config->log)(LOG_ERR, "md5 cache is full, but timeout is infinite: you have write deadlock!");
 
-            /* Sleep until space becomes available */
+            // Sleep until space becomes available
             if ((binfo = TAILQ_FIRST(&priv->list)) != NULL && config->cache_time > 0)
                 delay = ec_protect_sleep_until(priv, &priv->space_cond, binfo->timestamp + config->cache_time);
             else
-                delay = ec_protect_sleep_until(priv, &priv->space_cond, 0);         /* sleep indefinitely... */
+                delay = ec_protect_sleep_until(priv, &priv->space_cond, 0);         // sleep indefinitely...
             priv->stats.cache_full_delay += delay;
             goto again;
         }
 
-        /* Create new entry in WRITING state */
+        // Create new entry in WRITING state
         if ((binfo = calloc(1, sizeof(*binfo))) == NULL) {
             r = errno;
             (*config->log)(LOG_ERR, "can't alloc new MD5 cache entry: %s", strerror(r));
@@ -533,7 +533,7 @@ again:
         s3b_hash_put_new(priv->hashtable, binfo);
 
 writeit:
-        /* Write the block */
+        // Write the block
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         r = (*priv->inner->write_block)(priv->inner, block_num, src, etag, check_cancel, check_cancel_arg);
         pthread_mutex_lock(&priv->mutex);
@@ -558,7 +558,7 @@ writeit:
         TAILQ_INSERT_TAIL(&priv->list, binfo, link);
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-        /* Copy expected ETag for caller */
+        // Copy expected ETag for caller
         if (r == 0 && caller_etag != NULL)
             memcpy(caller_etag, etag, MD5_DIGEST_LENGTH);
         return r;
@@ -701,7 +701,7 @@ ec_protect_free_one(void *arg, void *value)
 
 #ifndef NDEBUG
 
-/* Accounting structure */
+// Accounting structure
 struct check_info {
     u_int   num_in_list;
     u_int   written;

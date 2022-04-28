@@ -34,7 +34,7 @@
  * also delete it here.
  */
 
-/* Configuration info structure for block_cache */
+// Configuration info structure for block_cache
 struct block_cache_conf {
     u_int               block_size;
     u_int               cache_size;
@@ -53,7 +53,7 @@ struct block_cache_conf {
     log_func_t          *log;
 };
 
-/* Statistics structure for block_cache */
+// Statistics structure for block_cache
 struct block_cache_stats {
     u_int               initial_size;
     u_int               current_size;
@@ -67,7 +67,7 @@ struct block_cache_stats {
     u_int               out_of_memory_errors;
 };
 
-/* block_cache.c */
+// block_cache.c
 extern struct s3backer_store *block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner);
 extern void block_cache_get_stats(struct s3backer_store *s3b, struct block_cache_stats *stats);
 extern void block_cache_clear_stats(struct s3backer_store *s3b);

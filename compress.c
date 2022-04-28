@@ -37,12 +37,12 @@
 #include "s3backer.h"
 #include "compress.h"
 
-/* Deflate */
+// Deflate
 static comp_cfunc_t    deflate_compress;
 static comp_dfunc_t    deflate_decompress;
 static comp_lparse_t   deflate_lparse;
 
-/* Compression algorithms */
+// Compression algorithms
 const struct comp_alg comp_algs[] = {
 #if COMP_ALG_ZLIB != 0
 #error incorrect COMP_ALG_ZLIB
@@ -86,7 +86,7 @@ deflate_compress(log_func_t *log, const void *input, size_t inlen, void **output
     int level;
     int r;
 
-    /* Allocate buffer */
+    // Allocate buffer
     clen = compressBound(inlen);
     if ((cbuf = malloc(clen)) == NULL) {
         r = errno;
@@ -94,10 +94,10 @@ deflate_compress(log_func_t *log, const void *input, size_t inlen, void **output
         return r;
     }
 
-    /* Extract compression level */
+    // Extract compression level
     level = levelp != NULL ? *(int *)levelp : Z_DEFAULT_COMPRESSION;
 
-    /* Compress data */
+    // Compress data
     r = compress2(cbuf, &clen, input, inlen, level);
     switch (r) {
     case Z_OK:
@@ -114,7 +114,7 @@ deflate_compress(log_func_t *log, const void *input, size_t inlen, void **output
         break;
     }
 
-    /* Fail */
+    // Fail
     free(cbuf);
     return r;
 }
@@ -151,7 +151,7 @@ deflate_lparse(const char *string)
     long level;
     int *levelp;
 
-    /* Parse level */
+    // Parse level
     errno = 0;
     level = strtol(string, &endptr, 10);
     if ((errno == ERANGE && (level == LONG_MIN || level == LONG_MAX))
@@ -160,7 +160,7 @@ deflate_lparse(const char *string)
       || (int)level != level)
         goto invalid;
 
-    /* Check level */
+    // Check level
     switch ((int)level) {
     case Z_DEFAULT_COMPRESSION:
     case Z_NO_COMPRESSION:
@@ -171,7 +171,7 @@ deflate_lparse(const char *string)
         break;
     }
 
-    /* Store in buffer */
+    // Store in buffer
     if ((levelp = malloc(sizeof(*levelp))) == NULL)
         warn("malloc");
     else
