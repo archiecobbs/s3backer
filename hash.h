@@ -44,13 +44,13 @@
  * 3.  No attempts will be made to overload the table
  */
 
-/* Definitions */
+// Definitions
 typedef int s3b_hash_visit_t(void *arg, void *value);
 
-/* Declarations */
+// Declarations
 struct s3b_hash;
 
-/* hash.c */
+// hash.c
 extern int s3b_hash_create(struct s3b_hash **hashp, u_int maxkeys);
 extern void s3b_hash_destroy(struct s3b_hash *hash);
 extern u_int s3b_hash_size(struct s3b_hash *hash);

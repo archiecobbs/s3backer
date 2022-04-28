@@ -49,7 +49,7 @@
 #define MAX_QUEUE_LENGTH        100000
 #define NUM_ERASURE_THREADS     25
 
-/* Erasure state */
+// Erasure state
 struct erase_state {
     struct s3backer_store       *s3b;
     s3b_block_t                 queue[MAX_QUEUE_LENGTH];
@@ -65,7 +65,7 @@ struct erase_state {
     pthread_cond_t              queue_empty;
 };
 
-/* Internal functions */
+// Internal functions
 static block_list_func_t erase_list_callback;
 static void *erase_thread_main(void *arg);
 
@@ -79,7 +79,7 @@ s3backer_erase(struct s3b_config *config)
     int ok = 0;
     int r;
 
-    /* Double check with user */
+    // Double check with user
     if (!config->force) {
         warnx("`--erase' flag given: erasing all blocks in %s", config->description);
         fprintf(stderr, "s3backer: is this correct? [y/N] ");
@@ -94,7 +94,7 @@ s3backer_erase(struct s3b_config *config)
         }
     }
 
-    /* Initialize state */
+    // Initialize state
     memset(priv, 0, sizeof(*priv));
     priv->quiet = config->quiet;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0) {
@@ -123,40 +123,40 @@ s3backer_erase(struct s3b_config *config)
             goto fail5;
     }
 
-    /* Logging */
+    // Logging
     if (!config->quiet) {
         fprintf(stderr, "s3backer: erasing non-zero blocks...");
         fflush(stderr);
     }
 
-    /* Create temporary lower layer */
+    // Create temporary lower layer
     if ((priv->s3b = config->test ? test_io_create(&config->test_io) : http_io_create(&config->http_io)) == NULL) {
         warnx(config->test ? "test_io_create" : "http_io_create");
         goto fail5;
     }
 
-    /* Iterate over non-zero blocks */
+    // Iterate over non-zero blocks
     if ((r = (*priv->s3b->survey_non_zero)(priv->s3b, erase_list_callback, priv)) != 0) {
         warnx("can't list blocks: %s", strerror(r));
         goto fail5;
     }
 
-    /* Wait for queue to drain */
+    // Wait for queue to drain
     pthread_mutex_lock(&priv->mutex);
     while (priv->qlen > 0)
         pthread_cond_wait(&priv->queue_empty, &priv->mutex);
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Clear mount token */
+    // Clear mount token
     if ((r = (*priv->s3b->set_mount_token)(priv->s3b, NULL, 0)) != 0) {
         warnx("can't clear mount token: %s", strerror(r));
         goto fail5;
     }
 
-    /* Success */
+    // Success
     ok = 1;
 
-    /* Clean up */
+    // Clean up
 fail5:
     pthread_mutex_lock(&priv->mutex);
     priv->stopping = 1;
@@ -215,52 +215,52 @@ erase_thread_main(void *arg)
     s3b_block_t block_num;
     int r;
 
-    /* Acquire lock */
+    // Acquire lock
     pthread_mutex_lock(&priv->mutex);
 
-    /* Erase blocks until there are no more */
+    // Erase blocks until there are no more
     while (1) {
 
-        /* Is there a block to erase? */
+        // Is there a block to erase?
         if (priv->qlen > 0) {
 
-            /* Grab next bock */
+            // Grab next bock
             if (priv->qlen == MAX_QUEUE_LENGTH)
                 pthread_cond_broadcast(&priv->queue_not_full);
             block_num = priv->queue[--priv->qlen];
             if (priv->qlen == 0)
                 pthread_cond_signal(&priv->queue_empty);
 
-            /* Do block deletion */
+            // Do block deletion
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             r = (*priv->s3b->write_block)(priv->s3b, block_num, NULL, NULL, NULL, NULL);
             pthread_mutex_lock(&priv->mutex);
 
-            /* Check for error */
+            // Check for error
             if (r != 0) {
                 warnx("can't delete block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, strerror(r));
                 continue;
             }
 
-            /* Update count and output a dot */
+            // Update count and output a dot
             if ((++priv->count % BLOCKS_PER_DOT) == 0 && !priv->quiet) {
                 fprintf(stderr, ".");
                 fflush(stderr);
             }
 
-            /* Spin again */
+            // Spin again
             continue;
         }
 
-        /* Are we done? */
+        // Are we done?
         if (priv->stopping)
             break;
 
-        /* Wait for something to do */
+        // Wait for something to do
         pthread_cond_wait(&priv->thread_wakeup, &priv->mutex);
     }
 
-    /* Done */
+    // Done
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return NULL;
 }

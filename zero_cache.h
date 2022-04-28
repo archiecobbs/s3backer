@@ -34,7 +34,7 @@
  * also delete it here.
  */
 
-/* Configuration info structure for zero_cache store */
+// Configuration info structure for zero_cache store
 struct zero_cache_conf {
     u_int               block_size;
     s3b_block_t         num_blocks;
@@ -42,14 +42,14 @@ struct zero_cache_conf {
     log_func_t          *log;
 };
 
-/* Statistics structure for zero_cache store */
+// Statistics structure for zero_cache store
 struct zero_cache_stats {
     s3b_block_t         current_cache_size;
     u_int               read_hits;
     u_int               write_hits;
 };
 
-/* zero_cache.c */
+// zero_cache.c
 extern struct s3backer_store *zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner);
 extern void zero_cache_init_nonzero(struct s3backer_store *s3b, const u_int *non_zero);
 extern void zero_cache_get_stats(struct s3backer_store *s3b, struct zero_cache_stats *stats);

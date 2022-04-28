@@ -52,38 +52,38 @@ main(int argc, char **argv)
     struct s3backer_store *s3b;
     struct s3b_config *config;
 
-    /* Get configuration */
+    // Get configuration
     if ((config = s3backer_get_config(argc, argv)) == NULL)
         return 1;
 
-    /* Handle `--erase' flag */
+    // Handle `--erase' flag
     if (config->erase) {
         if (s3backer_erase(config) != 0)
             return 1;
         return 0;
     }
 
-    /* Handle `--reset' flag */
+    // Handle `--reset' flag
     if (config->reset) {
         if (s3backer_reset(config) != 0)
             return 1;
         return 0;
     }
 
-    /* Create backing store */
+    // Create backing store
     if ((s3b = s3backer_create_store(config)) == NULL) {
         (*config->log)(LOG_ERR, "error creating s3backer_store: %s", strerror(errno));
         return 1;
     }
 
-    /* Setup FUSE operation hooks */
+    // Setup FUSE operation hooks
     if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
         (*s3b->shutdown)(s3b);
         (*s3b->destroy)(s3b);
         return 1;
     }
 
-    /* Start */
+    // Start
     (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
     if (fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL) != 0) {
         (*config->log)(LOG_ERR, "error starting FUSE");
@@ -91,7 +91,7 @@ main(int argc, char **argv)
         return 1;
     }
 
-    /* Done */
+    // Done
     return 0;
 }
 

@@ -34,6 +34,6 @@
  * also delete it here.
  */
 
-/* erase.c */
+// erase.c
 extern int s3backer_erase(struct s3b_config *config);
 

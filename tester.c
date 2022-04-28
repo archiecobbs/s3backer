@@ -44,26 +44,26 @@
 #include "s3b_config.h"
 #include "util.h"
 
-/* Definitions */
+// Definitions
 #define NUM_THREADS     10
 #define DELAY_BASE      0
 #define DELAY_RANGE     50
 #define READ_FACTOR     2
 #define ZERO_FACTOR     3
 
-/* Block states */
+// Block states
 struct block_state {
     u_int               writing;        // block is currently being written by a thread
     u_int               counter;        // counts writes to the block
     u_int               content;        // most recently written content
 };
 
-/* Internal functions */
+// Internal functions
 static void *thread_main(void *arg);
 static void logit(int id, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static uint64_t get_time(void);
 
-/* Internal variables */
+// Internal variables
 static pthread_mutex_t mutex;
 static struct s3b_config *config;
 static struct s3backer_store *store;
@@ -78,38 +78,38 @@ main(int argc, char **argv)
     int i;
     int r;
 
-    /* Get configuration */
+    // Get configuration
     if ((config = s3backer_get_config(argc, argv)) == NULL)
         exit(1);
     if (config->block_size < sizeof(u_int))
         err(1, "block size too small");
 
-    /* Open store */
+    // Open store
     if ((store = s3backer_create_store(config)) == NULL)
         err(1, "s3backer_create_store");
 
-    /* Allocate block states */
+    // Allocate block states
     if ((blocks = calloc(config->num_blocks, sizeof(*blocks))) == NULL)
         err(1, "calloc");
 
-    /* Random initialization */
+    // Random initialization
     srandom((u_int)time(NULL));
     if (pthread_mutex_init(&mutex, NULL) != 0)
         err(1, "mutex init");
     start_time = get_time();
 
-    /* Zero all blocks */
+    // Zero all blocks
     for (block_num = 0; block_num < config->num_blocks; block_num++) {
         printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         if ((r = (*store->write_block)(store, block_num, zero_block, NULL, NULL, NULL)) != 0)
             err(1, "write error");
     }
 
-    /* Create threads */
+    // Create threads
     for (i = 0; i < NUM_THREADS; i++)
         pthread_create(&thread, NULL, thread_main, (void *)(intptr_t)i);
 
-    /* Run for a day */
+    // Run for a day
     sleep(24 * 60 * 60);
     return 0;
 }
@@ -123,7 +123,7 @@ thread_main(void *arg)
     int millis;
     int r;
 
-    /* Loop */
+    // Loop
     while (1) {
 
         // Sleep

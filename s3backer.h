@@ -43,7 +43,7 @@
 #endif
 #include <sys/queue.h>
 
-/* Add some queue.h definitions missing on Linux */
+// Add some queue.h definitions missing on Linux
 #ifndef LIST_FIRST
 #define LIST_FIRST(head)        ((head)->lh_first)
 #endif
@@ -92,14 +92,14 @@
 #define FUSE_OPT_KEY_DISCARD -4
 #endif
 
-/* Bail out on error (implies bug) */
+// Bail out on error (implies bug)
 #define CHECK_RETURN(x)         do {                                                                    \
                                     const int _r = (x);                                                 \
                                     (void)_r;                                                           \
                                     assert(_r == 0);                                                    \
                                 } while (0)
 
-/* In case we don't have glibc >= 2.18 */
+// In case we don't have glibc >= 2.18
 #ifndef FALLOC_FL_KEEP_SIZE
 #define FALLOC_FL_KEEP_SIZE     0x01
 #endif
@@ -107,10 +107,10 @@
 #define FALLOC_FL_PUNCH_HOLE    0x02
 #endif
 
-/* Integral type for holding a block number */
+// Integral type for holding a block number
 typedef uint32_t    s3b_block_t;
 
-/* Integral type used for bitmaps */
+// Integral type used for bitmaps
 typedef uintptr_t   bitmap_t;
 
 /*
@@ -118,16 +118,16 @@ typedef uintptr_t   bitmap_t;
  */
 #define S3B_BLOCK_NUM_DIGITS    ((int)(sizeof(s3b_block_t) * 2))
 
-/* Logging function type */
+// Logging function type
 typedef void        log_func_t(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
-/* Interactive non-zero block list callback function type. Returns zero for success, else positive errno to abort. */
+// Interactive non-zero block list callback function type. Returns zero for success, else positive errno to abort.
 typedef int         block_list_func_t(void *arg, const s3b_block_t *block_nums, u_int num_blocks);
 
-/* Block write cancel check function type */
+// Block write cancel check function type
 typedef int         check_cancel_t(void *arg, s3b_block_t block_num);
 
-/* Backing store instance structure */
+// Backing store instance structure
 struct s3backer_store {
 
     /*
@@ -280,10 +280,10 @@ struct s3backer_store {
     void        (*destroy)(struct s3backer_store *s3b);
 };
 
-/* gitrev.c */
+// gitrev.c
 extern const char *const s3backer_version;
 
-/* Issue #64 OpenSSL 1.1.0 compatibility - sslcompat.c */
+// Issue #64 OpenSSL 1.1.0 compatibility - sslcompat.c
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 HMAC_CTX *HMAC_CTX_new(void);
 void HMAC_CTX_free(HMAC_CTX *ctx);

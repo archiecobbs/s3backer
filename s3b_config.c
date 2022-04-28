@@ -50,16 +50,16 @@
  *                          DEFINITIONS                                     *
  ****************************************************************************/
 
-/* S3 URL */
+// S3 URL
 #define S3_DOMAIN                                   "amazonaws.com"
 
-/* S3 access permission strings */
+// S3 access permission strings
 #define S3_ACCESS_PRIVATE                           "private"
 #define S3_ACCESS_PUBLIC_READ                       "public-read"
 #define S3_ACCESS_PUBLIC_READ_WRITE                 "public-read-write"
 #define S3_ACCESS_AUTHENTICATED_READ                "authenticated-read"
 
-/* Default values for some configuration parameters */
+// Default values for some configuration parameters
 #define S3BACKER_DEFAULT_ACCESS_TYPE                S3_ACCESS_PRIVATE
 #define S3BACKER_DEFAULT_AUTH_VERSION               AUTH_VERSION_AWS4
 #define S3BACKER_DEFAULT_REGION                     "us-east-1"
@@ -87,17 +87,17 @@
 #define S3BACKER_DEFAULT_ENCRYPTION                 "AES-128-CBC"
 #define S3BACKER_DEFAULT_LIST_BLOCKS_THREADS        16
 
-/* Macro for quoting stuff */
+// Macro for quoting stuff
 #define s3bquote0(x)                    #x
 #define s3bquote(x)                     s3bquote0(x)
 
-/* MacFUSE setting for kernel daemon timeout */
+// MacFUSE setting for kernel daemon timeout
 #ifdef __APPLE__
 #ifndef FUSE_MAX_DAEMON_TIMEOUT
 #define FUSE_MAX_DAEMON_TIMEOUT         600
 #endif
 #define FUSE_MAX_DAEMON_TIMEOUT_STRING  s3bquote(FUSE_MAX_DAEMON_TIMEOUT)
-#endif  /* __APPLE__ */
+#endif  // __APPLE__
 
 /****************************************************************************
  *                          FUNCTION DECLARATIONS                           *
@@ -120,10 +120,10 @@ static void usage(void);
  *                          VARIABLE DEFINITIONS                            *
  ****************************************************************************/
 
-/* Upload/download strings */
+// Upload/download strings
 static const char *const upload_download_names[] = { "download", "upload" };
 
-/* Valid S3 access values */
+// Valid S3 access values
 static const char *const s3_acls[] = {
     S3_ACCESS_PRIVATE,
     S3_ACCESS_PUBLIC_READ,
@@ -132,14 +132,14 @@ static const char *const s3_acls[] = {
     NULL
 };
 
-/* Valid S3 authentication types */
+// Valid S3 authentication types
 static const char *const s3_auth_types[] = {
     AUTH_VERSION_AWS2,
     AUTH_VERSION_AWS4,
     NULL
 };
 
-/* Valid S3 storage classes */
+// Valid S3 storage classes
 static const char *const s3_storage_classes[] = {
     STORAGE_CLASS_STANDARD,
     STORAGE_CLASS_STANDARD_IA,
@@ -152,11 +152,11 @@ static const char *const s3_storage_classes[] = {
     NULL
 };
 
-/* Configuration structure */
+// Configuration structure
 static char user_agent_buf[64];
 static struct s3b_config config = {
 
-    /* HTTP config */
+    // HTTP config
     .http_io= {
         .accessId=              NULL,
         .accessKey=             NULL,
@@ -173,14 +173,14 @@ static struct s3b_config config = {
         .list_blocks_threads=   S3BACKER_DEFAULT_LIST_BLOCKS_THREADS,
     },
 
-    /* "Eventual consistency" protection config */
+    // "Eventual consistency" protection config
     .ec_protect= {
         .min_write_delay=       S3BACKER_DEFAULT_MIN_WRITE_DELAY,
         .cache_time=            S3BACKER_DEFAULT_MD5_CACHE_TIME,
         .cache_size=            S3BACKER_DEFAULT_MD5_CACHE_SIZE,
     },
 
-    /* Block cache config */
+    // Block cache config
     .block_cache= {
         .cache_size=            S3BACKER_DEFAULT_BLOCK_CACHE_SIZE,
         .num_threads=           S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS,
@@ -191,14 +191,14 @@ static struct s3b_config config = {
         .read_ahead_trigger=    S3BACKER_DEFAULT_READ_AHEAD_TRIGGER,
     },
 
-    /* FUSE operations config */
+    // FUSE operations config
     .fuse_ops= {
         .filename=              S3BACKER_DEFAULT_FILENAME,
         .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
-        .file_mode=             -1,             /* default depends on 'read_only' */
+        .file_mode=             -1,             // default depends on 'read_only'
     },
 
-    /* Common/global stuff */
+    // Common/global stuff
     .block_size=            0,
     .file_size=             0,
     .bucket=                NULL,
@@ -522,7 +522,7 @@ static const struct fuse_opt option_list[] = {
     },
 };
 
-/* Default flags we send to FUSE */
+// Default flags we send to FUSE
 static const char *const s3backer_fuse_defaults[] = {
     "-okernel_cache",
     "-oallow_other",
@@ -540,10 +540,10 @@ static const char *const s3backer_fuse_defaults[] = {
 #ifdef __APPLE__
     "-odaemon_timeout=" FUSE_MAX_DAEMON_TIMEOUT_STRING,
 #endif
-/*  "-ointr", */
+//  "-ointr",
 };
 
-/* s3backer_store layers */
+// s3backer_store layers
 struct s3backer_store *block_cache_store;
 struct s3backer_store *zero_cache_store;
 struct s3backer_store *ec_protect_store;
@@ -563,31 +563,31 @@ s3backer_get_config(int argc, char **argv)
     char buf[1024];
     int i;
 
-    /* Remember user creds */
+    // Remember user creds
     config.fuse_ops.uid = getuid();
     config.fuse_ops.gid = getgid();
 
-    /* Set user-agent */
+    // Set user-agent
     snvprintf(user_agent_buf, sizeof(user_agent_buf), "%s/%s/%s", PACKAGE, VERSION, s3backer_version);
 
-    /* Copy program name */
+    // Copy program name
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
     append_fuse_arg(argv[0]);
 
-    /* Add our default FUSE options so they are seen first */
+    // Add our default FUSE options so they are seen first
     for (i = 0; i < sizeof(s3backer_fuse_defaults) / sizeof(*s3backer_fuse_defaults); i++)
         append_fuse_arg(s3backer_fuse_defaults[i]);
 
-    /* Append command line args */
+    // Append command line args
     for (i = 1; i < argc; i++)
         append_fuse_arg(argv[i]);
 
-    /* Find and substitute "--configFile=FILE" flags, recursing if necessary */
+    // Find and substitute "--configFile=FILE" flags, recursing if necessary
     for (i = 1; i < config.fuse_args.argc; ) {
         char *optfile;
         int num_args;
 
-        /* Check for "--configFile=FILE" flag and variants */
+        // Check for "--configFile=FILE" flag and variants
         if (strncmp(config.fuse_args.argv[i], "--configFile=", 13) == 0) {
             if ((optfile = strdup(config.fuse_args.argv[i] + 13)) == NULL)
                 err(1, "strdup");
@@ -600,7 +600,7 @@ s3backer_get_config(int argc, char **argv)
             char *trailing_comma;
             char *flag;
 
-            /* Find "configFile=" among comma-separated option list */
+            // Find "configFile=" among comma-separated option list
             if (strncmp(config.fuse_args.argv[i + 1], "configFile=", 11) == 0)
                 flag = config.fuse_args.argv[i + 1];
             else if ((flag = strstr(config.fuse_args.argv[i + 1], ",configFile=")) != NULL)
@@ -610,7 +610,7 @@ s3backer_get_config(int argc, char **argv)
                 continue;
             }
 
-            /* Extract filename from list */
+            // Extract filename from list
             if ((trailing_comma = strchr(flag + 11, ',')) == NULL) {
                 if ((optfile = strdup(flag + 11)) == NULL)
                     err(1, "strdup");
@@ -628,46 +628,46 @@ s3backer_get_config(int argc, char **argv)
             continue;
         }
 
-        /* Check for infinite loops */
+        // Check for infinite loops
         if (++num_subst > 100)
             errx(1, "too many levels of `--configFile' nesting");
 
-        /* Replace the `--configFile' flag with arguments read from file */
+        // Replace the `--configFile' flag with arguments read from file
         read_fuse_args(optfile, i + num_args);
         free(optfile);
         while (num_args-- > 0)
             remove_fuse_arg(i);
     }
 
-    /* Create the equivalent fstab options (without the "--") for each option in the option list */
+    // Create the equivalent fstab options (without the "--") for each option in the option list
     memcpy(dup_option_list, option_list, sizeof(option_list));
     memcpy(dup_option_list + num_options, option_list, sizeof(option_list));
     for (i = num_options; i < 2 * num_options; i++)
         dup_option_list[i].templ += 2;
     dup_option_list[2 * num_options].templ = NULL;
 
-    /* Parse command line flags */
+    // Parse command line flags
     if (fuse_opt_parse(&config.fuse_args, &config, dup_option_list, handle_unknown_option) != 0)
         return NULL;
 
-    /* Validate configuration */
+    // Validate configuration
     if (validate_config() != 0)
         return NULL;
 
-    /* Set fsname based on configuration */
+    // Set fsname based on configuration
     snvprintf(buf, sizeof(buf), "-ofsname=%s", config.description);
     insert_fuse_arg(1, buf);
 
-    /* Set up fuse_ops callbacks */
+    // Set up fuse_ops callbacks
     config.fuse_ops.print_stats = s3b_config_print_stats;
     config.fuse_ops.clear_stats = s3b_config_clear_stats;
     config.fuse_ops.s3bconf = &config;
 
-    /* Debug */
+    // Debug
     if (config.debug)
         dump_config();
 
-    /* Done */
+    // Done
     return &config;
 }
 
@@ -682,13 +682,13 @@ s3backer_create_store(struct s3b_config *conf)
     int32_t new_mount_token;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     if (http_io_store != NULL || test_io_store != NULL) {
         errno = EINVAL;
         return NULL;
     }
 
-    /* Create HTTP (or test) layer */
+    // Create HTTP (or test) layer
     if (conf->test) {
         if ((test_io_store = test_io_create(&conf->test_io)) == NULL)
             return NULL;
@@ -699,26 +699,26 @@ s3backer_create_store(struct s3b_config *conf)
         store = http_io_store;
     }
 
-    /* Create eventual consistency protection layer (if desired) */
+    // Create eventual consistency protection layer (if desired)
     if (conf->ec_protect.cache_size > 0) {
         if ((ec_protect_store = ec_protect_create(&conf->ec_protect, store)) == NULL)
             goto fail_with_errno;
         store = ec_protect_store;
     }
 
-    /* Create block cache layer (if desired) */
+    // Create block cache layer (if desired)
     if (conf->block_cache.cache_size > 0) {
         if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL)
             goto fail_with_errno;
         store = block_cache_store;
     }
 
-    /* Create zero block cache */
+    // Create zero block cache
     if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store)) == NULL)
         goto fail_with_errno;
     store = zero_cache_store;
 
-    /* Set mount token and check previous value one last time */
+    // Set mount token and check previous value one last time
     new_mount_token = -1;
     if (!conf->fuse_ops.read_only) {
         srandom((long)time(NULL) ^ (long)&old_mount_token);
@@ -741,7 +741,7 @@ s3backer_create_store(struct s3b_config *conf)
     if (new_mount_token != -1)
         (*conf->log)(LOG_INFO, "established new mount token 0x%08x", (int)new_mount_token);
 
-    /* Done */
+    // Done
     return store;
 
 fail_with_errno:
@@ -775,23 +775,23 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
     u_int total_oom = 0;
     u_int total_curls;
 
-    /* Get HTTP stats */
+    // Get HTTP stats
     if (http_io_store != NULL)
         http_io_get_stats(http_io_store, &http_io_stats);
 
-    /* Get zero cache stats */
+    // Get zero cache stats
     if (zero_cache_store != NULL)
         zero_cache_get_stats(zero_cache_store, &zero_cache_stats);
 
-    /* Get EC protection stats */
+    // Get EC protection stats
     if (ec_protect_store != NULL)
         ec_protect_get_stats(ec_protect_store, &ec_protect_stats);
 
-    /* Get block cache stats */
+    // Get block cache stats
     if (block_cache_store != NULL)
         block_cache_get_stats(block_cache_store, &block_cache_stats);
 
-    /* Print stats in human-readable form */
+    // Print stats in human-readable form
     if (http_io_store != NULL) {
         (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_read", http_io_stats.normal_blocks_read);
         (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_written", http_io_stats.normal_blocks_written);
@@ -880,19 +880,19 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
 static void
 s3b_config_clear_stats(void)
 {
-    /* Clear HTTP stats */
+    // Clear HTTP stats
     if (http_io_store != NULL)
         http_io_clear_stats(http_io_store);
 
-    /* Clear EC protection stats */
+    // Clear EC protection stats
     if (ec_protect_store != NULL)
         ec_protect_clear_stats(ec_protect_store);
 
-    /* Clear zero block cache stats */
+    // Clear zero block cache stats
     if (zero_cache_store != NULL)
         zero_cache_clear_stats(zero_cache_store);
 
-    /* Clear block cache stats */
+    // Clear block cache stats
     if (block_cache_store != NULL)
         block_cache_clear_stats(block_cache_store);
 }
@@ -937,18 +937,18 @@ read_fuse_args(const char *filename, int pos)
         err(1, "%s", filename);
     for (lineno = 1; fgets(buf, sizeof(buf), fp) != NULL; lineno++) {
 
-        /* Check for buffer overflow */
+        // Check for buffer overflow
         if (*buf != '\0' && buf[strlen(buf) - 1] != '\n' && !feof(fp))
             errx(1, "%s:%d: line too long", filename, lineno);
 
-        /* Trim whitespace fore & aft */
+        // Trim whitespace fore & aft
         arg = buf;
         while (isspace(*arg))
             arg++;
         while (*arg != '\0' && isspace(arg[strlen(arg) - 1]))
             arg[strlen(arg) - 1] = '\0';
 
-        /* Ignore blank lines and comments */
+        // Ignore blank lines and comments
         if (*arg != '\0' && *arg != '#')
             insert_fuse_arg(pos++, arg);
     }
@@ -963,10 +963,10 @@ read_fuse_args(const char *filename, int pos)
 static int
 handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs)
 {
-    /* Check options */
+    // Check options
     if (key == FUSE_OPT_KEY_OPT) {
 
-        /* Debug flags */
+        // Debug flags
         if (strcmp(arg, "-d") == 0) {
             config.debug = 1;
             config.log = stderr_logger;
@@ -976,7 +976,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
             config.log = stderr_logger;
         }
 
-        /* Version */
+        // Version
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
             fprintf(stderr, "%s version %s (%s)\n", PACKAGE, VERSION, s3backer_version);
             fprintf(stderr, "Copyright (C) 2008-2020 Archie L. Cobbs.\n");
@@ -985,31 +985,31 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
             exit(0);
         }
 
-        /* Help */
+        // Help
         if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0 || strcmp(arg, "-?") == 0) {
             usage();
             exit(0);
         }
 
-        /* Unknown; pass it through to fuse_main() */
+        // Unknown; pass it through to fuse_main()
         return 1;
     }
 
-    /* Get bucket parameter */
+    // Get bucket parameter
     if (config.bucket == NULL) {
         if ((config.bucket = strdup(arg)) == NULL)
             err(1, "strdup");
         return 0;
     }
 
-    /* Copy mount point */
+    // Copy mount point
     if (config.mount == NULL) {
         if ((config.mount = strdup(arg)) == NULL)
             err(1, "strdup");
         return 1;
     }
 
-    /* Pass subsequent paramters on to fuse_main() */
+    // Pass subsequent paramters on to fuse_main()
     return 1;
 }
 
@@ -1066,7 +1066,7 @@ validate_config(void)
     int i;
     int r;
 
-    /* Default to $HOME/.s3backer for accessFile */
+    // Default to $HOME/.s3backer for accessFile
     if (config.http_io.ec2iam_role == NULL && config.accessFile == NULL) {
         const char *home = getenv("HOME");
         char buf[PATH_MAX];
@@ -1078,26 +1078,26 @@ validate_config(void)
         }
     }
 
-    /* Auto-set file mode in read_only if not explicitly set */
+    // Auto-set file mode in read_only if not explicitly set
     if (config.fuse_ops.file_mode == -1) {
         config.fuse_ops.file_mode = config.fuse_ops.read_only ?
           S3BACKER_DEFAULT_FILE_MODE_READ_ONLY : S3BACKER_DEFAULT_FILE_MODE;
     }
 
-    /* If no accessId specified, default to first in accessFile */
+    // If no accessId specified, default to first in accessFile
     if (config.http_io.accessId == NULL && config.accessFile != NULL)
         search_access_for(config.accessFile, NULL, &config.http_io.accessId, NULL);
     if (config.http_io.accessId != NULL && *config.http_io.accessId == '\0')
         config.http_io.accessId = NULL;
 
-    /* If no accessId, only read operations will succeed */
+    // If no accessId, only read operations will succeed
     if (!config.test && config.http_io.accessId == NULL
       && !config.fuse_ops.read_only && !customBaseURL && config.http_io.ec2iam_role == NULL) {
         warnx("warning: no `accessId' specified; only read operations will succeed");
         warnx("you can eliminate this warning by providing the `--readOnly' flag");
     }
 
-    /* Read accessKey from environment variable if specified */
+    // Read accessKey from environment variable if specified
     if (config.accessKeyEnv != NULL) {
         if (config.http_io.accessKey != NULL) {
             warnx("flags `accessKey' and `accessKeyEnv' are mutually exclusive");
@@ -1111,7 +1111,7 @@ validate_config(void)
             err(1, "strdup");
     }
 
-    /* Find key in file if not specified explicitly */
+    // Find key in file if not specified explicitly
     if (config.http_io.accessId == NULL && config.http_io.accessKey != NULL) {
         warnx("an `accessKey' was specified but no `accessId' was specified");
         return -1;
@@ -1125,19 +1125,19 @@ validate_config(void)
         }
     }
 
-    /* Check for conflict between explicit accessId and EC2 IAM role */
+    // Check for conflict between explicit accessId and EC2 IAM role
     if (config.http_io.accessId != NULL && config.http_io.ec2iam_role != NULL) {
         warnx("an `accessKey' must not be specified when an `accessEC2IAM' role is specified");
         return -1;
     }
 
-    /* Check auth version */
+    // Check auth version
     if (!find_string_in_table(s3_auth_types, config.http_io.authVersion)) {
         warnx("illegal authentication version `%s'", config.http_io.authVersion);
         return -1;
     }
 
-    /* Check bucket/testdir; extract prefix from bucket if slash is present */
+    // Check bucket/testdir; extract prefix from bucket if slash is present
     if (!config.test) {
         if (config.bucket == NULL) {
             warnx("no S3 bucket specified");
@@ -1149,23 +1149,23 @@ validate_config(void)
         }
         if ((p = strchr(config.bucket, '/')) != NULL) {
 
-            /* Can't use bucket+prefix and --prefix at the same time */
+            // Can't use bucket+prefix and --prefix at the same time
             if (*config.prefix != '\0') {
                 warnx("S3 bucket/prefix `%s' conflicts with `--prefix' flag", config.bucket);
                 return -1;
             }
 
-            /* Disallow empty string, or initial, trailing, or duplicate slashes in directory name */
+            // Disallow empty string, or initial, trailing, or duplicate slashes in directory name
             p++;
             if (*p == '\0' || *p == '/' || p[strlen(p) - 1] == '/' || strstr(p, "//") != NULL) {
                 warnx("invalid S3 bucket/prefix `%s'", config.bucket);
                 return -1;
             }
 
-            /* Terminate bucket name at the slash */
+            // Terminate bucket name at the slash
             p[-1] = '\0';
 
-            /* Copy what follows the slash, with another slash added on, as the new prefix */
+            // Copy what follows the slash, with another slash added on, as the new prefix
             if ((pbuf = malloc(strlen(p) + 2)) == NULL) {
                 warn("malloc");
                 return -1;
@@ -1193,13 +1193,13 @@ validate_config(void)
         }
     }
 
-    /* Check storage class */
+    // Check storage class
     if (config.http_io.storage_class != NULL && !find_string_in_table(s3_storage_classes, config.http_io.storage_class)) {
         warnx("invalid storage class `%s'", config.http_io.storage_class);
         return -1;
     }
 
-    /* Check server side encryption type and get key ID if needed */
+    // Check server side encryption type and get key ID if needed
     if (config.http_io.sse != NULL) {
         if (strcmp(config.http_io.sse, SSE_AWS_KMS) == 0) {
             if (config.http_io.sse_key_id == NULL) {
@@ -1212,17 +1212,17 @@ validate_config(void)
         }
     }
 
-    /* Set default or custom region */
+    // Set default or custom region
     if (config.http_io.region == NULL)
         config.http_io.region = S3BACKER_DEFAULT_REGION;
     if (customRegion && config.http_io.vhost != -1)
         config.http_io.vhost = 1;
 
-    /* Handle --no-vhost */
+    // Handle --no-vhost
     if (config.http_io.vhost == -1)
         config.http_io.vhost = 0;
 
-    /* Set default base URL */
+    // Set default base URL
     if (config.http_io.baseURL == NULL) {
         if (customRegion && strcmp(config.http_io.region, S3BACKER_DEFAULT_REGION) != 0)
             snvprintf(urlbuf, sizeof(urlbuf), "http%s://s3.%s.%s/", config.ssl ? "s" : "", config.http_io.region, S3_DOMAIN);
@@ -1234,7 +1234,7 @@ validate_config(void)
         }
     }
 
-    /* Check base URL */
+    // Check base URL
     s = NULL;
     if (strncmp(config.http_io.baseURL, "http://", 7) == 0)
         s = config.http_io.baseURL + 7;
@@ -1259,7 +1259,7 @@ validate_config(void)
         return -1;
     }
 
-    /* Construct the virtual host style URL (prefix hostname with bucket name) */
+    // Construct the virtual host style URL (prefix hostname with bucket name)
     {
         int scheme_len;
         char *buf;
@@ -1271,17 +1271,17 @@ validate_config(void)
         config.http_io.vhostURL = buf;
     }
 
-    /* Always use the virtual host style URL if configured to do so */
+    // Always use the virtual host style URL if configured to do so
     if (config.http_io.vhost)
         config.http_io.baseURL = config.http_io.vhostURL;
 
-    /* Check S3 access privilege */
+    // Check S3 access privilege
     if (!find_string_in_table(s3_acls, config.http_io.accessType)) {
         warnx("illegal access type `%s'", config.http_io.accessType);
         return -1;
     }
 
-    /* Check filenames */
+    // Check filenames
     if (strchr(config.fuse_ops.filename, '/') != NULL || *config.fuse_ops.filename == '\0') {
         warnx("illegal filename `%s'", config.fuse_ops.filename);
         return -1;
@@ -1291,11 +1291,11 @@ validate_config(void)
         return -1;
     }
 
-    /* Apply default encryption */
+    // Apply default encryption
     if (config.http_io.encryption == NULL && config.encrypt)
         config.http_io.encryption = strdup(S3BACKER_DEFAULT_ENCRYPTION);
 
-    /* Uppercase encryption name for consistency */
+    // Uppercase encryption name for consistency
     if (config.http_io.encryption != NULL) {
         char *t;
 
@@ -1306,7 +1306,7 @@ validate_config(void)
         config.http_io.encryption = t;
     }
 
-    /* Check encryption and get key */
+    // Check encryption and get key
     if (config.http_io.encryption != NULL) {
         char pwbuf[1024];
         FILE *fp;
@@ -1350,13 +1350,13 @@ validate_config(void)
             warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--keyLength");
     }
 
-    /* Disallow "--compress-level" without "--compress" */
+    // Disallow "--compress-level" without "--compress"
     if (config.compress_alg == NULL && config.compress_level != NULL) {
         warnx("the `--compress-level' flag requires the `--compress' flag");
         return -1;
     }
 
-    /* Apply backwards-compatibility for "--compress" flag */
+    // Apply backwards-compatibility for "--compress" flag
     if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag) {
         static char buf[16];
 
@@ -1368,38 +1368,38 @@ validate_config(void)
         config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
     }
 
-    /* We always want to compress if we are encrypting */
+    // We always want to compress if we are encrypting
     if (config.http_io.encryption != NULL && config.compress_alg == NULL)
         config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
 
-    /* Parse compression, if any, and compression level, if any */
+    // Parse compression, if any, and compression level, if any
     if (config.compress_alg != NULL) {
         const struct comp_alg *calg;
         void *level = NULL;
 
-        /* Find the compression algorithm */
+        // Find the compression algorithm
         if ((calg = comp_find(config.compress_alg)) == NULL) {
             warnx("unknown compression algorithm `%s'", config.compress_alg);
             return -1;
         }
 
-        /* Parse the compression level, if any */
+        // Parse the compression level, if any
         if (config.compress_level != NULL && (level = (*calg->lparse)(config.compress_level)) == NULL)
             return -1;
 
-        /* Done */
+        // Done
         config.http_io.compress_alg = calg;
         config.http_io.compress_level = level;
     }
 
-    /* Disable md5 cache when in read only mode */
+    // Disable md5 cache when in read only mode
     if (config.fuse_ops.read_only) {
         config.ec_protect.cache_size = 0;
         config.ec_protect.cache_time = 0;
         config.ec_protect.min_write_delay = 0;
     }
 
-    /* Check time/cache values */
+    // Check time/cache values
     if (config.ec_protect.cache_size == 0 && config.ec_protect.cache_time > 0) {
         warnx("`md5CacheTime' must zero when MD5 cache is disabled");
         return -1;
@@ -1418,7 +1418,7 @@ validate_config(void)
         return -1;
     }
 
-    /* Parse block and file sizes */
+    // Parse block and file sizes
     if (config.block_size_str != NULL) {
         if (parse_size_string(config.block_size_str, "block size", sizeof(u_int), &value) == -1)
             return -1;
@@ -1430,7 +1430,7 @@ validate_config(void)
         config.file_size = value;
     }
 
-    /* Parse upload/download speeds */
+    // Parse upload/download speeds
     for (i = 0; i < 2; i++) {
         char speed_desc[32];
 
@@ -1451,7 +1451,7 @@ validate_config(void)
         }
     }
 
-    /* Check block cache config */
+    // Check block cache config
     if (config.block_cache.cache_size > 0 && config.block_cache.num_threads <= 0) {
         warnx("invalid block cache thread pool size %u", config.block_cache.num_threads);
         return -1;
@@ -1477,7 +1477,7 @@ validate_config(void)
     if (config.block_cache.num_protected > config.block_cache.cache_size)
         warnx("`--blockCacheNumProtected' is larger than cache size; this may cause performance problems");
 
-    /* Check mount point */
+    // Check mount point
     if (config.erase || config.reset) {
         if (config.mount != NULL) {
             warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
@@ -1490,16 +1490,16 @@ validate_config(void)
         }
     }
 
-    /* Check list blocks threads */
+    // Check list blocks threads
     if (config.list_blocks && config.http_io.list_blocks_threads < 1) {
         warnx("invalid listBlocksThreads %u", config.http_io.list_blocks_threads);
         return -1;
     }
 
-    /* Configure logging module */
+    // Configure logging module
     log_enable_debug = config.debug;
 
-    /* Format descriptive string of what we're mounting */
+    // Format descriptive string of what we're mounting
     if (config.test)
         snvprintf(config.description, sizeof(config.description), "%s%s/%s", "file://", config.bucket, config.prefix);
     else if (config.http_io.vhost)
@@ -1531,7 +1531,7 @@ validate_config(void)
         (*s3b->destroy)(s3b);
     }
 
-    /* Check result */
+    // Check result
     switch (r) {
     case 0:
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)auto_block_size);
@@ -1592,7 +1592,7 @@ validate_config(void)
         break;
     }
 
-    /* Check computed block and file sizes */
+    // Check computed block and file sizes
     if (config.block_size != (1 << (ffs(config.block_size) - 1))) {
         warnx("block size must be a power of 2");
         return -1;
@@ -1608,19 +1608,19 @@ validate_config(void)
     }
     config.num_blocks = (s3b_block_t)big_num_blocks;
 
-    /* Allocate zero block */
+    // Allocate zero block
     if ((zero_block = calloc(1, config.block_size)) == NULL) {
         warn("calloc");
         return -1;
     }
 
-    /* Check block size vs. encryption block size */
+    // Check block size vs. encryption block size
     if (config.http_io.encryption != NULL && config.block_size % EVP_MAX_IV_LENGTH != 0) {
         warnx("block size must be at least %u when encryption is enabled", EVP_MAX_IV_LENGTH);
         return -1;
     }
 
-    /* Check that MD5 cache won't eventually deadlock */
+    // Check that MD5 cache won't eventually deadlock
     if (config.ec_protect.cache_size > 0
       && config.ec_protect.cache_time == 0
       && config.ec_protect.cache_size < config.num_blocks) {
@@ -1628,7 +1628,7 @@ validate_config(void)
         return -1;
     }
 
-    /* No point in the caches being bigger than necessary */
+    // No point in the caches being bigger than necessary
     if (config.ec_protect.cache_size > config.num_blocks) {
         warnx("MD5 cache size (%ju) is greater that the total number of blocks (%ju); automatically reducing",
           (uintmax_t)config.ec_protect.cache_size, (uintmax_t)config.num_blocks);
@@ -1641,7 +1641,7 @@ validate_config(void)
     }
 
 #ifdef __APPLE__
-    /* On MacOS, warn if kernel timeouts can happen prior to our own timeout */
+    // On MacOS, warn if kernel timeouts can happen prior to our own timeout
     {
         u_int total_time = 0;
         u_int retry_pause = 0;
@@ -1661,18 +1661,18 @@ validate_config(void)
             total_time += retry_pause;
         }
 
-        /* Convert from milliseconds to seconds */
+        // Convert from milliseconds to seconds
         total_time = (total_time + 999) / 1000;
 
-        /* Warn if exceeding MacFUSE limit */
+        // Warn if exceeding MacFUSE limit
         if (total_time >= FUSE_MAX_DAEMON_TIMEOUT && !config.quiet) {
             warnx("warning: maximum possible I/O delay (%us) >= MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
             warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
         }
     }
-#endif  /* __APPLE__ */
+#endif  // __APPLE__
 
-    /* Copy common stuff into sub-module configs */
+    // Copy common stuff into sub-module configs
     config.block_cache.block_size = config.block_size;
     config.block_cache.log = config.log;
     config.http_io.prefix = config.prefix;
@@ -1700,12 +1700,12 @@ validate_config(void)
     config.test_io.bucket = config.bucket;
     config.test_io.blockHashPrefix = config.blockHashPrefix;
 
-    /* Check whether already mounted, and if so, compare mount token against on-disk cache (if any) */
+    // Check whether already mounted, and if so, compare mount token against on-disk cache (if any)
     if (!config.test && !config.erase && !config.reset) {
         int32_t mount_token;
         int conflict;
 
-        /* Read s3 mount token */
+        // Read s3 mount token
         if ((s3b = http_io_create(&config.http_io)) == NULL)
             err(1, "http_io_create");
         r = (*s3b->set_mount_token)(s3b, &mount_token, -1);
@@ -1739,7 +1739,7 @@ validate_config(void)
             struct stat cache_file_stat;
             struct s3b_dcache *dcache;
 
-            /* Open disk cache file, if any, and read the mount token therein, if any */
+            // Open disk cache file, if any, and read the mount token therein, if any
             if (stat(config.block_cache.cache_file, &cache_file_stat) == -1) {
                 if (errno != ENOENT)
                     err(1, "can't open cache file `%s'", config.block_cache.cache_file);
@@ -1752,10 +1752,10 @@ validate_config(void)
                 s3b_dcache_close(dcache);
             }
 
-            /* If cache file is older format, then cache_mount_token will be -1, otherwise >= 0 */
+            // If cache file is older format, then cache_mount_token will be -1, otherwise >= 0
             if (cache_mount_token > 0) {
 
-                /* If tokens do not agree, bail out, otherwise enable write-back of dirty blocks if tokens are non-zero */
+                // If tokens do not agree, bail out, otherwise enable write-back of dirty blocks if tokens are non-zero
                 if (cache_mount_token != mount_token) {
                     warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
                       config.block_cache.cache_file, cache_mount_token, mount_token);
@@ -1768,7 +1768,7 @@ validate_config(void)
             }
         }
 
-        /* If there is a conflicting mount, additional `--force' is required */
+        // If there is a conflicting mount, additional `--force' is required
         if (conflict) {
             if (!config.force) {
                 warnx("%s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
@@ -1781,7 +1781,7 @@ validate_config(void)
         }
     }
 
-    /* Done */
+    // Done
     return 0;
 }
 

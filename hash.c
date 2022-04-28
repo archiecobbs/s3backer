@@ -42,7 +42,7 @@
 #include "s3backer.h"
 #include "hash.h"
 
-/* Definitions */
+// Definitions
 #define LOAD_FACTOR                 0.666666
 #define FIRST(hash, key)            (s3b_hash_index((hash), (key)))
 #define NEXT(hash, index)           ((index) + 1 < (hash)->alen ? (index) + 1 : 0)
@@ -50,18 +50,18 @@
 #define VALUE(hash, index)          ((hash)->array[(index)])
 #define KEY(value)                  (*(s3b_block_t *)(value))
 
-/* Hash table structure */
+// Hash table structure
 struct s3b_hash {
-    u_int       maxkeys;            /* max capacity */
-    u_int       numkeys;            /* number of keys in table */
-    u_int       alen;               /* hash array length */
-    void        *array[0];          /* hash array */
+    u_int       maxkeys;            // max capacity
+    u_int       numkeys;            // number of keys in table
+    u_int       alen;               // hash array length
+    void        *array[0];          // hash array
 };
 
-/* Declarations */
+// Declarations
 static u_int s3b_hash_index(struct s3b_hash *hash, s3b_block_t key);
 
-/* Public functions */
+// Public functions
 
 int
 s3b_hash_create(struct s3b_hash **hashp, u_int maxkeys)
@@ -125,7 +125,7 @@ s3b_hash_put(struct s3b_hash *hash, void *value)
         if (EMPTY(value))
             break;
         if (KEY(value2) == key) {
-            VALUE(hash, i) = value;         /* replace existing value having the same key with new value */
+            VALUE(hash, i) = value;         // replace existing value having the same key with new value
             return value2;
         }
     }
@@ -163,17 +163,17 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
     u_int j;
     u_int k;
 
-    /* Find entry */
+    // Find entry
     for (i = FIRST(hash, key); 1; i = NEXT(hash, i)) {
         void *const value = VALUE(hash, i);
 
-        if (EMPTY(value))               /* no such entry */
+        if (EMPTY(value))               // no such entry
             return;
-        if (KEY(value) == key)          /* entry found */
+        if (KEY(value) == key)          // entry found
             break;
     }
 
-    /* Repair subsequent entries as necessary */
+    // Repair subsequent entries as necessary
     for (j = NEXT(hash, i); 1; j = NEXT(hash, j)) {
         void *const value = VALUE(hash, j);
 
@@ -186,7 +186,7 @@ s3b_hash_remove(struct s3b_hash *hash, s3b_block_t key)
         }
     }
 
-    /* Remove entry */
+    // Remove entry
     assert(VALUE(hash, i) != NULL);
     VALUE(hash, i) = NULL;
     hash->numkeys--;

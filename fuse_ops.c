@@ -52,7 +52,7 @@
 #define FILE_INODE      2
 #define STATS_INODE     3
 
-/* Represents an open 'stats' file */
+// Represents an open 'stats' file
 struct stat_file {
     char    *buf;           // note: not necessarily nul-terminated
     size_t  len;            // length of string in 'buf'
@@ -60,7 +60,7 @@ struct stat_file {
     int     memerr;         // we got a memory error
 };
 
-/* Private information */
+// Private information
 struct fuse_ops_private {
     struct s3backer_store   *s3b;
     u_int                   block_bits;
@@ -75,7 +75,7 @@ struct fuse_ops_private {
  *                          FUNCTION DECLARATIONS                           *
  ****************************************************************************/
 
-/* FUSE functions */
+// FUSE functions
 static void *fuse_op_init(struct fuse_conn_info *conn);
 static void fuse_op_destroy(void *data);
 static int fuse_op_getattr(const char *path, struct stat *st);
@@ -97,11 +97,11 @@ static int fuse_op_unlink(const char *path);
 static int fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi);
 #endif
 
-/* Attribute functions */
+// Attribute functions
 static void fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st);
 static void fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_file *sfile, struct stat *st);
 
-/* Stats functions */
+// Stats functions
 static struct stat_file *fuse_op_stats_create(struct fuse_ops_private *priv);
 static void fuse_op_stats_destroy(struct stat_file *sfile);
 static printer_t fuse_op_stats_printer;
@@ -110,7 +110,7 @@ static printer_t fuse_op_stats_printer;
  *                          VARIABLE DEFINITIONS                            *
  ****************************************************************************/
 
-/* FUSE operations */
+// FUSE operations
 const struct fuse_operations s3backer_fuse_ops = {
     .init       = fuse_op_init,
     .destroy    = fuse_op_destroy,
@@ -131,7 +131,7 @@ const struct fuse_operations s3backer_fuse_ops = {
 #endif
 };
 
-/* Configuration and underlying s3backer_store */
+// Configuration and underlying s3backer_store
 static struct fuse_ops_conf *config;
 static struct fuse_ops_private *the_priv;
 
@@ -142,24 +142,24 @@ static struct fuse_ops_private *the_priv;
 const struct fuse_operations *
 fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
 {
-    /* Sanity check */
+    // Sanity check
     assert(config0 != NULL);
     assert(s3b != NULL);
 
-    /* Prevent duplicate invocation */
+    // Prevent duplicate invocation
     if (config != NULL || the_priv != NULL) {
         (*config0->log)(LOG_ERR, "fuse_ops_create(): duplicate invocation");
         return NULL;
     }
 
-    /* Create private structure */
+    // Create private structure
     if ((the_priv = calloc(1, sizeof(*the_priv))) == NULL) {
         (*config->log)(LOG_ERR, "fuse_ops_create(): %s", strerror(errno));
         return NULL;
     }
     the_priv->s3b = s3b;
 
-    /* Now we're ready */
+    // Now we're ready
     config = config0;
     return &s3backer_fuse_ops;
 }
@@ -183,11 +183,11 @@ fuse_op_init(struct fuse_conn_info *conn)
     struct fuse_ops_private *const priv = the_priv;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     assert(priv != NULL);
     assert(priv->s3b != NULL);
 
-    /* Initialize */
+    // Initialize
     priv->block_bits = ffs(config->block_size) - 1;
     priv->start_time = time(NULL);
     priv->file_atime = priv->start_time;
@@ -195,13 +195,13 @@ fuse_op_init(struct fuse_conn_info *conn)
     priv->stats_atime = priv->start_time;
     priv->file_size = (off_t)config->num_blocks * config->block_size;
 
-    /* Startup background threads now that we have fork()'d */
+    // Startup background threads now that we have fork()'d
     if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
         (*config->log)(LOG_ERR, "fuse_op_init(): can't create threads: %s", strerror(errno));
         return NULL;
     }
 
-    /* Done */
+    // Done
     (*config->log)(LOG_INFO, "mounting %s", s3bconf->mount);
     return priv;
 }
@@ -214,24 +214,24 @@ fuse_op_destroy(void *data)
     struct s3b_config *const s3bconf = config->s3bconf;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     if (priv == NULL || s3b == NULL)
         return;
     (*config->log)(LOG_INFO, "unmount %s: initiated", s3bconf->mount);
 
-    /* Shutdown (flush dirty data) */
+    // Shutdown (flush dirty data)
     (*config->log)(LOG_INFO, "unmount %s: shutting down filesystem", s3bconf->mount);
     if ((r = (*s3b->shutdown)(s3b)) != 0)
         (*config->log)(LOG_ERR, "unmount %s: filesystem shutdown failed: %s", s3bconf->mount, strerror(r));
 
-    /* Clear mount token */
+    // Clear mount token
     if (!config->read_only) {
         (*config->log)(LOG_INFO, "unmount %s: clearing mount token", s3bconf->mount);
         if ((r = (*s3b->set_mount_token)(s3b, NULL, 0)) != 0)
             (*config->log)(LOG_ERR, "unmount %s: clearing mount token failed: %s", s3bconf->mount, strerror(r));
     }
 
-    /* Destroy */
+    // Destroy
     (*s3b->destroy)(s3b);
     (*config->log)(LOG_INFO, "unmount %s: completed", s3bconf->mount);
     free(priv);
@@ -350,11 +350,11 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
-    /* Sanity check */
+    // Sanity check
     if (priv == NULL)
         return -ENOENT;
 
-    /* Backed file */
+    // Backed file
     if (*path == '/' && strcmp(path + 1, config->filename) == 0) {
         fi->fh = 0;
         priv->file_atime = time(NULL);
@@ -363,7 +363,7 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
         return 0;
     }
 
-    /* Stats file */
+    // Stats file
     if (*path == '/' && config->print_stats != NULL && strcmp(path + 1, config->stats_filename) == 0) {
         struct stat_file *sfile;
 
@@ -375,7 +375,7 @@ fuse_op_open(const char *path, struct fuse_file_info *fi)
         return 0;
     }
 
-    /* Unknown file */
+    // Unknown file
     return -ENOENT;
 }
 
@@ -401,7 +401,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     size_t num_blocks;
     int r;
 
-    /* Handle stats file */
+    // Handle stats file
     if (fi->fh != 0) {
         struct stat_file *const sfile = (struct stat_file *)(uintptr_t)fi->fh;
 
@@ -414,7 +414,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         return size;
     }
 
-    /* Check for end of file */
+    // Check for end of file
     if (offset > priv->file_size) {
         (*config->log)(LOG_ERR, "read offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
@@ -424,7 +424,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         orig_size = size;
     }
 
-    /* Read first block fragment (if any) */
+    // Read first block fragment (if any)
     if ((offset & mask) != 0) {
         size_t fragoff = (size_t)(offset & mask);
         size_t fraglen = (size_t)config->block_size - fragoff;
@@ -439,18 +439,18 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         size -= fraglen;
     }
 
-    /* Get block number and count */
+    // Get block number and count
     block_num = offset >> priv->block_bits;
     num_blocks = size >> priv->block_bits;
 
-    /* Read intermediate complete blocks */
+    // Read intermediate complete blocks
     while (num_blocks-- > 0) {
         if ((r = (*priv->s3b->read_block)(priv->s3b, block_num++, buf, NULL, NULL, 0)) != 0)
             return -r;
         buf += config->block_size;
     }
 
-    /* Read last block fragment (if any) */
+    // Read last block fragment (if any)
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
@@ -458,7 +458,7 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
             return -r;
     }
 
-    /* Done */
+    // Done
     priv->file_atime = time(NULL);
     return orig_size;
 }
@@ -473,15 +473,15 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     size_t num_blocks;
     int r;
 
-    /* Handle read-only flag */
+    // Handle read-only flag
     if (config->read_only)
         return -EROFS;
 
-    /* Handle stats file */
+    // Handle stats file
     if (fi->fh != 0)
         return -EINVAL;
 
-    /* Check for end of file */
+    // Check for end of file
     if (offset > priv->file_size) {
         (*config->log)(LOG_ERR, "write offset=0x%jx size=0x%jx out of range", (uintmax_t)offset, (uintmax_t)size);
         return -ESPIPE;
@@ -491,11 +491,11 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
         orig_size = size;
     }
 
-    /* Handle request to write nothing */
+    // Handle request to write nothing
     if (size == 0)
         return 0;
 
-    /* Write first block fragment (if any) */
+    // Write first block fragment (if any)
     if ((offset & mask) != 0) {
         size_t fragoff = (size_t)(offset & mask);
         size_t fraglen = (size_t)config->block_size - fragoff;
@@ -510,18 +510,18 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
         size -= fraglen;
     }
 
-    /* Get block number and count */
+    // Get block number and count
     block_num = offset >> priv->block_bits;
     num_blocks = size >> priv->block_bits;
 
-    /* Write intermediate complete blocks */
+    // Write intermediate complete blocks
     while (num_blocks-- > 0) {
         if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, buf, NULL, NULL, NULL)) != 0)
             return -r;
         buf += config->block_size;
     }
 
-    /* Write last block fragment (if any) */
+    // Write last block fragment (if any)
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
@@ -529,7 +529,7 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
             return -r;
     }
 
-    /* Done */
+    // Done
     priv->file_mtime = time(NULL);
     return orig_size;
 }
@@ -569,7 +569,7 @@ fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
 static int
 fuse_op_unlink(const char *path)
 {
-    /* Handle stats file */
+    // Handle stats file
     if (*path == '/' && strcmp(path + 1, config->stats_filename) == 0) {
         if (config->clear_stats == NULL)
             return -EOPNOTSUPP;
@@ -577,7 +577,7 @@ fuse_op_unlink(const char *path)
         return 0;
     }
 
-    /* Not supported */
+    // Not supported
     return -EOPNOTSUPP;
 }
 
@@ -593,17 +593,17 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
     size_t num_blocks;
     int r;
 
-    /* Handle stats file */
+    // Handle stats file
     if (fi->fh != 0)
         return -EOPNOTSUPP;
 
-    /* Sanity check */
+    // Sanity check
     if (offset < 0 || len <= 0)
         return -EINVAL;
     if (offset + len > priv->file_size)
         return -ENOSPC;
 
-    /* Handle request */
+    // Handle request
     if ((mode & FALLOC_FL_PUNCH_HOLE) == 0)
         return 0;
 /*
@@ -611,7 +611,7 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
         return -EINVAL;
 */
 
-    /* Write first block fragment (if any) */
+    // Write first block fragment (if any)
     if ((offset & mask) != 0) {
         size_t fragoff = (size_t)(offset & mask);
         size_t fraglen = (size_t)config->block_size - fragoff;
@@ -625,17 +625,17 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
         size -= fraglen;
     }
 
-    /* Get block number and count */
+    // Get block number and count
     block_num = offset >> priv->block_bits;
     num_blocks = size >> priv->block_bits;
 
-    /* Write intermediate complete blocks */
+    // Write intermediate complete blocks
     while (num_blocks-- > 0) {
         if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, NULL, NULL, NULL, NULL)) != 0)
             return -r;
     }
 
-    /* Write last block fragment (if any) */
+    // Write last block fragment (if any)
     if ((size & mask) != 0) {
         const size_t fraglen = size & mask;
 
@@ -643,7 +643,7 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
             return -r;
     }
 
-    /* Done */
+    // Done
     priv->file_mtime = time(NULL);
     return 0;
 }
@@ -685,12 +685,12 @@ fuse_op_stats_printer(void *prarg, const char *fmt, ...)
     size_t remain;
     int added;
 
-    /* Bail if no memory */
+    // Bail if no memory
     if (sfile->memerr)
         return;
 
 again:
-    /* Append to string buffer */
+    // Append to string buffer
     remain = sfile->bufsiz - sfile->len;
     va_start(args, fmt);
     added = vsnprintf(sfile->buf + sfile->len, sfile->bufsiz - sfile->len, fmt, args);
@@ -700,7 +700,7 @@ again:
         return;
     }
 
-    /* We need a bigger buffer */
+    // We need a bigger buffer
     new_bufsiz = ((sfile->bufsiz + added + 1023) / 1024) * 1024;
     if ((new_buf = realloc(sfile->buf, new_bufsiz)) == NULL) {
         sfile->memerr = 1;

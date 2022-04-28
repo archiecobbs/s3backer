@@ -40,7 +40,7 @@
 #include "compress.h"
 #include "util.h"
 
-/* HTTP definitions */
+// HTTP definitions
 #define HTTP_GET                    "GET"
 #define HTTP_PUT                    "PUT"
 #define HTTP_DELETE                 "DELETE"
@@ -74,24 +74,24 @@
 #define IF_MATCH_HEADER             "If-Match"
 #define IF_NONE_MATCH_HEADER        "If-None-Match"
 
-/* Minumum HTTP status code we consider an error */
-#define HTTP_STATUS_ERROR_MINIMUM   300                     /* we don't support redirects */
+// Minumum HTTP status code we consider an error
+#define HTTP_STATUS_ERROR_MINIMUM   300                     // we don't support redirects
 
-/* MIME type for blocks */
+// MIME type for blocks
 #define CONTENT_TYPE                "application/x-s3backer-block"
 
-/* Mount token file */
+// Mount token file
 #define MOUNT_TOKEN_FILE            "s3backer-mounted"
 #define MOUNT_TOKEN_FILE_MIME_TYPE  "text/plain"
 
-/* HTTP `Date' and `x-amz-date' header formats */
+// HTTP `Date' and `x-amz-date' header formats
 #define HTTP_DATE_HEADER            "Date"
 #define AWS_DATE_HEADER             "x-amz-date"
 #define HTTP_DATE_BUF_FMT           "%a, %d %b %Y %H:%M:%S GMT"
 #define AWS_DATE_BUF_FMT            "%Y%m%dT%H%M%SZ"
 #define DATE_BUF_SIZE               64
 
-/* Upper bound on the length of an URL representing one block */
+// Upper bound on the length of an URL representing one block
 #define URL_BUF_SIZE(config)        (strlen((config)->baseURL)                  \
                                       + strlen((config)->bucket) + 1            \
                                       + strlen((config)->prefix)                \
@@ -99,10 +99,10 @@
                                       + strlen(BLOCK_HASH_PREFIX_SEPARATOR)     \
                                       + S3B_BLOCK_NUM_DIGITS + 2)
 
-/* Separator string used when "--blockHashPrefix" is in effect */
+// Separator string used when "--blockHashPrefix" is in effect
 #define BLOCK_HASH_PREFIX_SEPARATOR "-"
 
-/* Bucket listing API constants */
+// Bucket listing API constants
 #define LIST_PARAM_MARKER           "marker"
 #define LIST_PARAM_PREFIX           "prefix"
 #define LIST_PARAM_MAX_KEYS         "max-keys"
@@ -113,7 +113,7 @@
 #define LIST_ELEM_KEY               "Key"
 #define LIST_TRUE                   "true"
 
-/* Bulk Delete API constants */
+// Bulk Delete API constants
 #define DELETE_ELEM_DELETE          "Delete"
 #define DELETE_ELEM_OBJECT          "Object"
 #define DELETE_ELEM_KEY             "Key"
@@ -122,43 +122,43 @@
 #define DELETE_ELEM_CODE            "Code"
 #define DELETE_ELEM_MESSAGE         "Message"
 
-/* How many blocks to list or delete at a time */
+// How many blocks to list or delete at a time
 #define LIST_BLOCKS_CHUNK           1000
 #define DELETE_BLOCKS_CHUNK         1000
 
-/* Maximum error payload size in bytes */
+// Maximum error payload size in bytes
 #define MAX_ERROR_PAYLOAD_SIZE      0x100000
 
-/* PBKDF2 key generation iterations */
+// PBKDF2 key generation iterations
 #define PBKDF2_ITERATIONS           5000
 
-/* Enable to debug encryption key stuff */
+// Enable to debug encryption key stuff
 #define DEBUG_ENCRYPTION            0
 
-/* Enable to debug authentication stuff */
+// Enable to debug authentication stuff
 #define DEBUG_AUTHENTICATION        0
 
-/* Enable to debug parsing block list response */
+// Enable to debug parsing block list response
 #define DEBUG_BLOCK_LIST            0
 
-/* Version 4 authentication stuff */
+// Version 4 authentication stuff
 #define SIGNATURE_ALGORITHM         "AWS4-HMAC-SHA256"
 #define ACCESS_KEY_PREFIX           "AWS4"
 #define S3_SERVICE_NAME             "s3"
 #define SIGNATURE_TERMINATOR        "aws4_request"
 #define SECURITY_TOKEN_HEADER       "x-amz-security-token"
 
-/* EC2 IAM info URL */
+// EC2 IAM info URL
 #define EC2_IAM_META_DATA_URLBASE   "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
 #define EC2_IAM_META_DATA_ACCESSID  "AccessKeyId"
 #define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
 #define EC2_IAM_META_DATA_TOKEN     "Token"
 
-/* TCP keep-alive */
+// TCP keep-alive
 #define TCP_KEEP_ALIVE_IDLE         200
 #define TCP_KEEP_ALIVE_INTERVAL     60
 
-/* Misc */
+// Misc
 #define WHITESPACE                  " \t\v\f\r\n"
 #if MD5_DIGEST_LENGTH != 16
 #error unexpected MD5_DIGEST_LENGTH
@@ -173,13 +173,13 @@
  * This implementation does no caching or consistency checking.
  */
 
-/* Internal definitions */
+// Internal definitions
 struct curl_holder {
     CURL                        *curl;
     LIST_ENTRY(curl_holder)     link;
 };
 
-/* Block survey per-thread info */
+// Block survey per-thread info
 struct http_io_survey {
     struct http_io_private      *priv;
     pthread_t                   thread;
@@ -189,7 +189,7 @@ struct http_io_survey {
     void                        *callback_arg;
 };
 
-/* Internal state */
+// Internal state
 struct http_io_private {
     struct http_io_conf         *config;
     struct http_io_stats        stats;
@@ -200,21 +200,21 @@ struct http_io_private {
     u_char                      iam_thread_alive;               // IAM thread was successfully created
     u_char                      iam_thread_shutdown;            // Flag to the IAM thread telling it to exit
 
-    /* Block survey info */
+    // Block survey info
     struct http_io_survey       *survey_threads;                // survey threads that are running now, if any
     u_int                       num_survey_threads;             // length of "survey_threads" array
     pthread_cond_t              survey_done;                    // indicates last survey thread has finished
     volatile int                abort_survey;                   // set to 1 to abort block survey
     int                         survey_error;                   // error from any survey thread
 
-    /* Encryption info */
+    // Encryption info
     const EVP_CIPHER            *cipher;
     u_int                       keylen;                         // length of key and ivkey
     u_char                      key[EVP_MAX_KEY_LENGTH];        // key used to encrypt data
     u_char                      ivkey[EVP_MAX_KEY_LENGTH];      // key used to encrypt block number to get IV for data
 };
 
-/* I/O buffers */
+// I/O buffers
 struct http_io_bufs {
     size_t      rdremain;
     size_t      wrremain;
@@ -222,7 +222,7 @@ struct http_io_bufs {
     const char  *wrdata;
 };
 
-/* I/O state when reading/writing a block */
+// I/O state when reading/writing a block
 struct http_io {
 
     // I/O buffers
@@ -280,10 +280,10 @@ struct http_io {
     size_t              error_payload_len;      // error response length
 };
 
-/* CURL prepper function type */
+// CURL prepper function type
 typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
 
-/* s3backer_store functions */
+// s3backer_store functions
 static int http_io_create_threads(struct s3backer_store *s3b);
 static int http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 static int http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t new_value);
@@ -298,14 +298,14 @@ static int http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t
 static int http_io_shutdown(struct s3backer_store *s3b);
 static void http_io_destroy(struct s3backer_store *s3b);
 
-/* Other functions */
+// Other functions
 static http_io_curl_prepper_t http_io_head_prepper;
 static http_io_curl_prepper_t http_io_read_prepper;
 static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_xml_prepper;
 static http_io_curl_prepper_t http_io_iamcreds_prepper;
 
-/* S3 REST API functions */
+// S3 REST API functions
 static void http_io_get_block_url(char *buf, size_t bufsiz, struct http_io_conf *config, s3b_block_t block_num);
 static void http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct http_io_conf *config);
 static int http_io_add_auth(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
@@ -314,12 +314,12 @@ static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, t
 static size_t url_encode(const char *src, size_t len, char *dst, int buflen, int encode_slash);
 static void digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encode_slash);
 
-/* EC2 IAM thread */
+// EC2 IAM thread
 static void *update_iam_credentials_main(void *arg);
 static int update_iam_credentials(struct http_io_private *priv);
 static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
-/* Block survey functions */
+// Block survey functions
 static int http_io_list_blocks_range(struct http_io_private *priv,
     s3b_block_t min, s3b_block_t max, block_list_func_t *callback, void *arg);
 static void *http_io_list_blocks_worker_main(void *arg);
@@ -327,10 +327,10 @@ static void http_io_list_blocks_elem_end(void *arg, const XML_Char *name);
 static block_list_func_t http_io_list_blocks_callback;
 static void http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv);
 
-/* Bulk delete */
+// Bulk delete
 static void http_io_bulk_delete_elem_end(void *arg, const XML_Char *name);
 
-/* XML query functions */
+// XML query functions
 static int http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, const char *method, char *url);
 static int http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io,
     void (*end_handler)(void *arg, const XML_Char *name));
@@ -339,7 +339,7 @@ static size_t http_io_curl_xml_reader(const void *ptr, size_t size, size_t nmemb
 static void http_io_xml_elem_start(void *arg, const XML_Char *name, const XML_Char **atts);
 static void http_io_xml_text(void *arg, const XML_Char *s, int len);
 
-/* HTTP and curl functions */
+// HTTP and curl functions
 static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper);
 static size_t http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream);
@@ -353,7 +353,7 @@ static int http_io_reader_error_check(struct http_io *const io, const void *ptr,
 static void http_io_free_error_payload(struct http_io *const io);
 static void http_io_log_error_payload(struct http_io *const io);
 
-/* Misc */
+// Misc
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
 static u_long http_io_openssl_ider(void);
 static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len);
@@ -373,7 +373,7 @@ static void http_io_init_io(struct http_io_private *priv, struct http_io *io, co
 static void http_io_curl_header_reset(struct http_io *const io);
 static int http_io_verify_etag_provided(struct http_io *io);
 
-/* Internal variables */
+// Internal variables
 static pthread_mutex_t *openssl_locks;
 static int num_openssl_locks;
 static u_char zero_etag[MD5_DIGEST_LENGTH];
@@ -393,14 +393,14 @@ http_io_create(struct http_io_conf *config)
     int nlocks;
     int r;
 
-    /* Sanity check: we can really only handle one instance */
+    // Sanity check: we can really only handle one instance
     if (openssl_locks != NULL) {
         (*config->log)(LOG_ERR, "http_io_create() called twice");
         r = EALREADY;
         goto fail0;
     }
 
-    /* Initialize structures */
+    // Initialize structures
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL) {
         r = errno;
         goto fail0;
@@ -429,7 +429,7 @@ http_io_create(struct http_io_conf *config)
     LIST_INIT(&priv->curls);
     s3b->data = priv;
 
-    /* Initialize openssl */
+    // Initialize openssl
     num_openssl_locks = CRYPTO_num_locks();
     if ((openssl_locks = malloc(num_openssl_locks * sizeof(*openssl_locks))) == NULL) {
         r = errno;
@@ -442,22 +442,22 @@ http_io_create(struct http_io_conf *config)
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
 
-    /* Avoid GCC unused-function warnings */
+    // Avoid GCC unused-function warnings
     (void)http_io_openssl_locker;
     (void)http_io_openssl_ider;
 
-    /* Initialize encryption */
+    // Initialize encryption
     if (config->encryption != NULL) {
         char saltbuf[strlen(config->bucket) + 1 + strlen(config->prefix) + 1];
         u_int cipher_key_len;
         u_int cipher_block_size;
         u_int cipher_iv_length;
 
-        /* Sanity checks */
+        // Sanity checks
         assert(config->password != NULL);
         assert(config->block_size % EVP_MAX_IV_LENGTH == 0);
 
-        /* Find encryption algorithm */
+        // Find encryption algorithm
         OpenSSL_add_all_ciphers();
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
             (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
@@ -472,7 +472,7 @@ http_io_create(struct http_io_conf *config)
             goto fail5;
         }
 
-        /* Sanity check cipher is a block cipher */
+        // Sanity check cipher is a block cipher
         cipher_block_size = EVP_CIPHER_block_size(priv->cipher);
         cipher_iv_length = EVP_CIPHER_iv_length(priv->cipher);
         if (cipher_block_size <= 1 || cipher_block_size != cipher_iv_length) {
@@ -482,7 +482,7 @@ http_io_create(struct http_io_conf *config)
             goto fail5;
         }
 
-        /* Hash password to get bulk data encryption key */
+        // Hash password to get bulk data encryption key
         snvprintf(saltbuf, sizeof(saltbuf), "%s/%s", config->bucket, config->prefix);
         if ((r = PKCS5_PBKDF2_HMAC_SHA1(config->password, strlen(config->password),
           (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
@@ -491,7 +491,7 @@ http_io_create(struct http_io_conf *config)
             goto fail5;
         }
 
-        /* Hash the bulk encryption key to get the IV encryption key */
+        // Hash the bulk encryption key to get the IV encryption key
         if ((r = PKCS5_PBKDF2_HMAC_SHA1((char *)priv->key, priv->keylen,
           priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
@@ -499,7 +499,7 @@ http_io_create(struct http_io_conf *config)
             goto fail5;
         }
 
-        /* Encryption debug */
+        // Encryption debug
 #if DEBUG_ENCRYPTION
     {
         char keybuf[priv->keylen * 2 + 1];
@@ -511,18 +511,18 @@ http_io_create(struct http_io_conf *config)
 #endif
     }
 
-    /* Initialize cURL */
+    // Initialize cURL
     curl_global_init(CURL_GLOBAL_ALL);
 
-    /* Initialize IAM credentials */
+    // Initialize IAM credentials
     if (config->ec2iam_role != NULL && (r = update_iam_credentials(priv)) != 0)
         goto fail6;
 
-    /* Take ownership of non-zero block bitmap */
+    // Take ownership of non-zero block bitmap
     priv->non_zero = config->nonzero_bitmap;
     config->nonzero_bitmap = NULL;
 
-    /* Done */
+    // Done
     return s3b;
 
 fail6:
@@ -563,7 +563,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     struct http_io_private *const priv = s3b->data;
     struct curl_holder *holder;
 
-    /* Clean up openssl */
+    // Clean up openssl
     while (num_openssl_locks > 0)
         pthread_mutex_destroy(&openssl_locks[--num_openssl_locks]);
     free(openssl_locks);
@@ -571,7 +571,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     CRYPTO_set_locking_callback(NULL);
     CRYPTO_set_id_callback(NULL);
 
-    /* Clean up cURL */
+    // Clean up cURL
     while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
         LIST_REMOVE(holder, link);
@@ -579,7 +579,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     }
     curl_global_cleanup();
 
-    /* Free structures */
+    // Free structures
     pthread_cond_destroy(&priv->survey_done);
     pthread_mutex_destroy(&priv->mutex);
     bitmap_free(&priv->non_zero);
@@ -594,22 +594,22 @@ http_io_shutdown(struct s3backer_store *const s3b)
     struct http_io_conf *const config = priv->config;
     int r;
 
-    /* Signal survey threads to stop */
+    // Signal survey threads to stop
     priv->abort_survey = 1;
 
-    /* Lock mutex */
+    // Lock mutex
     pthread_mutex_lock(&priv->mutex);
 
-    /* Shut down IAM thread, if any */
+    // Shut down IAM thread, if any
     if (priv->iam_thread_alive) {
 
-        /* Make IAM thread stop */
+        // Make IAM thread stop
         priv->iam_thread_shutdown = 1;
         if ((r = pthread_cancel(priv->iam_thread)) != 0)
             (*config->log)(LOG_ERR, "pthread_cancel: %s", strerror(r));
         priv->iam_thread_alive = 0;
 
-        /* Reap IAM thread */
+        // Reap IAM thread
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         (*config->log)(LOG_DEBUG, "waiting for EC2 IAM thread to shutdown");
         if ((r = pthread_join(priv->iam_thread, NULL)) != 0)
@@ -619,13 +619,13 @@ http_io_shutdown(struct s3backer_store *const s3b)
         pthread_mutex_lock(&priv->mutex);
     }
 
-    /* Wait for block survey threads to exit, if any */
+    // Wait for block survey threads to exit, if any
     http_io_wait_for_survey_threads_to_exit(priv);
 
-    /* Unlock mutex */
+    // Unlock mutex
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Done */
+    // Done
     return 0;
 }
 
@@ -658,14 +658,14 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
     s3b_block_t last_possible_name;
     int r = 0;
 
-    /* Determine the last possible block name we need to scan for */
+    // Determine the last possible block name we need to scan for
     last_possible_name = config->blockHashPrefix ? ~(s3b_block_t)0 : config->num_blocks - 1;
 
-    /* Lock mutex */
+    // Lock mutex
     pthread_mutex_lock(&priv->mutex);
     assert(priv->num_survey_threads == 0);
 
-    /* Allocate survey_threads array */
+    // Allocate survey_threads array
     if (priv->num_survey_threads != 0) {
         r = EINPROGRESS;
         goto done;
@@ -676,18 +676,18 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
         goto done;
     }
 
-    /* Initialize per-thread infos and start threads */
+    // Initialize per-thread infos and start threads
     priv->survey_error = 0;
     while (priv->num_survey_threads < max_threads) {
         const int thread_index = priv->num_survey_threads;
         struct http_io_survey *const survey = &priv->survey_threads[thread_index];
 
-        /* Configure this thread */
+        // Configure this thread
         survey->priv = priv;
         survey->callback = callback;
         survey->callback_arg = arg;
 
-        /* Configure this thread's portion of the range, but being careful to handle weird corner cases */
+        // Configure this thread's portion of the range, but being careful to handle weird corner cases
         survey->min_name = thread_index > 0 ? survey[-1].max_name + 1 : (s3b_block_t)0;
         if (survey->min_name > last_possible_name)
             survey->min_name = last_possible_name;
@@ -701,7 +701,7 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
                 survey->max_name = last_possible_name;
         }
 
-        /* Start this thread */
+        // Start this thread
         if ((r = pthread_create(&survey->thread, NULL, http_io_list_blocks_worker_main, survey)) != 0) {
             (*config->log)(LOG_ERR, "pthread_create: %s", strerror(r));
             priv->abort_survey = 1;
@@ -710,13 +710,13 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
         priv->num_survey_threads++;
     }
 
-    /* Wait for survey threads to finish */
+    // Wait for survey threads to finish
     http_io_wait_for_survey_threads_to_exit(priv);
     if (r == 0)
         r = priv->survey_error;
 
 done:
-    /* Done */
+    // Done
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return r;
 }
@@ -725,11 +725,11 @@ done:
 static void
 http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv)
 {
-    /* Wait for all survey threads to finish */
+    // Wait for all survey threads to finish
     while (priv->num_survey_threads > 0)
         pthread_cond_wait(&priv->survey_done, &priv->mutex);
 
-    /* Reset state */
+    // Reset state
     free(priv->survey_threads);
     priv->survey_threads = NULL;
 }
@@ -741,11 +741,11 @@ http_io_list_blocks_worker_main(void *arg)
     struct http_io_private *const priv = info->priv;
     int r = 0;
 
-    /* Scan my range (if non-empty) */
+    // Scan my range (if non-empty)
     if (info->min_name <= info->max_name)
         r = http_io_list_blocks_range(priv, info->min_name, info->max_name, http_io_list_blocks_callback, info);
 
-    /* Finish up */
+    // Finish up
     pthread_mutex_lock(&priv->mutex);
     if (priv->survey_error == 0)
         priv->survey_error = r;
@@ -780,17 +780,17 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
     struct http_io io;
     int r;
 
-    /* Initialize XML query */
+    // Initialize XML query
     if ((r = http_io_xml_io_init(priv, &io, HTTP_GET, NULL)) != 0)              // "url" is set below
         return r;
     io.block_list = block_list;
     io.min_name = min;
     io.max_name = max;
 
-    /* Determine the last possible valid block name (or block hash prefix) we want to search for */
+    // Determine the last possible valid block name (or block hash prefix) we want to search for
     snvprintf(last_possible_path, sizeof(last_possible_path), "%s%0*jx", config->prefix, S3B_BLOCK_NUM_DIGITS, (uintmax_t)max);
 
-    /* Initialize "io.start_after", which says where to continue listing names each time around the loop */
+    // Initialize "io.start_after", which says where to continue listing names each time around the loop
     if (min == (s3b_block_t)0)
         r = asprintf(&io.start_after, "%s%0*jx%c", config->prefix, S3B_BLOCK_NUM_DIGITS - 1, (uintmax_t)0, '0' - 1);
     else
@@ -802,7 +802,7 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
         goto done;
     }
 
-    /* List blocks */
+    // List blocks
     while (1) {
         char start_after_urlencoded[3 * strlen(io.start_after) + 1];
         char urlbuf[strlen(config->baseURL)
@@ -810,13 +810,13 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
           + sizeof("?" LIST_PARAM_MARKER "=") + sizeof(start_after_urlencoded)
           + sizeof("&" LIST_PARAM_MAX_KEYS "=") + 16];
 
-        /* Format URL (note: URL parameters must be in "canonical query string" format for proper authentication) */
+        // Format URL (note: URL parameters must be in "canonical query string" format for proper authentication)
         url_encode(io.start_after, strlen(io.start_after), start_after_urlencoded, sizeof(start_after_urlencoded), 1);
         snvprintf(urlbuf, sizeof(urlbuf), "%s%s?%s=%s&%s=%u", config->baseURL, config->vhost ? "" : config->bucket,
           LIST_PARAM_MARKER, start_after_urlencoded, LIST_PARAM_MAX_KEYS, LIST_BLOCKS_CHUNK);
         io.url = urlbuf;
 
-        /* Perform operation */
+        // Perform operation
         assert(io.num_blocks == 0);
 #if DEBUG_BLOCK_LIST
         (*config->log)(LOG_DEBUG, "list: querying range [%0*jx, %0*jx] starting after \"%s\"",
@@ -825,20 +825,20 @@ http_io_list_blocks_range(struct http_io_private *priv, s3b_block_t min, s3b_blo
         if ((r = http_io_xml_io_exec(priv, &io, http_io_list_blocks_elem_end)) != 0)
             break;
 
-        /* Invoke callback with the blocks we found */
+        // Invoke callback with the blocks we found
         if (io.num_blocks > 0) {
             if ((r = (*callback)(arg, block_list, io.num_blocks)) != 0)
                 break;
             io.num_blocks = 0;
         }
 
-        /* Are we done? */
+        // Are we done?
         if (!io.list_truncated || strcmp(io.start_after, last_possible_path) >= 0)
             break;
     }
 
 done:
-    /* Done */
+    // Done
     http_io_xml_io_destroy(priv, &io);
     free(io.start_after);
     return r;
@@ -864,22 +864,22 @@ http_io_curl_xml_reader(const void *ptr, size_t size, size_t nmemb, void *stream
     struct http_io *const io = (struct http_io *)stream;
     size_t total = size * nmemb;
 
-    /* Check for error payload */
+    // Check for error payload
     if (http_io_reader_error_check(io, ptr, total))
         return total;
 
-    /* If we are in an error state, just bail */
+    // If we are in an error state, just bail
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return total;
 
-    /* Run new payload bytes through XML parser */
+    // Run new payload bytes through XML parser
     if (XML_Parse(io->xml, ptr, total, 0) != XML_STATUS_OK) {
         io->xml_error = XML_GetErrorCode(io->xml);
         io->xml_error_line = XML_GetCurrentLineNumber(io->xml);
         io->xml_error_column = XML_GetCurrentColumnNumber(io->xml);
     }
 
-    /* Done */
+    // Done
     return total;
 }
 
@@ -890,11 +890,11 @@ http_io_xml_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
     const size_t plen = strlen(io->xml_path);
     char *newbuf;
 
-    /* If we are in an error state, just bail */
+    // If we are in an error state, just bail
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return;
 
-    /* Update current path */
+    // Update current path
     if ((newbuf = realloc(io->xml_path, plen + 1 + strlen(name) + 1)) == NULL) {
         io->handler_error = errno;
         (*io->config->log)(LOG_ERR, "realloc: %s", strerror(errno));
@@ -904,11 +904,11 @@ http_io_xml_elem_start(void *arg, const XML_Char *name, const XML_Char **atts)
     io->xml_path[plen] = '/';
     strcpy(io->xml_path + plen + 1, name);
 
-    /* Reset text buffer */
+    // Reset text buffer
     io->xml_text[0] = '\0';
 
 #if DEBUG_BLOCK_LIST
-    /* Debug */
+    // Debug
     (*io->config->log)(LOG_DEBUG, "list: new path: \"%s\"", io->xml_path);
 #endif
 }
@@ -919,11 +919,11 @@ http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
     struct http_io *const io = (struct http_io *)arg;
     struct http_io_conf *const config = io->config;
 
-    /* If we are in an error state, just bail */
+    // If we are in an error state, just bail
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return;
 
-    /* Handle <Truncated> tag */
+    // Handle <Truncated> tag
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_IS_TRUNCATED) == 0) {
         io->list_truncated = strcmp(io->xml_text, LIST_TRUE) == 0;
 #if DEBUG_BLOCK_LIST
@@ -932,7 +932,7 @@ http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
         goto done;
     }
 
-    /* Handle <Key> tag */
+    // Handle <Key> tag
     if (strcmp(io->xml_path, "/" LIST_ELEM_LIST_BUCKET_RESLT "/" LIST_ELEM_CONTENTS "/" LIST_ELEM_KEY) == 0) {
         s3b_block_t hash_value;
         s3b_block_t block_num;
@@ -942,7 +942,7 @@ http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
         (*config->log)(LOG_DEBUG, "list: key=\"%s\"", io->xml_text);
 #endif
 
-        /* Attempt to parse key as a block's object name and add to list if successful */
+        // Attempt to parse key as a block's object name and add to list if successful
         if (http_io_parse_block(config->prefix, config->num_blocks,
           config->blockHashPrefix, io->xml_text, &hash_value, &block_num) == 0) {
 #if DEBUG_BLOCK_LIST
@@ -963,7 +963,7 @@ http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
             (*config->log)(LOG_DEBUG, "list: can't parse key=\"%s\"", io->xml_text);
 #endif
 
-        /* Save the last name we see as the starting point for next time */
+        // Save the last name we see as the starting point for next time
         if ((new_start_after = realloc(io->start_after, strlen(io->xml_text) + 1)) == NULL) {
             io->handler_error = errno;
             (*config->log)(LOG_ERR, "strdup: %s", strerror(errno));
@@ -974,11 +974,11 @@ http_io_list_blocks_elem_end(void *arg, const XML_Char *name)
     }
 
 done:
-    /* Update current XML path */
+    // Update current XML path
     assert(strrchr(io->xml_path, '/') != NULL);
     *strrchr(io->xml_path, '/') = '\0';
 
-    /* Reset text buffer */
+    // Reset text buffer
     io->xml_text[0] = '\0';
 }
 
@@ -990,11 +990,11 @@ http_io_xml_text(void *arg, const XML_Char *s, int len)
     size_t current_len;
     char *new_buf;
 
-    /* If we are in an error state, just bail */
+    // If we are in an error state, just bail
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return;
 
-    /* Extend text buffer */
+    // Extend text buffer
     current_len = strlen(io->xml_text);
     if ((new_buf = realloc(io->xml_text, current_len + len + 1)) == NULL) {
         io->handler_error = errno;
@@ -1003,7 +1003,7 @@ http_io_xml_text(void *arg, const XML_Char *s, int len)
     }
     io->xml_text = new_buf;
 
-    /* Append text to buffer */
+    // Append text to buffer
     memcpy(io->xml_text + current_len, s, len);
     io->xml_text[current_len + len] = '\0';
 }
@@ -1021,12 +1021,12 @@ http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPre
     s3b_block_t hash_value = 0;
     s3b_block_t block_num = 0;
 
-    /* Parse prefix */
+    // Parse prefix
     if (strncmp(name, prefix, plen) != 0)
         return -1;
     name += plen;
 
-    /* Parse block hash prefix followed by BLOCK_HASH_PREFIX_SEPARATOR (if so configured) */
+    // Parse block hash prefix followed by BLOCK_HASH_PREFIX_SEPARATOR (if so configured)
     if (blockHashPrefix) {
         if (http_io_parse_hex_block_num(name, &hash_value) == -1)
             return -1;
@@ -1036,20 +1036,20 @@ http_io_parse_block(const char *prefix, s3b_block_t num_blocks, int blockHashPre
         name += strlen(BLOCK_HASH_PREFIX_SEPARATOR);
     }
 
-    /* Parse block number */
+    // Parse block number
     if (http_io_parse_hex_block_num(name, &block_num) == -1)
         return -1;
     name += S3B_BLOCK_NUM_DIGITS;
     if (*name != '\0' || block_num >= num_blocks)
         return -1;
 
-    /* Verify hash matches what's expected */
+    // Verify hash matches what's expected
     if (!blockHashPrefix)
         hash_value = block_num;
     else if (hash_value != http_io_block_hash_prefix(block_num))
         return -1;
 
-    /* Done */
+    // Done
     *hash_valuep = hash_value;
     *block_nump = block_num;
     return 0;
@@ -1066,7 +1066,7 @@ http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
     s3b_block_t value = 0;
     int i;
 
-    /* Parse block number */
+    // Parse block number
     for (i = 0; i < S3B_BLOCK_NUM_DIGITS; i++) {
         const char ch = string[i];
 
@@ -1079,7 +1079,7 @@ http_io_parse_hex_block_num(const char *string, s3b_block_t *valuep)
             return -1;
     }
 
-    /* Done */
+    // Done
     *valuep = value;
     return 0;
 }
@@ -1126,7 +1126,7 @@ http_io_create_threads(struct s3backer_store *s3b)
     struct http_io_conf *const config = priv->config;
     int r = 0;
 
-    /* Start IAM updater thread if appropriate */
+    // Start IAM updater thread if appropriate
     pthread_mutex_lock(&priv->mutex);
     if (config->ec2iam_role != NULL) {
         assert(!priv->iam_thread_alive);
@@ -1137,7 +1137,7 @@ http_io_create_threads(struct s3backer_store *s3b)
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Done */
+    // Done
     return r;
 }
 
@@ -1151,24 +1151,24 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     struct http_io io;
     int r;
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, &io, HTTP_HEAD, urlbuf);
 
-    /* Construct URL for the first block */
+    // Construct URL for the first block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, 0);
 
-    /* Add Date header */
+    // Add Date header
     http_io_add_date(priv, &io, now);
 
-    /* Add Authorization header */
+    // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
         goto done;
 
-    /* Perform operation */
+    // Perform operation
     if ((r = http_io_perform_io(priv, &io, http_io_head_prepper)) != 0)
         goto done;
 
-    /* Extract filesystem sizing information */
+    // Extract filesystem sizing information
     if (io.file_size == 0 || io.block_size == 0) {
         r = ENOENT;
         goto done;
@@ -1177,7 +1177,7 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     *block_sizep = io.block_size;
 
 done:
-    /*  Clean up */
+    //  Clean up
     curl_slist_free_all(io.headers);
     return r;
 }
@@ -1205,23 +1205,23 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
     struct http_io io;
     int r = 0;
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, &io, HTTP_HEAD, urlbuf);
 
-    /* Construct URL for the mount token file */
+    // Construct URL for the mount token file
     http_io_get_mount_token_file_url(urlbuf, sizeof(urlbuf), config);
 
-    /* Get old value */
+    // Get old value
     if (old_valuep != NULL) {
 
-        /* Add Date header */
+        // Add Date header
         http_io_add_date(priv, &io, now);
 
-        /* Add Authorization header */
+        // Add Authorization header
         if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
             goto done;
 
-        /* See if object exists */
+        // See if object exists
         switch ((r = http_io_perform_io(priv, &io, http_io_head_prepper))) {
         case ENOENT:
             *old_valuep = 0;
@@ -1237,25 +1237,25 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         }
     }
 
-    /* Set new value */
+    // Set new value
     if (new_value >= 0) {
         char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
         MD5_CTX ctx;
 
-        /* Reset I/O info */
+        // Reset I/O info
         curl_slist_free_all(io.headers);
         http_io_init_io(priv, &io, new_value != 0 ? HTTP_PUT : HTTP_DELETE, urlbuf);
 
-        /* Add Date header */
+        // Add Date header
         http_io_add_date(priv, &io, now);
 
-        /* To set the flag PUT some content containing current date */
+        // To set the flag PUT some content containing current date
         if (new_value != 0) {
             struct tm tm;
 
-            /* Create content for the mount token file (timestamp) */
+            // Create content for the mount token file (timestamp)
             gethostname(content, sizeof(content) - 1);
             content[sizeof(content) - 1] = '\0';
             strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" AWS_DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
@@ -1265,41 +1265,41 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
             MD5_Update(&ctx, content, strlen(content));
             MD5_Final(md5, &ctx);
 
-            /* Add Content-Type header */
+            // Add Content-Type header
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, MOUNT_TOKEN_FILE_MIME_TYPE);
 
-            /* Add Content-MD5 header */
+            // Add Content-MD5 header
             http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", MD5_HEADER, md5buf);
 
-            /* Add Mount-Token header */
+            // Add Mount-Token header
             io.headers = http_io_add_header(priv, io.headers, "%s: %08x", MOUNT_TOKEN_HEADER, (int)new_value);
 
-            /* Add ACL header */
+            // Add ACL header
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACL_HEADER, config->accessType);
         }
 
-        /* Add Server Side Encryption header(s) (if needed) */
+        // Add Server Side Encryption header(s) (if needed)
         if (config->sse != NULL && new_value != 0) {
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
             if (strcmp(config->sse, SSE_AWS_KMS) == 0)
                 io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
         }
 
-        /* Add storage class header (if needed) */
+        // Add storage class header (if needed)
         if (config->storage_class != NULL)
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
-        /* Add Authorization header */
+        // Add Authorization header
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
             goto done;
 
-        /* Perform operation to set or clear mount token */
+        // Perform operation to set or clear mount token
         r = http_io_perform_io(priv, &io, http_io_write_prepper);
     }
 
 done:
-    /*  Clean up */
+    //  Clean up
     curl_slist_free_all(io.headers);
     return r;
 }
@@ -1317,19 +1317,19 @@ update_iam_credentials(struct http_io_private *const priv)
     size_t buflen;
     int r;
 
-    /* Build URL */
+    // Build URL
     if (asprintf(&urlbuf, "%s%s", EC2_IAM_META_DATA_URLBASE, config->ec2iam_role) == -1) {
         r = errno;
         (*config->log)(LOG_ERR, "%s: asprintf() failed: %s", "update_iam_credentials", strerror(r));
         return r;
     }
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.dest = buf;
     io.buf_size = sizeof(buf);
 
-    /* Perform operation */
+    // Perform operation
     (*config->log)(LOG_INFO, "acquiring EC2 IAM credentials from %s", io.url);
     if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
         switch (r) {
@@ -1344,13 +1344,13 @@ update_iam_credentials(struct http_io_private *const priv)
         return r;
     }
 
-    /* Determine how many bytes we read */
+    // Determine how many bytes we read
     buflen = io.buf_size - io.bufs.rdremain;
     if (buflen > sizeof(buf) - 1)
         buflen = sizeof(buf) - 1;
     buf[buflen] = '\0';
 
-    /* Find credentials in JSON response */
+    // Find credentials in JSON response
     if ((access_id = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSID)) == NULL
       || (access_key = parse_json_field(priv, buf, EC2_IAM_META_DATA_ACCESSKEY)) == NULL
       || (iam_token = parse_json_field(priv, buf, EC2_IAM_META_DATA_TOKEN)) == NULL) {
@@ -1361,7 +1361,7 @@ update_iam_credentials(struct http_io_private *const priv)
         return EINVAL;
     }
 
-    /* Update credentials */
+    // Update credentials
     pthread_mutex_lock(&priv->mutex);
     free(config->accessId);
     free(config->accessKey);
@@ -1373,7 +1373,7 @@ update_iam_credentials(struct http_io_private *const priv)
     (*config->log)(LOG_INFO, "successfully updated EC2 IAM credentials from %s", io.url);
     free(urlbuf);
 
-    /* Done */
+    // Done
     return 0;
 }
 
@@ -1467,11 +1467,11 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int i;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
 
-    /* Read zero blocks when bitmap indicates empty until non-zero content is written */
+    // Read zero blocks when bitmap indicates empty until non-zero content is written
     if (priv->non_zero != NULL) {
         pthread_mutex_lock(&priv->mutex);
         if (!bitmap_test(priv->non_zero, block_num)) {
@@ -1485,11 +1485,11 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.block_num = block_num;
 
-    /* Allocate a buffer in case compressed and/or encrypted data is larger */
+    // Allocate a buffer in case compressed and/or encrypted data is larger
     io.buf_size = compressBound(config->block_size) + EVP_MAX_IV_LENGTH;
     if ((io.dest = malloc(io.buf_size)) == NULL) {
         (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
@@ -1499,13 +1499,13 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         return ENOMEM;
     }
 
-    /* Construct URL for this block */
+    // Construct URL for this block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
-    /* Add Date header */
+    // Add Date header
     http_io_add_date(priv, &io, now);
 
-    /* Add If-Match or If-None-Match header as required */
+    // Add If-Match or If-None-Match header as required
     if (expect_etag != NULL && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0) {
         char etagbuf[MD5_DIGEST_LENGTH * 2 + 1];
         const char *header;
@@ -1520,7 +1520,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", header, etagbuf);
     }
 
-    /* Set Accept-Encoding header */
+    // Set Accept-Encoding header
     *accept_encoding = '\0';
     for (i = 0; i < num_comp_algs; i++) {
         const struct comp_alg *calg = &comp_algs[i];
@@ -1537,27 +1537,27 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
     io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
 
-    /* Add Authorization header */
+    // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
         goto fail;
 
-    /* Perform operation */
+    // Perform operation
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
 
-    /* Verify an ETag was provided by server if caller wants it */
+    // Verify an ETag was provided by server if caller wants it
     if (r == 0 && actual_etag != NULL)
         r = http_io_verify_etag_provided(&io);
 
-    /* Determine how many bytes we read */
+    // Determine how many bytes we read
     did_read = io.buf_size - io.bufs.rdremain;
 
-    /* Check Content-Encoding and decode if necessary */
+    // Check Content-Encoding and decode if necessary
     if (*io.content_encoding == '\0' && config->default_ce != NULL)
         snvprintf(io.content_encoding, sizeof(io.content_encoding), "%s", config->default_ce);
     for ( ; r == 0 && *io.content_encoding != '\0'; *layer = '\0') {
         const struct comp_alg *calg;
 
-        /* Find next encoding layer, starting from the end and working backwards, trimming any whitespace */
+        // Find next encoding layer, starting from the end and working backwards, trimming any whitespace
         if ((layer = strrchr(io.content_encoding, ',')) != NULL)
             *layer++ = '\0';
         else
@@ -1567,18 +1567,18 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         while (*layer != '\0' && isspace(layer[strlen(layer) - 1]))
             layer[strlen(layer) - 1] = '\0';
 
-        /* Sanity check */
+        // Sanity check
         if (io.dest == NULL)
             goto bad_encoding;
 
-        /* Check for encryption (which must have been applied after compression) */
+        // Check for encryption (which must have been applied after compression)
         if (strncasecmp(layer, CONTENT_ENCODING_ENCRYPT "-", sizeof(CONTENT_ENCODING_ENCRYPT)) == 0) {
             const char *const block_cipher = layer + sizeof(CONTENT_ENCODING_ENCRYPT);
             u_char hmac[SHA_DIGEST_LENGTH];
             u_int decrypt_buflen;
             u_char *buf;
 
-            /* Encryption must be enabled */
+            // Encryption must be enabled
             if (config->encryption == NULL) {
                 (*config->log)(LOG_ERR, "block %0*jx is encrypted with `%s' but `--encrypt' was not specified",
                   S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher);
@@ -1586,7 +1586,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 break;
             }
 
-            /* Verify encryption type */
+            // Verify encryption type
             if (strcasecmp(block_cipher, EVP_CIPHER_name(priv->cipher)) != 0) {
                 (*config->log)(LOG_ERR, "block %0*jx was encrypted using `%s' but `%s' encryption is configured",
                   S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher, EVP_CIPHER_name(priv->cipher));
@@ -1594,7 +1594,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 break;
             }
 
-            /* Verify block's signature */
+            // Verify block's signature
             if (memcmp(io.hmac, zero_hmac, sizeof(io.hmac)) == 0) {
                 (*config->log)(LOG_ERR, "block %0*jx is encrypted, but no signature was found",
                   S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
@@ -1609,7 +1609,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 break;
             }
 
-            /* Allocate buffer for the decrypted data */
+            // Allocate buffer for the decrypted data
             decrypt_buflen = did_read + EVP_MAX_IV_LENGTH;
             if ((buf = malloc(decrypt_buflen)) == NULL) {
                 (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
@@ -1620,17 +1620,17 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 break;
             }
 
-            /* Decrypt the block */
+            // Decrypt the block
             did_read = http_io_crypt(priv, block_num, 0, io.dest, did_read, buf, decrypt_buflen);
             memcpy(io.dest, buf, did_read);
             free(buf);
 
-            /* Proceed */
+            // Proceed
             encrypted = 1;
             continue;
         }
 
-        /* Check for compression */
+        // Check for compression
         if ((calg = comp_find(layer)) != NULL) {
             size_t uclen = config->block_size;
 
@@ -1643,41 +1643,41 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                 continue;
             }
 
-            /* Update data */
+            // Update data
             did_read = uclen;
             free(io.dest);
-            io.dest = NULL;         /* compression should have been first, so decompression should always be last */
+            io.dest = NULL;         // compression should have been first, so decompression should always be last
 
-            /* Proceed */
+            // Proceed
             continue;
         }
 
 bad_encoding:
-        /* It was something we don't recognize */
+        // It was something we don't recognize
         (*config->log)(LOG_ERR, "read of block %0*jx returned unexpected encoding \"%s\"",
           S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, layer);
         r = EIO;
         break;
     }
 
-    /* Check for required encryption */
+    // Check for required encryption
     if (r == 0 && config->encryption != NULL && !encrypted) {
         (*config->log)(LOG_ERR, "block %0*jx was supposed to be encrypted but wasn't", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         r = EIO;
     }
 
-    /* Check for wrong length read */
+    // Check for wrong length read
     if (r == 0 && did_read != config->block_size) {
         (*config->log)(LOG_ERR, "read of block %0*jx returned %lu != %lu bytes",
           S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, (u_long)did_read, (u_long)config->block_size);
         r = EIO;
     }
 
-    /* Copy the data to the desination buffer (if we haven't already) */
+    // Copy the data to the desination buffer (if we haven't already)
     if (r == 0 && io.dest != NULL)
         memcpy(dest, io.dest, config->block_size);
 
-    /* Update stats */
+    // Update stats
     pthread_mutex_lock(&priv->mutex);
     switch (r) {
     case 0:
@@ -1691,11 +1691,11 @@ bad_encoding:
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Check expected ETag */
+    // Check expected ETag
     if (expect_etag != NULL) {
         const int expected_not_found = memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) == 0;
 
-        /* Compare result with expectation */
+        // Compare result with expectation
         switch (r) {
         case 0:
             if (expected_not_found)
@@ -1709,7 +1709,7 @@ bad_encoding:
             break;
         }
 
-        /* Update stats */
+        // Update stats
         if (!strict) {
             switch (r) {
             case 0:
@@ -1728,18 +1728,18 @@ bad_encoding:
         }
     }
 
-    /* Treat `404 Not Found' all zeros */
+    // Treat `404 Not Found' all zeros
     if (r == ENOENT) {
         memset(dest, 0, config->block_size);
         r = 0;
     }
 
-    /* Copy actual ETag */
+    // Copy actual ETag
     if (actual_etag != NULL)
         memcpy(actual_etag, io.etag, MD5_DIGEST_LENGTH);
 
 fail:
-    /*  Clean up */
+    //  Clean up
     if (io.dest != NULL)
         free(io.dest);
     curl_slist_free_all(io.headers);
@@ -1783,15 +1783,15 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     int encrypted = 0;
     int r;
 
-    /* Sanity check */
+    // Sanity check
     if (config->block_size == 0 || block_num >= config->num_blocks)
         return EINVAL;
 
-    /* Detect zero blocks (if not done already by upper layer) */
+    // Detect zero blocks (if not done already by upper layer)
     if (src != NULL && block_is_zeros(src, config->block_size))
         src = NULL;
 
-    /* Don't write zero blocks when bitmap indicates empty until non-zero content is written */
+    // Don't write zero blocks when bitmap indicates empty until non-zero content is written
     if (priv->non_zero != NULL) {
         pthread_mutex_lock(&priv->mutex);
         if (src == NULL) {
@@ -1807,7 +1807,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, &io, src != NULL ? HTTP_PUT : HTTP_DELETE, urlbuf);
     io.src = src;
     io.buf_size = config->block_size;
@@ -1815,11 +1815,11 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     io.check_cancel = check_cancel;
     io.check_cancel_arg = check_cancel_arg;
 
-    /* Compress block if desired */
+    // Compress block if desired
     if (src != NULL && config->compress_alg != NULL) {
         size_t compress_len;
 
-        /* Compress data */
+        // Compress data
         if ((r = (*config->compress_alg->cfunc)(config->log, io.src,
           io.buf_size, &encoded_buf, &compress_len, config->compress_level)) != 0) {
             if (r == ENOMEM) {
@@ -1830,19 +1830,19 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             goto fail;
         }
 
-        /* Update POST data */
+        // Update POST data
         io.src = encoded_buf;
         io.buf_size = compress_len;
         compressed = 1;
     }
 
-    /* Encrypt data if desired */
+    // Encrypt data if desired
     if (src != NULL && config->encryption != NULL) {
         void *encrypt_buf;
         u_int encrypt_len;
         u_int encrypt_buflen;
 
-        /* Allocate buffer */
+        // Allocate buffer
         encrypt_buflen = io.buf_size + EVP_MAX_IV_LENGTH;
         if ((encrypt_buf = malloc(encrypt_buflen)) == NULL) {
             (*config->log)(LOG_ERR, "malloc: %s", strerror(errno));
@@ -1853,22 +1853,22 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             goto fail;
         }
 
-        /* Encrypt the block */
+        // Encrypt the block
         encrypt_len = http_io_crypt(priv, block_num, 1, io.src, io.buf_size, encrypt_buf, encrypt_buflen);
 
-        /* Compute block signature */
+        // Compute block signature
         http_io_authsig(priv, block_num, encrypt_buf, encrypt_len, hmac);
         http_io_prhex(hmacbuf, hmac, SHA_DIGEST_LENGTH);
 
-        /* Update POST data */
+        // Update POST data
         io.src = encrypt_buf;
         io.buf_size = encrypt_len;
-        free(encoded_buf);              /* OK if NULL */
+        free(encoded_buf);              // OK if NULL
         encoded_buf = encrypt_buf;
         encrypted = 1;
     }
 
-    /* Set Content-Encoding HTTP header */
+    // Set Content-Encoding HTTP header
     if (compressed || encrypted) {
         char ebuf[128];
 
@@ -1882,72 +1882,72 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         io.headers = http_io_add_header(priv, io.headers, "%s", ebuf);
     }
 
-    /* Compute MD5 checksum */
+    // Compute MD5 checksum
     if (src != NULL)
         MD5(io.src, io.buf_size, md5);
     else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
-    /* Construct URL for this block */
+    // Construct URL for this block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
-    /* Add Date header */
+    // Add Date header
     http_io_add_date(priv, &io, now);
 
-    /* Add PUT-only headers */
+    // Add PUT-only headers
     if (src != NULL) {
         char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
 
-        /* Add Content-Type header */
+        // Add Content-Type header
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
 
-        /* Add Content-MD5 header */
+        // Add Content-MD5 header
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", MD5_HEADER, md5buf);
     }
 
-    /* Add ACL header (PUT only) */
+    // Add ACL header (PUT only)
     if (src != NULL)
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACL_HEADER, config->accessType);
 
-    /* Add file size meta-data to zero'th block */
+    // Add file size meta-data to zero'th block
     if (src != NULL && block_num == 0) {
         io.headers = http_io_add_header(priv, io.headers, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
         io.headers = http_io_add_header(priv, io.headers, "%s: %ju",
           FILE_SIZE_HEADER, (uintmax_t)config->block_size * (uintmax_t)config->num_blocks);
     }
 
-    /* Add signature header (if encrypting) */
+    // Add signature header (if encrypting)
     if (src != NULL && config->encryption != NULL)
         io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
 
-    /* Add Server Side Encryption header(s) (if needed) */
+    // Add Server Side Encryption header(s) (if needed)
     if (config->sse != NULL && src != NULL) {
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
         if (strcmp(config->sse, SSE_AWS_KMS) == 0)
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
     }
 
-    /* Add storage class header (if needed) */
+    // Add storage class header (if needed)
     if (config->storage_class != NULL)
         io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
-    /* Add Authorization header */
+    // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
         goto fail;
 
-    /* Perform operation */
+    // Perform operation
     r = http_io_perform_io(priv, &io, http_io_write_prepper);
 
-    /* Verify ETag was provided by server if we did a PUT and caller wants it */
+    // Verify ETag was provided by server if we did a PUT and caller wants it
     if (r == 0 && caller_etag != NULL && src != NULL)
         r = http_io_verify_etag_provided(&io);
 
-    /* Report ETag back to caller if requested */
+    // Report ETag back to caller if requested
     if (r == 0 && caller_etag != NULL)
         memcpy(caller_etag, src != NULL ? io.etag : zero_etag, MD5_DIGEST_LENGTH);
 
-    /* Update stats */
+    // Update stats
     if (r == 0) {
         pthread_mutex_lock(&priv->mutex);
         if (src == NULL)
@@ -1958,7 +1958,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     }
 
 fail:
-    /*  Clean up */
+    //  Clean up
     curl_slist_free_all(io.headers);
     if (encoded_buf != NULL)
         free(encoded_buf);
@@ -2027,18 +2027,18 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
     char *buf = NULL;
     int r;
 
-    /* Set URL */
+    // Set URL
     snvprintf(urlbuf, sizeof(urlbuf), "%s?delete", config->vhostURL);
 
-    /* Initialize XML query */
+    // Initialize XML query
     if ((r = http_io_xml_io_init(priv, &io, HTTP_POST, urlbuf)) != 0)
         return r;
 
-    /* Calculate the maximum length of one object name */
+    // Calculate the maximum length of one object name
     max_object_name = strlen(config->prefix) + S3B_BLOCK_NUM_DIGITS
       + strlen(BLOCK_HASH_PREFIX_SEPARATOR) + S3B_BLOCK_NUM_DIGITS + 1;           // [PREFIX]([HASH][SEPARATOR])?[BLOCK]
 
-    /* Delete blocks in chunks of DELETE_BLOCKS_CHUNK */
+    // Delete blocks in chunks of DELETE_BLOCKS_CHUNK
     while (num_blocks > 0) {
         const int count = num_blocks <= DELETE_BLOCKS_CHUNK ? num_blocks : DELETE_BLOCKS_CHUNK;
         size_t max_object_elem;
@@ -2047,7 +2047,7 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
         char *new_buf;
         u_int i;
 
-        /* Calculate upper bound on size of query payload */
+        // Calculate upper bound on size of query payload
         max_object_elem = strlen(DELETE_ELEM_OBJECT) + 2                                            // <Object>
           + strlen(DELETE_ELEM_KEY) + 2 + max_object_name + strlen(DELETE_ELEM_KEY) + 3             //   <Key>xxx</Key>
           + strlen(DELETE_ELEM_OBJECT) + 3;                                                         // </Object>
@@ -2056,7 +2056,7 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
           + strlen(DELETE_ELEM_DELETE) + 3                                                          // </Delete>
           + 2;                                                                                      // nul byte, plus one extra
 
-        /* Allocate buffer */
+        // Allocate buffer
         if ((new_buf = realloc(buf, max_payload)) == NULL) {
             r = errno;
             (*config->log)(LOG_ERR, "realloc: %s", strerror(r));
@@ -2064,7 +2064,7 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
         }
         buf = new_buf;
 
-        /* Build XML payload */
+        // Build XML payload
         payload_len = snvprintf(buf, max_payload, "<%s>", DELETE_ELEM_DELETE);
         for (i = 0; i < count; i++) {
             const s3b_block_t block_num = block_nums[i];
@@ -2079,20 +2079,20 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
         }
         payload_len += snvprintf(buf + payload_len, max_payload - payload_len, "</%s>", DELETE_ELEM_DELETE);
 
-        /* Initialize buffer */
+        // Initialize buffer
         io.bufs.wrdata = buf;
         io.bufs.wrremain = payload_len;
 
-        /* Perform operation */
+        // Perform operation
         if ((r = http_io_xml_io_exec(priv, &io, http_io_bulk_delete_elem_end)) != 0)
             break;
 
-        /* Advance */
+        // Advance
         block_nums += count;
         num_blocks -= count;
     }
 
-    /* Done */
+    // Done
     http_io_xml_io_destroy(priv, &io);
     free(buf);
     return r;
@@ -2105,11 +2105,11 @@ http_io_bulk_delete_elem_end(void *arg, const XML_Char *name)
     struct http_io_conf *const config = io->config;
     char **copy_ptr = NULL;
 
-    /* If we are in an error state, just bail */
+    // If we are in an error state, just bail
     if (io->xml_error != XML_ERROR_NONE || io->handler_error != 0)
         return;
 
-    /* Handle <DeleteResult>/<Error>/<Foo> tags */
+    // Handle <DeleteResult>/<Error>/<Foo> tags
     if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_KEY) == 0)
         copy_ptr = &io->bulk_delete_err_key;
     else if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR "/" DELETE_ELEM_CODE) == 0)
@@ -2125,7 +2125,7 @@ http_io_bulk_delete_elem_end(void *arg, const XML_Char *name)
         goto done;
     }
 
-    /* Handle end of <DeleteResult>/<Error> */
+    // Handle end of <DeleteResult>/<Error>
     if (strcmp(io->xml_path, "/" DELETE_ELEM_DELETE_RESULT "/" DELETE_ELEM_ERROR) == 0) {
         (*config->log)(LOG_ERR, "bulk delete error: key=\"%s\" code=\"%s\" message=\"%s\"",
           io->bulk_delete_err_key != NULL ? io->bulk_delete_err_key : "(none)",
@@ -2136,11 +2136,11 @@ http_io_bulk_delete_elem_end(void *arg, const XML_Char *name)
     }
 
 done:
-    /* Update current XML path */
+    // Update current XML path
     assert(strrchr(io->xml_path, '/') != NULL);
     *strrchr(io->xml_path, '/') = '\0';
 
-    /* Reset text buffer */
+    // Reset text buffer
     io->xml_text[0] = '\0';
 }
 
@@ -2150,18 +2150,18 @@ http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, cons
     struct http_io_conf *const config = priv->config;
     int r;
 
-    /* Initialize I/O info */
+    // Initialize I/O info
     http_io_init_io(priv, io, method, url);
     io->xml_error = XML_ERROR_NONE;
 
-    /* Create XML parser */
+    // Create XML parser
     if ((io->xml = XML_ParserCreate(NULL)) == NULL) {
         (*config->log)(LOG_ERR, "failed to create XML parser");
         r = ENOMEM;
         goto fail;
     }
 
-    /* Allocate buffers for XML path and tag text content */
+    // Allocate buffers for XML path and tag text content
     if ((io->xml_text = calloc(1, 1)) == NULL) {
         (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
         goto fail;
@@ -2171,18 +2171,18 @@ http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, cons
         goto fail;
     }
 
-    /* OK */
+    // OK
     return 0;
 
 fail:
-    /* Update stats */
+    // Update stats
     if (r == ENOMEM) {
         pthread_mutex_lock(&priv->mutex);
         priv->stats.out_of_memory_errors++;
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
-    /* Cleanup */
+    // Cleanup
     http_io_xml_io_destroy(priv, io);
     return r;
 }
@@ -2194,49 +2194,49 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
     const time_t now = time(NULL);
     int r;
 
-    /* Reset XML parser state */
+    // Reset XML parser state
     XML_ParserReset(io->xml, NULL);
     XML_SetUserData(io->xml, io);
     XML_SetElementHandler(io->xml, http_io_xml_elem_start, end_handler);
     XML_SetCharacterDataHandler(io->xml, http_io_xml_text);
 
-    /* Add Date header */
+    // Add Date header
     http_io_add_date(priv, io, now);
 
-    /* Add Authorization header */
+    // Add Authorization header
     if ((r = http_io_add_auth(priv, io, now, NULL, 0)) != 0)
         return r;
 
-    /* Perform operation */
+    // Perform operation
     r = http_io_perform_io(priv, io, http_io_xml_prepper);
 
-    /* Clean up headers */
+    // Clean up headers
     curl_slist_free_all(io->headers);
     io->headers = NULL;
 
-    /* Check for error from curl */
+    // Check for error from curl
     if (r != 0)
         return r;
 
-    /* Check for error from handlers */
+    // Check for error from handlers
     if ((r = io->handler_error) != 0)
         return r;
 
-    /* Finalize parse (if not already busted) */
+    // Finalize parse (if not already busted)
     if (io->xml_error == XML_ERROR_NONE && XML_Parse(io->xml, NULL, 0, 1) != XML_STATUS_OK) {
         io->xml_error = XML_GetErrorCode(io->xml);
         io->xml_error_line = XML_GetCurrentLineNumber(io->xml);
         io->xml_error_column = XML_GetCurrentColumnNumber(io->xml);
     }
 
-    /* Check for XML error */
+    // Check for XML error
     if (io->xml_error != XML_ERROR_NONE) {
         (*config->log)(LOG_ERR, "XML parse error: line %d col %d: %s",
           io->xml_error_line, io->xml_error_column, XML_ErrorString(io->xml_error));
         return EIO;
     }
 
-    /* Done */
+    // Done
     return 0;
 }
 
@@ -2269,71 +2269,71 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     int attempt;
     CURL *curl;
 
-    /* Debug */
+    // Debug
     if (config->debug)
         (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
 
-    /* Make attempts */
+    // Make attempts
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
 
-        /* Acquire and initialize CURL instance */
+        // Acquire and initialize CURL instance
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
             return EIO;
         (*prepper)(curl, io);
 
-        /* Reset error payload capture */
+        // Reset error payload capture
         io->http_status = 0;
         assert(io->error_payload == NULL);
         assert(io->error_payload_len == 0);
 
-        /* Perform HTTP operation and check result */
+        // Perform HTTP operation and check result
         if (attempt > 0)
             (*config->log)(LOG_INFO, "retrying query (attempt #%d): %s %s", attempt + 1, io->method, io->url);
         io->curl = curl;
         curl_code = curl_easy_perform(curl);
         io->curl = NULL;
 
-        /* Find out what the HTTP result code was (if any) */
+        // Find out what the HTTP result code was (if any)
         switch (curl_code) {
-        case CURLE_HTTP_RETURNED_ERROR:                         /* should never happen (we no longer use CURLOPT_FAILONERROR) */
+        case CURLE_HTTP_RETURNED_ERROR:                         // should never happen (we no longer use CURLOPT_FAILONERROR)
         case 0:
             if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code) != 0)
-                http_code = 999;                                /* this should never happen */
+                http_code = 999;                                // this should never happen
             break;
         default:
             http_code = -1;
             break;
         }
 
-        /* Pretend like the CURLOPT_FAILONERROR option was used */
+        // Pretend like the CURLOPT_FAILONERROR option was used
         if (curl_code == 0 && http_code >= HTTP_STATUS_ERROR_MINIMUM)
             curl_code = CURLE_HTTP_RETURNED_ERROR;
 
-        /* In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful */
+        // In the case of a DELETE, treat an HTTP_NOT_FOUND error as successful
         if (curl_code == CURLE_HTTP_RETURNED_ERROR
           && http_code == HTTP_NOT_FOUND
           && strcmp(io->method, HTTP_DELETE) == 0)
             curl_code = 0;
 
-        /* Handle success */
+        // Handle success
         if (curl_code == 0) {
             double curl_time;
             int r = 0;
 
-            /* Discard any error payload (e.g., 404 Not Found from DELETE) */
+            // Discard any error payload (e.g., 404 Not Found from DELETE)
             http_io_free_error_payload(io);
 
-            /* Extra debug logging */
+            // Extra debug logging
             if (config->debug)
                 (*config->log)(LOG_DEBUG, "success: %s %s", io->method, io->url);
 
-            /* Extract timing info */
+            // Extract timing info
             if ((curl_code = curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curl_time)) != CURLE_OK) {
                 (*config->log)(LOG_ERR, "can't get cURL timing: %s", curl_easy_strerror(curl_code));
                 curl_time = 0.0;
             }
 
-            /* Extract content-length (if required) */
+            // Extract content-length (if required)
             if (io->content_lengthp != NULL) {
                 if ((curl_code = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &clen)) == CURLE_OK)
                     *io->content_lengthp = (u_int)clen;
@@ -2343,7 +2343,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 }
             }
 
-            /* Update stats */
+            // Update stats
             pthread_mutex_lock(&priv->mutex);
             if (strcmp(io->method, HTTP_GET) == 0) {
                 priv->stats.http_gets.count++;
@@ -2360,15 +2360,15 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             }
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-            /* Done */
+            // Done
             http_io_release_curl(priv, &curl, r == 0);
             return r;
         }
 
-        /* Free the curl handle (and ensure we don't try to re-use it) */
+        // Free the curl handle (and ensure we don't try to re-use it)
         http_io_release_curl(priv, &curl, 0);
 
-        /* Handle errors */
+        // Handle errors
         switch (curl_code) {
         case CURLE_ABORTED_BY_CALLBACK:
             if (config->debug)
@@ -2384,7 +2384,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             priv->stats.curl_timeouts++;
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
             break;
-        case CURLE_HTTP_RETURNED_ERROR:                 /* special handling for some specific HTTP codes */
+        case CURLE_HTTP_RETURNED_ERROR:                 // special handling for some specific HTTP codes
             switch (http_code) {
             case HTTP_NOT_FOUND:
                 if (config->debug)
@@ -2429,7 +2429,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                         (*config->log)(LOG_DEBUG, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                     return EEXIST;
                 }
-                /* FALLTHROUGH */
+                // FALLTHROUGH
             default:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
@@ -2474,10 +2474,10 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             break;
         }
 
-        /* Free any error payload */
+        // Free any error payload
         http_io_free_error_payload(io);
 
-        /* Retry with exponential backoff up to max total pause limit */
+        // Retry with exponential backoff up to max total pause limit
         if (total_pause >= config->max_retry_pause)
             break;
         retry_pause = retry_pause > 0 ? retry_pause * 2 : config->initial_retry_pause;
@@ -2487,14 +2487,14 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         delay.tv_nsec = (retry_pause % 1000) * 1000000;
         nanosleep(&delay, NULL);            // TODO: check for EINTR
 
-        /* Update retry stats */
+        // Update retry stats
         pthread_mutex_lock(&priv->mutex);
         priv->stats.num_retries++;
         priv->stats.retry_delay += retry_pause;
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     }
 
-    /* Give up */
+    // Give up
     (*config->log)(LOG_ERR, "giving up on: %s %s", io->method, io->url);
     return EIO;
 }
@@ -2509,17 +2509,17 @@ http_io_add_auth(struct http_io_private *priv, struct http_io *const io, time_t 
 {
     const struct http_io_conf *const config = priv->config;
 
-    /* Anything to do? */
+    // Anything to do?
     if (config->accessId == NULL)
         return 0;
 
-    /* Which auth version? */
+    // Which auth version?
     if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0)
         return http_io_add_auth2(priv, io, now, payload, plen);
     if (strcmp(config->authVersion, AUTH_VERSION_AWS4) == 0)
         return http_io_add_auth4(priv, io, now, payload, plen);
 
-    /* Oops */
+    // Oops
     return EINVAL;
 }
 
@@ -2551,13 +2551,13 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     int i;
     int r;
 
-    /* Snapshot current credentials */
+    // Snapshot current credentials
     pthread_mutex_lock(&priv->mutex);
     snvprintf(access_id, sizeof(access_id), "%s", config->accessId);
     snvprintf(access_key, sizeof(access_key), "%s", config->accessKey);
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Initialize HMAC */
+    // Initialize HMAC
     hmac_ctx = HMAC_CTX_new();
     assert(NULL != hmac_ctx);
     HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
@@ -2566,7 +2566,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     *sigbuf = '\0';
 #endif
 
-    /* Sign initial stuff */
+    // Sign initial stuff
     HMAC_Update(hmac_ctx, (const u_char *)io->method, strlen(io->method));
     HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
@@ -2576,7 +2576,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     update_hmac_from_header(hmac_ctx, io, CTYPE_HEADER, 1, sigbuf, sizeof(sigbuf));
     update_hmac_from_header(hmac_ctx, io, HTTP_DATE_HEADER, 1, sigbuf, sizeof(sigbuf));
 
-    /* Get x-amz headers sorted by name */
+    // Get x-amz headers sorted by name
     for (header = io->headers, num_amz_hdrs = 0; header != NULL; header = header->next) {
         if (strncmp(header->data, "x-amz", 5) == 0)
             num_amz_hdrs++;
@@ -2592,15 +2592,15 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     assert(i == num_amz_hdrs);
     qsort(amz_hdrs, num_amz_hdrs, sizeof(*amz_hdrs), http_io_header_name_sort);
 
-    /* Sign x-amz headers (in sorted order) */
+    // Sign x-amz headers (in sorted order)
     for (i = 0; i < num_amz_hdrs; i++)
         update_hmac_from_header(hmac_ctx, io, amz_hdrs[i], 0, sigbuf, sizeof(sigbuf));
 
-    /* Get resource */
+    // Get resource
     resource = config->vhost ? io->url + strlen(config->baseURL) - 1 : io->url + strlen(config->baseURL) + strlen(config->bucket);
     resource_len = (qmark = strchr(resource, '?')) != NULL ? qmark - resource : strlen(resource);
 
-    /* Sign final stuff */
+    // Sign final stuff
     HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
     HMAC_Update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
     HMAC_Update(hmac_ctx, (const u_char *)resource, resource_len);
@@ -2608,11 +2608,11 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, (int)resource_len, resource);
 #endif
 
-    /* Finish up */
+    // Finish up
     HMAC_Final(hmac_ctx, hmac, &hmac_len);
     assert(hmac_len == SHA_DIGEST_LENGTH);
 
-    /* Base64-encode result */
+    // Base64-encode result
     http_io_base64_encode(authbuf, sizeof(authbuf), hmac, hmac_len);
 
 #if DEBUG_AUTHENTICATION
@@ -2622,14 +2622,14 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     (*config->log)(LOG_DEBUG, "auth: signature hmac base64 = %s", authbuf);
 #endif
 
-    /* Add auth header */
+    // Add auth header
     io->headers = http_io_add_header(priv, io->headers, "%s: AWS %s:%s", AUTH_HEADER, access_id, authbuf);
 
-    /* Done */
+    // Done
     r = 0;
 
 fail:
-    /* Clean up */
+    // Clean up
     if (amz_hdrs != NULL)
         free(amz_hdrs);
     HMAC_CTX_free(hmac_ctx);
@@ -2678,10 +2678,10 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     int r;
     int i;
 
-    /* Initialize */
+    // Initialize
     hash_ctx = EVP_MD_CTX_new();
 
-    /* Snapshot current credentials */
+    // Snapshot current credentials
     pthread_mutex_lock(&priv->mutex);
     snvprintf(access_id, sizeof(access_id), "%s", config->accessId);
     snvprintf(access_key, sizeof(access_key), "%s%s", ACCESS_KEY_PREFIX, config->accessKey);
@@ -2693,7 +2693,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    /* Extract host, URI path, and query parameters from URL */
+    // Extract host, URI path, and query parameters from URL
     if ((p = strchr(io->url, ':')) == NULL || *++p != '/' || *++p != '/'
       || (host = p + 1) == NULL || (uripath = strchr(host, '/')) == NULL) {
         r = EINVAL;
@@ -2711,7 +2711,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
         query_params_len = 0;
     }
 
-    /* Format date */
+    // Format date
     strftime(datebuf, sizeof(datebuf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
 
 /****** Hash Payload and Add Header ******/
@@ -2737,10 +2737,10 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     *sigbuf = '\0';
 #endif
 
-    /* Reset hash */
+    // Reset hash
     EVP_DigestInit_ex(hash_ctx, EVP_sha256(), NULL);
 
-    /* Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us */
+    // Sort headers by (lowercase) name; add "Host" header manually - special case because cURL adds it, not us
     snvprintf(hosthdr, sizeof(hosthdr), "host:%.*s", (int)host_len, host);
     for (num_sorted_hdrs = 1, hdr = io->headers; hdr != NULL; hdr = hdr->next)
         num_sorted_hdrs++;
@@ -2754,28 +2754,28 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     assert(i == num_sorted_hdrs);
     qsort(sorted_hdrs, num_sorted_hdrs, sizeof(*sorted_hdrs), http_io_header_name_sort);
 
-    /* Request method */
+    // Request method
     EVP_DigestUpdate(hash_ctx, (const u_char *)io->method, strlen(io->method));
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
 
-    /* Canonical URI */
+    // Canonical URI
     digest_url_encoded(hash_ctx, uripath, uripath_len, 0);
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)uripath_len, uripath);
 #endif
 
-    /* Canonical query string */
+    // Canonical query string
     EVP_DigestUpdate(hash_ctx, (const u_char *)query_params, query_params_len);
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
 #endif
 
-    /* Canonical headers */
+    // Canonical headers
     header_names_length = 0;
     for (i = 0; i < num_sorted_hdrs; i++) {
         const char *value = sorted_hdrs[i];
@@ -2808,7 +2808,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "\n");
 #endif
 
-    /* Signed headers */
+    // Signed headers
     if ((header_names = malloc(header_names_length)) == NULL) {
         r = errno;
         goto fail;
@@ -2831,13 +2831,13 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", header_names);
 #endif
 
-    /* Hashed payload */
+    // Hashed payload
     EVP_DigestUpdate(hash_ctx, (const u_char *)payload_hash_buf, strlen(payload_hash_buf));
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", payload_hash_buf);
 #endif
 
-    /* Get canonical request hash as a string */
+    // Get canonical request hash as a string
     EVP_DigestFinal_ex(hash_ctx, creq_hash, &creq_hash_len);
     http_io_prhex(creq_hash_buf, creq_hash, creq_hash_len);
 
@@ -2848,7 +2848,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
 /****** Derive Signing Key ******/
 
-    /* Do nested HMAC's */
+    // Do nested HMAC's
     hmac_ctx = HMAC_CTX_new();
     assert(NULL != hmac_ctx);
     HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
@@ -2930,11 +2930,11 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
       AUTH_HEADER, SIGNATURE_ALGORITHM, access_id, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
       header_names, hmac_buf);
 
-    /* Done */
+    // Done
     r = 0;
 
 fail:
-    /* Clean up */
+    // Clean up
     if (sorted_hdrs != NULL)
         free(sorted_hdrs);
     free(header_names);
@@ -3108,12 +3108,12 @@ http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream)
     struct http_io_bufs *const bufs = &io->bufs;
     size_t total = size * nmemb;
 
-    /* Check for error payload */
+    // Check for error payload
     if (http_io_reader_error_check(io, ptr, total))
         return total;
 
-    /* Copy payload bytes into read buffer */
-    if (total > bufs->rdremain)     /* should never happen */
+    // Copy payload bytes into read buffer
+    if (total > bufs->rdremain)     // should never happen
         total = bufs->rdremain;
     memcpy(bufs->rddata, ptr, total);
     bufs->rddata += total;
@@ -3128,12 +3128,12 @@ http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream)
     struct http_io_bufs *const bufs = &io->bufs;
     size_t total = size * nmemb;
 
-    /* Check for canceled write */
+    // Check for canceled write
     if (io->check_cancel != NULL && (*io->check_cancel)(io->check_cancel_arg, io->block_num) != 0)
         return CURL_READFUNC_ABORT;
 
-    /* Copy out data */
-    if (total > bufs->wrremain)     /* should never happen */
+    // Copy out data
+    if (total > bufs->wrremain)     // should never happen
         total = bufs->wrremain;
     memcpy(ptr, bufs->wrdata, total);
     bufs->wrdata += total;
@@ -3150,27 +3150,27 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
     char buf[1024];
     u_int mtoken;
 
-    /* Null-terminate header */
+    // Null-terminate header
     if (total > sizeof(buf) - 1)
         return total;
     memcpy(buf, ptr, total);
     buf[total] = '\0';
 
-    /* Check for interesting headers */
+    // Check for interesting headers
     http_io_parse_header(io, buf, FILE_SIZE_HEADER, 1, "%ju", &io->file_size);
     http_io_parse_header(io, buf, BLOCK_SIZE_HEADER, 1, "%u", &io->block_size);
     if (http_io_parse_header(io, buf, MOUNT_TOKEN_HEADER, 1, "%x", &mtoken))
         io->mount_token = (int32_t)mtoken;
 
-    /* ETag header */
+    // ETag header
     if (http_io_parse_header(io, buf, ETAG_HEADER, 1, "\"%32c\"", hashbuf))
         http_io_parse_hex(hashbuf, io->etag, MD5_DIGEST_LENGTH);
 
-    /* "x-amz-meta-s3backer-hmac" header */
+    // "x-amz-meta-s3backer-hmac" header
     if (http_io_parse_header(io, buf, HMAC_HEADER, 1, "\"%40c\"", hashbuf))
         http_io_parse_hex(hashbuf, io->hmac, SHA_DIGEST_LENGTH);
 
-    /* Content encoding(s) */
+    // Content encoding(s)
     if (strncasecmp(buf, CONTENT_ENCODING_HEADER ":", sizeof(CONTENT_ENCODING_HEADER)) == 0) {
         size_t celen;
         char *state;
@@ -3184,11 +3184,11 @@ http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream)
         }
     }
 
-    /* Done */
+    // Done
     return total;
 }
 
-/* Reset fields that contain HTTP response information populated by http_io_curl_header() */
+// Reset fields that contain HTTP response information populated by http_io_curl_header()
 static void
 http_io_curl_header_reset(struct http_io *const io)
 {
@@ -3231,24 +3231,24 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
     struct http_io_conf *const config = io->config;
     char *new_error_payload;
 
-    /* Get HTTP status, if not done already */
+    // Get HTTP status, if not done already
     if (io->http_status == 0
       && (curl_easy_getinfo(io->curl, CURLINFO_RESPONSE_CODE, &io->http_status) != 0 || io->http_status == 0))
-        io->http_status = 999;                          /* this should never happen */
+        io->http_status = 999;                          // this should never happen
 
-    /* If status is not an error status, proceed normally */
+    // If status is not an error status, proceed normally
     if (io->http_status < HTTP_STATUS_ERROR_MINIMUM)
         return 0;
 
-    /* If no debug flag was given, just discard error payloads */
+    // If no debug flag was given, just discard error payloads
     if (!config->debug)
         return 1;
 
-    /* Impose limit on how much error payload we'll remember */
+    // Impose limit on how much error payload we'll remember
     if (io->error_payload_len + len > MAX_ERROR_PAYLOAD_SIZE)
         len = MAX_ERROR_PAYLOAD_SIZE - io->error_payload_len;
 
-    /* Capture the error payload in the error buffer */
+    // Capture the error payload in the error buffer
     if ((new_error_payload = realloc(io->error_payload, io->error_payload_len + len)) == NULL)
         (*io->config->log)(LOG_ERR, "realloc: %s", strerror(errno));
     else {
@@ -3257,7 +3257,7 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
         io->error_payload_len += len;
     }
 
-    /* Indicate to caller we're handling the payload */
+    // Indicate to caller we're handling the payload
     return 1;
 }
 
@@ -3335,39 +3335,39 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     int r;
 
 #ifdef NDEBUG
-    /* Avoid unused variable warning */
+    // Avoid unused variable warning
     (void)r;
 #endif
 
-    /* Sanity check */
+    // Sanity check
     assert(EVP_MAX_IV_LENGTH >= MD5_DIGEST_LENGTH);
 
-    /* Initialize cipher context */
+    // Initialize cipher context
     ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_init(ctx);
 
-    /* Generate initialization vector by encrypting the block number using previously generated IV */
+    // Generate initialization vector by encrypting the block number using previously generated IV
     memset(blockbuf, 0, sizeof(blockbuf));
     snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
-    /* Initialize cipher for IV generation */
+    // Initialize cipher for IV generation
     r = EVP_EncryptInit_ex(ctx, priv->cipher, NULL, priv->ivkey, priv->ivkey);
     assert(r == 1);
     EVP_CIPHER_CTX_set_padding(ctx, 0);
 
-    /* Encrypt block number to get IV for bulk encryption */
+    // Encrypt block number to get IV for bulk encryption
     r = EVP_EncryptUpdate(ctx, ivec, &clen, (const u_char *)blockbuf, EVP_CIPHER_CTX_block_size(ctx));
     assert(r == 1 && clen == EVP_CIPHER_CTX_block_size(ctx));
     r = EVP_EncryptFinal_ex(ctx, NULL, &clen);
     assert(r == 1 && clen == 0);
 
-    /* Re-initialize cipher for bulk data encryption */
+    // Re-initialize cipher for bulk data encryption
     assert(EVP_CIPHER_CTX_block_size(ctx) == EVP_CIPHER_CTX_iv_length(ctx));
     r = EVP_CipherInit_ex(ctx, priv->cipher, NULL, priv->key, ivec, enc);
     assert(r == 1);
     EVP_CIPHER_CTX_set_padding(ctx, 1);
 
-    /* Encrypt/decrypt */
+    // Encrypt/decrypt
     r = EVP_CipherUpdate(ctx, dest, &clen, src, (int)len);
     assert(r == 1 && clen >= 0);
     total_len = (u_int)clen;
@@ -3375,7 +3375,7 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
     assert(r == 1 && clen >= 0);
     total_len += (u_int)clen;
 
-    /* Encryption debug */
+    // Encryption debug
 #if DEBUG_ENCRYPTION
 {
     struct http_io_conf *const config = priv->config;
@@ -3385,13 +3385,13 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 }
 #endif
 
-    /* Sanity check */
+    // Sanity check
     if (total_len > dmax) {
         (*priv->config->log)(LOG_ERR, "encryption buffer overflow! %u > %u", total_len, dmax);
         abort();
     }
 
-    /* Done */
+    // Done
     EVP_CIPHER_CTX_free(ctx);
     return total_len;
 }
@@ -3404,7 +3404,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     u_int hmac_len;
     HMAC_CTX* ctx;
 
-    /* Sign the block number, the name of the encryption algorithm, and the block data */
+    // Sign the block number, the name of the encryption algorithm, and the block data
     snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     ctx = HMAC_CTX_new();
     assert(NULL != ctx);
@@ -3426,7 +3426,7 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
     const char *value;
     size_t name_len;
 
-    /* Find and add header */
+    // Find and add header
     name_len = (colon = strchr(name, ':')) != NULL ? colon - name : strlen(name);
     for (header = io->headers; header != NULL; header = header->next) {
         if (strncasecmp(header->data, name, name_len) == 0 && header->data[name_len] == ':') {
@@ -3446,7 +3446,7 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
         }
     }
 
-    /* Add newline whether or not header was found */
+    // Add newline whether or not header was found
     HMAC_Update(ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "\n");
@@ -3462,7 +3462,7 @@ http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
 {
     int i;
 
-    /* Parse hex string */
+    // Parse hex string
     for (i = 0; i < nbytes; i++) {
         int byte;
         int j;
@@ -3480,7 +3480,7 @@ http_io_parse_hex(const char *str, u_char *buf, u_int nbytes)
         buf[i] = byte;
     }
 
-    /* Done */
+    // Done
     return 0;
 }
 
@@ -3526,27 +3526,27 @@ http_io_parse_header(struct http_io *const io, const char *const input,
     size_t offset;
     int r = 0;
 
-    /* Initialize */
+    // Initialize
     va_start(args, fmt);
 
-    /* Match header (case-insensitively) followed by ':' and optional whitespace */
+    // Match header (case-insensitively) followed by ':' and optional whitespace
     offset = strlen(header);
     if (strncasecmp(input, header, offset) != 0 || input[offset++] != ':')
         goto fail;
     while (isspace(input[offset]))
         offset++;
 
-    /* Parse header value; log an error if it's bogus */
+    // Parse header value; log an error if it's bogus
     if (vsscanf(input + offset, fmt, args) != num_conversions) {
         (*io->config->log)(LOG_ERR, "%s %s: rec'd malformed response header: %s: %s", io->method, io->url, header, input + offset);
         goto fail;
     }
 
-    /* Success */
+    // Success
     r = 1;
 
 fail:
-    /* Done */
+    // Done
     va_end(args);
     return r;
 }

@@ -38,7 +38,7 @@
  * Simple on-disk persistent cache.
  */
 
-/* Declarations */
+// Declarations
 struct s3b_dcache;
 
 /*
@@ -48,7 +48,7 @@ struct s3b_dcache;
  */
 typedef int s3b_dcache_visit_t(void *arg, s3b_block_t dslot, s3b_block_t block_num, const u_char *etag);
 
-/* dcache.c */
+// dcache.c
 extern int s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
   u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty);
 extern void s3b_dcache_close(struct s3b_dcache *dcache);

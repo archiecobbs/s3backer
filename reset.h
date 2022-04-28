@@ -34,6 +34,6 @@
  * also delete it here.
  */
 
-/* reset.c */
+// reset.c
 extern int s3backer_reset(struct s3b_config *config);
 

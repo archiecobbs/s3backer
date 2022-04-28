@@ -34,7 +34,7 @@
  * also delete it here.
  */
 
-/* Configuration info structure for ec_protect store */
+// Configuration info structure for ec_protect store
 struct ec_protect_conf {
     u_int               block_size;
     u_int               min_write_delay;
@@ -43,7 +43,7 @@ struct ec_protect_conf {
     log_func_t          *log;
 };
 
-/* Statistics structure for ec_protect store */
+// Statistics structure for ec_protect store
 struct ec_protect_stats {
     u_int               current_cache_size;
     u_int               cache_data_hits;
@@ -52,7 +52,7 @@ struct ec_protect_stats {
     u_int               out_of_memory_errors;
 };
 
-/* ec_protect.c */
+// ec_protect.c
 extern struct s3backer_store *ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner);
 extern void ec_protect_get_stats(struct s3backer_store *s3b, struct ec_protect_stats *stats);
 extern void ec_protect_clear_stats(struct s3backer_store *s3b);

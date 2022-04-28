@@ -37,7 +37,7 @@
 #include "s3backer.h"
 #include "util.h"
 
-/* Size suffixes */
+// Size suffixes
 struct size_suffix {
     const char  *suffix;
     int         bits;
@@ -77,13 +77,13 @@ static const struct size_suffix size_suffixes[] = {
     },
 };
 
-/* Debug logging flag */
+// Debug logging flag
 int log_enable_debug;
 
-/* A block's worth of data containing only zero bytes */
+// A block's worth of data containing only zero bytes
 const void *zero_block;
 
-/* stderr logging mutex */
+// stderr logging mutex
 static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /****************************************************************************
@@ -172,7 +172,7 @@ find_string_in_table(const char *const *table, const char *value)
     return 0;
 }
 
-/* Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits */
+// Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits
 size_t
 bitmap_size(s3b_block_t num_blocks)
 {
@@ -323,11 +323,11 @@ syslog_logger(int level, const char *fmt, ...)
 {
     va_list args;
 
-    /* Filter debug messages */
+    // Filter debug messages
     if (!log_enable_debug && level == LOG_DEBUG)
         return;
 
-    /* Send message to syslog */
+    // Send message to syslog
     va_start(args, fmt);
     vsyslog(level, fmt, args);
     va_end(args);
@@ -342,11 +342,11 @@ stderr_logger(int level, const char *fmt, ...)
     struct tm tm;
     time_t now;
 
-    /* Filter debug messages */
+    // Filter debug messages
     if (!log_enable_debug && level == LOG_DEBUG)
         return;
 
-    /* Get level descriptor */
+    // Get level descriptor
     switch (level) {
     case LOG_ERR:
         levelstr = "ERROR";
@@ -368,7 +368,7 @@ stderr_logger(int level, const char *fmt, ...)
         break;
     }
 
-    /* Format and print log message */
+    // Format and print log message
     time(&now);
     strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
     va_start(args, fmt);
@@ -387,17 +387,17 @@ snvprintf(char *buf, int size, const char *format, ...)
     va_list args;
     int len;
 
-    /* Format string (unless size is zero or less) */
+    // Format string (unless size is zero or less)
     va_start(args, format);
     len = size > 0 ? vsnprintf(buf, size, format, args) : 0;
     va_end(args);
 
-    /* Check for overflow */
+    // Check for overflow
     if (len > size - 1) {
         fprintf(stderr, "buffer overflow: \"%s\": %d > %d", format, len, (int)size);
         abort();
     }
 
-    /* Done */
+    // Done
     return len;
 }

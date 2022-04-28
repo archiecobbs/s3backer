@@ -34,10 +34,10 @@
  * also delete it here.
  */
 
-/* Overal application configuration info */
+// Overal application configuration info
 struct s3b_config {
 
-    /* Various sub-module configurations */
+    // Various sub-module configurations
     struct block_cache_conf     block_cache;
     struct fuse_ops_conf        fuse_ops;
     struct zero_cache_conf      zero_cache;
@@ -45,7 +45,7 @@ struct s3b_config {
     struct http_io_conf         http_io;
     struct test_io_conf         test_io;
 
-    /* Common/global stuff */
+    // Common/global stuff
     const char                  *accessFile;
     const char                  *mount;
     char                        description[768];
@@ -69,7 +69,7 @@ struct s3b_config {
     struct fuse_args            fuse_args;
     log_func_t                  *log;
 
-    /* These are only used during command line parsing */
+    // These are only used during command line parsing
     const char                  *file_size_str;
     const char                  *block_size_str;
     const char                  *password_file;
