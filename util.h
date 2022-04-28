@@ -76,6 +76,7 @@ extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__for
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
+extern char *prefix_log_format(int level, const char *fmt);
 extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
 
 // Bitmaps

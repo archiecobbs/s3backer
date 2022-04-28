@@ -336,15 +336,37 @@ syslog_logger(int level, const char *fmt, ...)
 void
 stderr_logger(int level, const char *fmt, ...)
 {
-    const char *levelstr;
-    char timebuf[32];
     va_list args;
-    struct tm tm;
-    time_t now;
+    char *fmt2;
 
     // Filter debug messages
     if (!log_enable_debug && level == LOG_DEBUG)
         return;
+
+    // Prefix format string
+    if ((fmt2 = prefix_log_format(level, fmt)) == NULL)
+        return;
+
+    // Print log message
+    va_start(args, fmt);
+    pthread_mutex_lock(&stderr_log_mutex);
+    vfprintf(stderr, fmt2, args);
+    fprintf(stderr, "\n");
+    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
+    va_end(args);
+    free(fmt2);
+}
+
+// Prefixes a printf() format string with timestamp and log level.
+// Caller must free the returned string.
+char *
+prefix_log_format(int level, const char *fmt)
+{
+    const char *levelstr;
+    char timebuf[32];
+    struct tm tm;
+    time_t now;
+    char *fmt2;
 
     // Get level descriptor
     switch (level) {
@@ -368,16 +390,14 @@ stderr_logger(int level, const char *fmt, ...)
         break;
     }
 
-    // Format and print log message
+    // Prefix format string
     time(&now);
     strftime(timebuf, sizeof(timebuf), "%F %T", localtime_r(&now, &tm));
-    va_start(args, fmt);
-    pthread_mutex_lock(&stderr_log_mutex);
-    fprintf(stderr, "%s %s: ", timebuf, levelstr);
-    vfprintf(stderr, fmt, args);
-    fprintf(stderr, "\n");
-    CHECK_RETURN(pthread_mutex_unlock(&stderr_log_mutex));
-    va_end(args);
+    if (asprintf(&fmt2, "%s %s: %s", timebuf, levelstr, fmt) == -1)
+        return NULL;
+
+    // Done
+    return fmt2;
 }
 
 // Like snprintf(), but aborts if the buffer is overflowed and gracefully handles negative buffer lengths
