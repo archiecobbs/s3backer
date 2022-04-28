@@ -401,3 +401,46 @@ snvprintf(char *buf, int size, const char *format, ...)
     // Done
     return len;
 }
+
+// Calculate the partial initial, partial trailing, and complete central blocks associated with a range of bytes
+void
+calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset)
+{
+    const u_int shift = ffs(block_size) - 1;
+    const off_t mask = block_size - 1;
+    s3b_block_t current_block;
+    char *current_data;
+
+    // Initialize
+    memset(info, 0, sizeof(*info));
+    current_block = offset >> shift;
+    current_data = (char *)(uintptr_t)buf;
+
+    // Handle header, if any
+    info->beg_offset = (u_int)(offset & mask);
+    if (info->beg_offset > 0) {
+        info->beg_data = current_data;
+        info->beg_block = current_block;
+        info->beg_length = block_size - info->beg_offset;
+        size -= info->beg_length;
+        offset += info->beg_length;
+        current_data += info->beg_length;
+        current_block++;
+    }
+
+    // Handle center, if any
+    info->mid_block_count = size >> shift;
+    if (info->mid_block_count > 0) {
+        info->mid_data = current_data;
+        info->mid_block_start = current_block;
+        current_data += info->mid_block_count * block_size;
+        current_block += info->mid_block_count;
+    }
+
+    // Handle footer, if any
+    info->end_length = (u_int)(offset & mask);
+    if (info->end_length > 0) {
+        info->end_data = current_data;
+        info->end_block = current_block;
+    }
+}

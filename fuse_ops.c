@@ -395,10 +395,8 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
-    const u_int mask = config->block_size - 1;
+    struct boundary_info info;
     size_t orig_size = size;
-    s3b_block_t block_num;
-    size_t num_blocks;
     int r;
 
     // Handle stats file
@@ -424,39 +422,19 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
         orig_size = size;
     }
 
-    // Read first block fragment (if any)
-    if ((offset & mask) != 0) {
-        size_t fragoff = (size_t)(offset & mask);
-        size_t fraglen = (size_t)config->block_size - fragoff;
-
-        if (fraglen > size)
-            fraglen = size;
-        block_num = offset >> priv->block_bits;
-        if ((r = (*priv->s3b->read_block_part)(priv->s3b, block_num, fragoff, fraglen, buf)) != 0)
+    // Calculate what bits to read, then read them
+    calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (info.beg_length > 0
+      && (r = (*priv->s3b->read_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0)
+        return -r;
+    while (info.mid_block_count-- > 0) {
+        if ((r = (*priv->s3b->read_block)(priv->s3b, info.mid_block_start++, info.mid_data, NULL, NULL, 0)) != 0)
             return -r;
-        buf += fraglen;
-        offset += fraglen;
-        size -= fraglen;
+        info.mid_data += config->block_size;
     }
-
-    // Get block number and count
-    block_num = offset >> priv->block_bits;
-    num_blocks = size >> priv->block_bits;
-
-    // Read intermediate complete blocks
-    while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->read_block)(priv->s3b, block_num++, buf, NULL, NULL, 0)) != 0)
-            return -r;
-        buf += config->block_size;
-    }
-
-    // Read last block fragment (if any)
-    if ((size & mask) != 0) {
-        const size_t fraglen = size & mask;
-
-        if ((r = (*priv->s3b->read_block_part)(priv->s3b, block_num, 0, fraglen, buf)) != 0)
-            return -r;
-    }
+    if (info.end_length > 0
+      && (r = (*priv->s3b->read_block_part)(priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0)
+        return -r;
 
     // Done
     priv->file_atime = time(NULL);
@@ -467,10 +445,8 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     off_t offset, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
-    const u_int mask = config->block_size - 1;
+    struct boundary_info info;
     size_t orig_size = size;
-    s3b_block_t block_num;
-    size_t num_blocks;
     int r;
 
     // Handle read-only flag
@@ -495,39 +471,19 @@ static int fuse_op_write(const char *path, const char *buf, size_t size,
     if (size == 0)
         return 0;
 
-    // Write first block fragment (if any)
-    if ((offset & mask) != 0) {
-        size_t fragoff = (size_t)(offset & mask);
-        size_t fraglen = (size_t)config->block_size - fragoff;
-
-        if (fraglen > size)
-            fraglen = size;
-        block_num = offset >> priv->block_bits;
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, buf)) != 0)
+    // Calculate what bits to write, then write them
+    calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (info.beg_length > 0
+      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0)
+        return -r;
+    while (info.mid_block_count-- > 0) {
+        if ((r = (*priv->s3b->write_block)(priv->s3b, info.mid_block_start++, info.mid_data, NULL, NULL, NULL)) != 0)
             return -r;
-        buf += fraglen;
-        offset += fraglen;
-        size -= fraglen;
+        info.mid_data += config->block_size;
     }
-
-    // Get block number and count
-    block_num = offset >> priv->block_bits;
-    num_blocks = size >> priv->block_bits;
-
-    // Write intermediate complete blocks
-    while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, buf, NULL, NULL, NULL)) != 0)
-            return -r;
-        buf += config->block_size;
-    }
-
-    // Write last block fragment (if any)
-    if ((size & mask) != 0) {
-        const size_t fraglen = size & mask;
-
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, buf)) != 0)
-            return -r;
-    }
+    if (info.end_length > 0
+      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0)
+        return -r;
 
     // Done
     priv->file_mtime = time(NULL);
@@ -587,10 +543,8 @@ static int
 fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
-    const u_int mask = config->block_size - 1;
+    struct boundary_info info;
     size_t size = (size_t)len;
-    s3b_block_t block_num;
-    size_t num_blocks;
     int r;
 
     // Handle stats file
@@ -611,37 +565,18 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
         return -EINVAL;
 */
 
-    // Write first block fragment (if any)
-    if ((offset & mask) != 0) {
-        size_t fragoff = (size_t)(offset & mask);
-        size_t fraglen = (size_t)config->block_size - fragoff;
-
-        if (fraglen > size)
-            fraglen = size;
-        block_num = offset >> priv->block_bits;
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, fragoff, fraglen, zero_block)) != 0)
-            return -r;
-        offset += fraglen;
-        size -= fraglen;
-    }
-
-    // Get block number and count
-    block_num = offset >> priv->block_bits;
-    num_blocks = size >> priv->block_bits;
-
-    // Write intermediate complete blocks
-    while (num_blocks-- > 0) {
-        if ((r = (*priv->s3b->write_block)(priv->s3b, block_num++, NULL, NULL, NULL, NULL)) != 0)
+    // Calculate what bits to write, then write them
+    calculate_boundary_info(&info, config->block_size, (void *)1, size, offset);
+    if (info.beg_length > 0
+      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, zero_block)) != 0)
+        return -r;
+    while (info.mid_block_count-- > 0) {
+        if ((r = (*priv->s3b->write_block)(priv->s3b, info.mid_block_start++, NULL, NULL, NULL, NULL)) != 0)
             return -r;
     }
-
-    // Write last block fragment (if any)
-    if ((size & mask) != 0) {
-        const size_t fraglen = size & mask;
-
-        if ((r = (*priv->s3b->write_block_part)(priv->s3b, block_num, 0, fraglen, zero_block)) != 0)
-            return -r;
-    }
+    if (info.end_length > 0
+      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.end_block, 0, info.end_length, zero_block)) != 0)
+        return -r;
 
     // Done
     priv->file_mtime = time(NULL);

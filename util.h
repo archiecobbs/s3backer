@@ -43,8 +43,28 @@ struct block_list {
     s3b_block_t     num_blocks;
 };
 
-extern int log_enable_debug;
+// Block boundary condition handling info
+struct boundary_info {
 
+    // Header portion
+    char            *beg_data;
+    s3b_block_t     beg_block;
+    u_int           beg_offset;
+    u_int           beg_length;
+
+    // Center block-aligned portion
+    char            *mid_data;
+    s3b_block_t     mid_block_start;
+    size_t          mid_block_count;
+
+    // Footer portion
+    char            *end_data;
+    s3b_block_t     end_block;
+    u_int           end_length;
+};
+
+// Globals
+extern int log_enable_debug;
 extern const void *zero_block;
 
 // Misc
@@ -56,6 +76,7 @@ extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__for
 extern int find_string_in_table(const char *const *table, const char *value);
 extern int block_is_zeros(const void *data, u_int block_size);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
+extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
