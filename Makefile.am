@@ -52,7 +52,6 @@ noinst_HEADERS=		s3backer.h \
 			http_io.h \
 			reset.h \
 			test_io.h \
-			nbdkit.h \
 			s3b_config.h
 
 # Setup build for NBD plugin shared library
