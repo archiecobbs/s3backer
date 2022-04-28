@@ -1593,6 +1593,10 @@ validate_config(void)
     }
 
     // Check computed block and file sizes
+    if (sizeof(off_t) < sizeof(uint64_t)) {
+        warnx("sizeof(off_t) is too small (%d < %d)", (int)sizeof(off_t), (int)sizeof(uint64_t));
+        return -1;
+    }
     if (config.block_size != (1 << (ffs(config.block_size) - 1))) {
         warnx("block size must be a power of 2");
         return -1;
