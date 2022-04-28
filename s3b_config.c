@@ -1009,7 +1009,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         return 1;
     }
 
-    // Pass subsequent paramters on to fuse_main()
+    // Pass subsequent parameters on to fuse_main()
     return 1;
 }
 
