@@ -557,11 +557,21 @@ struct s3backer_store *test_io_store;
 struct s3b_config *
 s3backer_get_config(int argc, char **argv)
 {
+    return s3backer_get_config2(argc, argv, 0, handle_unknown_option);
+}
+
+struct s3b_config *
+s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_handler)
+{
     const int num_options = sizeof(option_list) / sizeof(*option_list);
     struct fuse_opt dup_option_list[2 * sizeof(option_list) + 1];
     int num_subst = 0;
     char buf[1024];
     int i;
+
+    // NBDKit adjustments
+    if (nbd)
+        config.nbd = nbd;
 
     // Remember user creds
     config.fuse_ops.uid = getuid();
@@ -647,7 +657,7 @@ s3backer_get_config(int argc, char **argv)
     dup_option_list[2 * num_options].templ = NULL;
 
     // Parse command line flags
-    if (fuse_opt_parse(&config.fuse_args, &config, dup_option_list, handle_unknown_option) != 0)
+    if (fuse_opt_parse(&config.fuse_args, &config, dup_option_list, unknown_handler) != 0)
         return NULL;
 
     // Validate configuration
@@ -1483,11 +1493,9 @@ validate_config(void)
             warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
             return -1;
         }
-    } else {
-        if (config.mount == NULL) {
-            warnx("no mount point specified");
-            return -1;
-        }
+    } else if (!config.nbd && config.mount == NULL) {
+        warnx("no mount point specified");
+        return -1;
     }
 
     // Check list blocks threads
