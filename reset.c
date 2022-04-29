@@ -78,8 +78,7 @@ s3backer_reset(struct s3b_config *config)
                 goto fail;
             }
         } else {
-            if ((r = s3b_dcache_open(&dcache, config->log, config->block_cache.cache_file,
-              config->block_cache.block_size, config->block_cache.cache_size, NULL, NULL, 0)) != 0)
+            if ((r = s3b_dcache_open(&dcache, &config->block_cache, NULL, NULL, 0)) != 0)
                 warnx("error opening cache file `%s': %s", config->block_cache.cache_file, strerror(r));
             if ((r = s3b_dcache_set_mount_token(dcache, NULL, 0)) != 0)
                 warnx("error reading mount token from `%s': %s", config->block_cache.cache_file, strerror(r));

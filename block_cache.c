@@ -298,8 +298,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
 
     // Initialize on-disk cache and read in directory
     if (config->cache_file != NULL) {
-        if ((r = s3b_dcache_open(&priv->dcache, config->log, config->cache_file, config->block_size,
-          config->cache_size, block_cache_dcache_load, priv, config->perform_flush)) != 0)
+        if ((r = s3b_dcache_open(&priv->dcache, config, block_cache_dcache_load, priv, config->perform_flush)) != 0)
             goto fail9;
         if (config->perform_flush && priv->num_dirties > 0)
             (*config->log)(LOG_INFO, "%u dirty blocks in cache file `%s' will be recovered", priv->num_dirties, config->cache_file);

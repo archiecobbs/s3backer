@@ -35,6 +35,7 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
 #include "dcache.h"
 #include "util.h"
 
@@ -156,8 +157,8 @@ static const struct dir_entry zero_entry;
 // Public functions
 
 int
-s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
-  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
+s3b_dcache_open(struct s3b_dcache **dcachep, struct block_cache_conf *config,
+  s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
 {
     struct ofile_header oheader;
     struct file_header header;
@@ -169,7 +170,7 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
     int r;
 
     // Sanity check
-    if (max_blocks == 0)
+    if (config->cache_size == 0)
         return EINVAL;
 
     // Initialize private structure
@@ -177,10 +178,10 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
         return errno;
     memset(priv, 0, sizeof(*priv));
     priv->fd = -1;
-    priv->log = log;
-    priv->block_size = block_size;
-    priv->max_blocks = max_blocks;
-    if ((priv->filename = strdup(filename)) == NULL) {
+    priv->log = config->log;
+    priv->block_size = config->block_size;
+    priv->max_blocks = config->cache_size;
+    if ((priv->filename = strdup(config->cache_file)) == NULL) {
         r = errno;
         goto fail1;
     }
