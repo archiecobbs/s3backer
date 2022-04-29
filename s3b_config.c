@@ -208,7 +208,7 @@ static struct s3b_config config = {
     .erase=                 0,
     .no_auto_detect=        0,
     .reset=                 0,
-    .log=                   syslog_logger
+    .log=                   stderr_logger
 };
 
 /*
@@ -985,12 +985,10 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         // Debug flags
         if (strcmp(arg, "-d") == 0) {
             config.debug = 1;
-            config.log = stderr_logger;
-        }
-        if (strcmp(arg, "-f") == 0) {
             config.foreground = 1;
-            config.log = stderr_logger;
         }
+        if (strcmp(arg, "-f") == 0)
+            config.foreground = 1;
 
         // Version
         if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
