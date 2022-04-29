@@ -62,48 +62,80 @@ static struct s3backer_store *s3b;
 static struct fuse_ops_private *fuse_priv;
 
 // Internal functions
-static void nbdkit_logger(int level, const char *fmt, ...);
+static void s3b_nbd_logger(int level, const char *fmt, ...);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 
 // NBDKit plugin functions
-static int plugin_config(const char *key, const char *value);
-static int plugin_config_complete(void);
-static int plugin_get_ready(void);
-static int plugin_after_fork(void);
-static void *plugin_open(int readonly);
-static int64_t plugin_get_size(void *handle);
-static int plugin_pread(void *handle, void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
-static int plugin_pwrite(void *handle, const void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
-static int plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags);
-static int plugin_can_multi_conn(void *handle);
-static void plugin_unload(void);
+static int s3b_nbd_plugin_config(const char *key, const char *value);
+static int s3b_nbd_plugin_config_complete(void);
+static int s3b_nbd_plugin_get_ready(void);
+static int s3b_nbd_plugin_after_fork(void);
+static void *s3b_nbd_plugin_open(int readonly);
+static int64_t s3b_nbd_plugin_get_size(void *handle);
+static int s3b_nbd_plugin_pread(void *handle, void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
+static int s3b_nbd_plugin_pwrite(void *handle, const void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
+static int s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags);
+static int s3b_nbd_plugin_can_multi_conn(void *handle);
+static int s3b_nbd_plugin_can_cache(void *handle);
+static void s3b_nbd_plugin_cleanup(void);
+static void s3b_nbd_plugin_unload(void);
 
 #define PLUGIN_HELP             \
     "    " CONFIG_FILE_PARAMETER_NAME "=<path>   s3backer config file with command line flags and bucket[/prefix]"
 
 // NBDKit plugin declaration
 static struct nbdkit_plugin plugin = {
-    .name=              PACKAGE,
-    .version=           PACKAGE_VERSION,
-    .unload=            plugin_unload,
-    .magic_config_key=  CONFIG_FILE_PARAMETER_NAME,
-    .config=            plugin_config,
-    .config_complete=   plugin_config_complete,
-    .config_help=       PLUGIN_HELP,
-    .get_ready=         plugin_get_ready,
-    .after_fork=        plugin_after_fork,
-    .open=              plugin_open,
-    .get_size=          plugin_get_size,
-    .pread=             plugin_pread,
-    .pwrite=            plugin_pwrite,
-    .trim=              plugin_trim,
-    .can_multi_conn=    plugin_can_multi_conn
+
+    // Meta-data
+    .name=                  PACKAGE,
+    .version=               PACKAGE_VERSION,
+    .longname=              PACKAGE,
+    .description=           "Block-based backing store via Amazon S3",
+    .magic_config_key=      CONFIG_FILE_PARAMETER_NAME,
+    .config_help=           PLUGIN_HELP,
+    .errno_is_preserved=    0,
+    .can_multi_conn=        s3b_nbd_plugin_can_multi_conn,
+    .can_write=             NULL,
+    .can_flush=             NULL,
+    .can_trim=              NULL,
+    .can_zero=              NULL,
+    .can_fast_zero=         NULL,
+    .can_extents=           NULL,
+    .can_fua=               NULL,
+    .can_cache=             s3b_nbd_plugin_can_cache,
+    .is_rotational=         NULL,
+
+    // Startup lifecycle callbacks
+    .load=                  NULL,
+    .dump_plugin=           NULL,
+    .config=                s3b_nbd_plugin_config,
+    .config_complete=       s3b_nbd_plugin_config_complete,
+    .thread_model=          NULL,
+    .get_ready=             s3b_nbd_plugin_get_ready,
+    .after_fork=            s3b_nbd_plugin_after_fork,
+
+    // Client connection callbacks
+    .preconnect=            NULL,
+    .list_exports=          NULL,
+    .open=                  s3b_nbd_plugin_open,
+    .get_size=              s3b_nbd_plugin_get_size,
+    .pread=                 s3b_nbd_plugin_pread,
+    .pwrite=                s3b_nbd_plugin_pwrite,
+    .trim=                  s3b_nbd_plugin_trim,
+    .cache=                 NULL,
+    .extents=               NULL,
+    .zero=                  s3b_nbd_plugin_trim,    // for us, "trim" and "zero" are the same thing
+    .close=                 NULL,
+
+    // Shutdown lifecycle callbacks
+    .cleanup=               s3b_nbd_plugin_cleanup,
+    .unload=                s3b_nbd_plugin_unload,
 };
 NBDKIT_REGISTER_PLUGIN(plugin)
 
 // Called for each key=value passed on the nbdkit command line
 static int
-plugin_config(const char *key, const char *value)
+s3b_nbd_plugin_config(const char *key, const char *value)
 {
     // Handle "configFile=xxx"
     if (strcmp(key, CONFIG_FILE_PARAMETER_NAME) == 0) {
@@ -118,7 +150,7 @@ plugin_config(const char *key, const char *value)
 }
 
 static void
-nbdkit_logger(int level, const char *fmt, ...)
+s3b_nbd_logger(int level, const char *fmt, ...)
 {
     va_list args;
     char *fmt2;
@@ -139,7 +171,7 @@ nbdkit_logger(int level, const char *fmt, ...)
 }
 
 static int
-plugin_config_complete(void)
+s3b_nbd_plugin_config_complete(void)
 {
     char *argv[3];
     int argc = 0;
@@ -166,8 +198,14 @@ plugin_config_complete(void)
     if ((config = s3backer_get_config2(argc, argv, 1, handle_unknown_option)) == NULL)
         return -1;
 
+    // Disallow "--erase" and "--reset" flags
+    if (config->erase || config->reset) {
+        nbdkit_error("NBDKit version of s3backer does not support \"--erase\" or \"--reset\" flags");
+        return -1;
+    }
+
     // Configure NBD logging
-    config->log = nbdkit_logger;
+    config->log = s3b_nbd_logger;
 
     // Done
     return 0;
@@ -201,7 +239,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 }
 
 static int
-plugin_get_ready(void)
+s3b_nbd_plugin_get_ready(void)
 {
     if ((s3b = s3backer_create_store(config)) == NULL) {
         nbdkit_error("error creating s3backer_store: %m");
@@ -216,24 +254,28 @@ plugin_get_ready(void)
 }
 
 static int
-plugin_after_fork(void)
+s3b_nbd_plugin_after_fork(void)
 {
-    struct fuse_conn_info ci;
-
-    fuse_priv = fuse_ops->init(&ci);
+    fuse_priv = (*fuse_ops->init)(NULL);
     return 0;
 }
 
 static void
-plugin_unload(void)
+s3b_nbd_plugin_cleanup(void)
 {
     if (fuse_priv != NULL)
-        fuse_ops->destroy(fuse_priv);
+        (*fuse_ops->destroy)(fuse_priv);
+    free(configFile);
+}
+
+static void
+s3b_nbd_plugin_unload(void)
+{
     free(configFile);
 }
 
 static void *
-plugin_open(int readonly)
+s3b_nbd_plugin_open(int readonly)
 {
     (void)readonly;
     return NBDKIT_HANDLE_NOT_NEEDED;
@@ -241,13 +283,13 @@ plugin_open(int readonly)
 
 /* Size of the data we are going to serve. */
 static int64_t
-plugin_get_size(void *handle)
+s3b_nbd_plugin_get_size(void *handle)
 {
     return fuse_priv->file_size;
 }
 
 static int
-plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, uint32_t flags)
+s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, uint32_t flags)
 {
     struct boundary_info info;
     int r;
@@ -282,7 +324,7 @@ plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, uint32_t f
 }
 
 static int
-plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t offset, uint32_t flags)
+s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t offset, uint32_t flags)
 {
     struct boundary_info info;
     int r;
@@ -317,7 +359,7 @@ plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t offset, uin
 }
 
 static int
-plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags)
+s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags)
 {
     struct boundary_info info;
     s3b_block_t *block_nums;
@@ -334,6 +376,8 @@ plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags)
         return -1;
     }
     if (info.mid_block_count > 0) {
+
+        // Use our "bulk_zero" functionality
         if ((block_nums = malloc(info.mid_block_count * sizeof(*block_nums))) == NULL) {
             nbdkit_set_error(errno);
             return -1;
@@ -359,9 +403,16 @@ plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags)
     return 0;
 }
 
-// Since we have no per-connection state, the same client may open multiple connections.
+// Pre-loading the cache is supported when the block cache is enabled
 static int
-plugin_can_multi_conn(void *handle)
+s3b_nbd_plugin_can_cache(void *handle)
+{
+    return config->block_cache.cache_size > 0 ? NBDKIT_CACHE_EMULATE : NBDKIT_CACHE_NONE;
+}
+
+// Since we have no per-connection state, the same client may open multiple connections
+static int
+s3b_nbd_plugin_can_multi_conn(void *handle)
 {
     return 1;
 }
