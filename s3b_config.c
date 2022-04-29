@@ -113,7 +113,6 @@ static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static int validate_config(void);
-static void dump_config(void);
 static void usage(void);
 
 /****************************************************************************
@@ -670,7 +669,7 @@ s3backer_get_config(int argc, char **argv)
 
     // Debug
     if (config.debug)
-        dump_config();
+        dump_config(&config);
 
     // Done
     return &config;
@@ -1793,74 +1792,72 @@ validate_config(void)
     return 0;
 }
 
-static void
-dump_config(void)
+void
+dump_config(const struct s3b_config *const c)
 {
     int i;
 
-    (*config.log)(LOG_DEBUG, "s3backer config:");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "test mode", config.test ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "directIO", config.fuse_ops.direct_io ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", config.http_io.accessId != NULL ? config.http_io.accessId : "");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", config.http_io.accessKey != NULL ? "****" : "");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", config.accessFile);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "accessType", config.http_io.accessType);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "ec2iam_role", config.http_io.ec2iam_role != NULL ? config.http_io.ec2iam_role : "");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "authVersion", config.http_io.authVersion);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", config.http_io.baseURL);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "region", config.http_io.region);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", config.test ? "testdir" : "bucket", config.bucket);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", config.prefix);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "blockHashPrefix", config.blockHashPrefix ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
-      config.http_io.default_ce != NULL ? config.http_io.default_ce : "(none)");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "list_blocks", config.list_blocks ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %d", "list_blocks_threads", config.http_io.list_blocks_threads);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "mount", config.mount);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "filename", config.fuse_ops.filename);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", config.fuse_ops.stats_filename);
-    (*config.log)(LOG_DEBUG, "%24s: %s (%u)", "block_size",
-      config.block_size_str != NULL ? config.block_size_str : "-", config.block_size);
-    (*config.log)(LOG_DEBUG, "%24s: %s (%jd)", "file_size",
-      config.file_size_str != NULL ? config.file_size_str : "-", (intmax_t)config.file_size);
-    (*config.log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)config.num_blocks);
-    (*config.log)(LOG_DEBUG, "%24s: 0%o", "file_mode", config.fuse_ops.file_mode);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "read_only", config.fuse_ops.read_only ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "compress", config.http_io.compress_alg ? config.http_io.compress_alg->name : "(none)");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "encryption", config.http_io.encryption != NULL ? config.http_io.encryption : "(none)");
-    (*config.log)(LOG_DEBUG, "%24s: %u", "key_length", config.http_io.key_length);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "password", config.http_io.password != NULL ? "****" : "");
-    (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_upload",
-      config.max_speed_str[HTTP_UPLOAD] != NULL ? config.max_speed_str[HTTP_UPLOAD] : "-",
-      config.http_io.max_speed[HTTP_UPLOAD]);
-    (*config.log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_download",
-      config.max_speed_str[HTTP_DOWNLOAD] != NULL ? config.max_speed_str[HTTP_DOWNLOAD] : "-",
-      config.http_io.max_speed[HTTP_DOWNLOAD]);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "http_11", config.http_io.http_11 ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %us", "timeout", config.http_io.timeout);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse", config.http_io.sse);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "sse-key-id", config.http_io.sse_key_id);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", config.http_io.initial_retry_pause);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", config.http_io.max_retry_pause);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "min_write_delay", config.ec_protect.min_write_delay);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "md5_cache_time", config.ec_protect.cache_time);
-    (*config.log)(LOG_DEBUG, "%24s: %u entries", "md5_cache_size", config.ec_protect.cache_size);
-    (*config.log)(LOG_DEBUG, "%24s: %u entries", "block_cache_size", config.block_cache.cache_size);
-    (*config.log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", config.block_cache.num_threads);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", config.block_cache.timeout);
-    (*config.log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", config.block_cache.write_delay);
-    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "block_cache_max_dirty", config.block_cache.max_dirty);
-    (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", config.block_cache.synchronous ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "recover_dirty_blocks", config.block_cache.recover_dirty_blocks ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", config.block_cache.read_ahead);
-    (*config.log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", config.block_cache.read_ahead_trigger);
-    (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
-      config.block_cache.cache_file != NULL ? config.block_cache.cache_file : "");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "%24s: %s", "fadvise", config.block_cache.fadvise ? "true" : "false");
-    (*config.log)(LOG_DEBUG, "fuse_main arguments:");
-    for (i = 0; i < config.fuse_args.argc; i++)
-        (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);
+    (*c->log)(LOG_DEBUG, "s3backer config:");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "test mode", c->test ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "directIO", c->fuse_ops.direct_io ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", c->http_io.accessId != NULL ? c->http_io.accessId : "");
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", c->http_io.accessKey != NULL ? "****" : "");
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", c->accessFile);
+    (*c->log)(LOG_DEBUG, "%24s: %s", "accessType", c->http_io.accessType);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "ec2iam_role", c->http_io.ec2iam_role != NULL ? c->http_io.ec2iam_role : "");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "authVersion", c->http_io.authVersion);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", c->http_io.baseURL);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "region", c->http_io.region);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", c->test ? "testdir" : "bucket", c->bucket);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "prefix", c->prefix);
+    (*c->log)(LOG_DEBUG, "%24s: %s", "blockHashPrefix", c->blockHashPrefix ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "defaultContentEncoding",
+      c->http_io.default_ce != NULL ? c->http_io.default_ce : "(none)");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "list_blocks", c->list_blocks ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %d", "list_blocks_threads", c->http_io.list_blocks_threads);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "mount", c->mount);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "filename", c->fuse_ops.filename);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", c->fuse_ops.stats_filename);
+    (*c->log)(LOG_DEBUG, "%24s: %s (%u)", "block_size", c->block_size_str != NULL ? c->block_size_str : "-", c->block_size);
+    (*c->log)(LOG_DEBUG, "%24s: %s (%jd)", "file_size", c->file_size_str != NULL ? c->file_size_str : "-", (intmax_t)c->file_size);
+    (*c->log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)c->num_blocks);
+    (*c->log)(LOG_DEBUG, "%24s: 0%o", "file_mode", c->fuse_ops.file_mode);
+    (*c->log)(LOG_DEBUG, "%24s: %s", "read_only", c->fuse_ops.read_only ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "compress", c->http_io.compress_alg ? c->http_io.compress_alg->name : "(none)");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "encryption", c->http_io.encryption != NULL ? c->http_io.encryption : "(none)");
+    (*c->log)(LOG_DEBUG, "%24s: %u", "key_length", c->http_io.key_length);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "password", c->http_io.password != NULL ? "****" : "");
+    (*c->log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_upload",
+      c->max_speed_str[HTTP_UPLOAD] != NULL ? c->max_speed_str[HTTP_UPLOAD] : "-",
+      c->http_io.max_speed[HTTP_UPLOAD]);
+    (*c->log)(LOG_DEBUG, "%24s: %s bps (%ju)", "max_download",
+      c->max_speed_str[HTTP_DOWNLOAD] != NULL ? c->max_speed_str[HTTP_DOWNLOAD] : "-",
+      c->http_io.max_speed[HTTP_DOWNLOAD]);
+    (*c->log)(LOG_DEBUG, "%24s: %s", "http_11", c->http_io.http_11 ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %us", "timeout", c->http_io.timeout);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "sse", c->http_io.sse);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "sse-key-id", c->http_io.sse_key_id);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "initial_retry_pause", c->http_io.initial_retry_pause);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "max_retry_pause", c->http_io.max_retry_pause);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "min_write_delay", c->ec_protect.min_write_delay);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "md5_cache_time", c->ec_protect.cache_time);
+    (*c->log)(LOG_DEBUG, "%24s: %u entries", "md5_cache_size", c->ec_protect.cache_size);
+    (*c->log)(LOG_DEBUG, "%24s: %u entries", "block_cache_size", c->block_cache.cache_size);
+    (*c->log)(LOG_DEBUG, "%24s: %u threads", "block_cache_threads", c->block_cache.num_threads);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "block_cache_timeout", c->block_cache.timeout);
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "block_cache_write_delay", c->block_cache.write_delay);
+    (*c->log)(LOG_DEBUG, "%24s: %u blocks", "block_cache_max_dirty", c->block_cache.max_dirty);
+    (*c->log)(LOG_DEBUG, "%24s: %s", "block_cache_sync", c->block_cache.synchronous ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "recover_dirty_blocks", c->block_cache.recover_dirty_blocks ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", c->block_cache.read_ahead);
+    (*c->log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", c->block_cache.read_ahead_trigger);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
+      c->block_cache.cache_file != NULL ? c->block_cache.cache_file : "");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", c->block_cache.no_verify ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "fadvise", c->block_cache.fadvise ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "fuse_main arguments:");
+    for (i = 0; i < c->fuse_args.argc; i++)
+        (*c->log)(LOG_DEBUG, "  [%d] = \"%s\"", i, c->fuse_args.argv[i]);
 }
 
 static void
