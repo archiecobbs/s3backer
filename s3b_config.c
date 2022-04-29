@@ -1890,6 +1890,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheNoVerify", "Disable verification of data loaded from cache file");
+    fprintf(stderr, "\t--%-27s %s\n", "blockCacheFileAdvise", "Use posix_fadvise(2) after reading from cache file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSize=NUM", "Block cache size (in number of blocks)");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheSync", "Block cache performs all writes synchronously");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheRecoverDirtyBlocks", "Recover dirty cache file blocks on startup");
