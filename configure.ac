@@ -71,7 +71,7 @@ PKG_CHECK_MODULES(FUSE, fuse,
     [AC_MSG_ERROR(["fuse" not found in pkg-config])])
 
 # Check for NBDKit
-PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.29])
+PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.24.1])
 PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
 AC_MSG_CHECKING([NBDKit plugins directory])
 AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
