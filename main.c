@@ -44,6 +44,7 @@
 #include "s3b_config.h"
 #include "erase.h"
 #include "reset.h"
+#include "util.h"
 
 int
 main(int argc, char **argv)
@@ -75,6 +76,10 @@ main(int argc, char **argv)
         (*config->log)(LOG_ERR, "error creating s3backer_store: %s", strerror(errno));
         return 1;
     }
+
+    // Start logging to syslog now
+    if (!config->foreground)
+        config->log = syslog_logger;
 
     // Setup FUSE operation hooks
     if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
