@@ -265,7 +265,6 @@ s3b_nbd_plugin_cleanup(void)
 {
     if (fuse_priv != NULL)
         (*fuse_ops->destroy)(fuse_priv);
-    free(configFile);
 }
 
 static void
