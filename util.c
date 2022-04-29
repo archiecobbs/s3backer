@@ -462,7 +462,7 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
     }
 
     // Handle footer, if any
-    info->end_length = (u_int)(offset & mask);
+    info->end_length = (u_int)(size & mask);
     if (info->end_length > 0) {
         info->end_data = current_data;
         info->end_block = current_block;
