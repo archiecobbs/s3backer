@@ -112,7 +112,7 @@ static void remove_fuse_arg(int pos);
 static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
-static int validate_config(void);
+static int validate_config(int nbd);
 static void usage(void);
 
 /****************************************************************************
@@ -665,7 +665,7 @@ s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_han
         return NULL;
 
     // Validate configuration
-    if (validate_config() != 0)
+    if (validate_config(nbd) != 0)
         return NULL;
 
     // Set fsname based on configuration
@@ -1061,7 +1061,7 @@ search_access_for(const char *file, const char *accessId, char **idptr, char **p
 }
 
 static int
-validate_config(void)
+validate_config(int nbd)
 {
     struct s3backer_store *s3b;
     const int customBaseURL = config.http_io.baseURL != NULL;
@@ -1192,7 +1192,7 @@ validate_config(void)
             warnx("no test directory specified");
             return -1;
         }
-        if (!config.foreground && *config.bucket != '/') {
+        if (!nbd && !config.foreground && *config.bucket != '/') {
             warnx("%s: absolute pathname required for test mode directory unless `-f' flag is used", config.bucket);
             return -1;
         }
