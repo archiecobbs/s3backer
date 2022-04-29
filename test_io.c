@@ -181,7 +181,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
           config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
         // Open and read file
-        if ((fd = open(path, O_RDONLY)) != -1) {
+        if ((fd = open(path, O_RDONLY|O_CLOEXEC)) != -1) {
             int total;
 
             // Read file
