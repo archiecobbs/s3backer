@@ -60,6 +60,7 @@ static struct s3b_config *config;
 static const struct fuse_operations *fuse_ops;
 static struct s3backer_store *s3b;
 static struct fuse_ops_private *fuse_priv;
+static int pre_fork_pid;
 static int saw_mount_point;
 
 // Internal functions
@@ -205,9 +206,6 @@ s3b_nbd_plugin_config_complete(void)
         return -1;
     }
 
-    // Configure NBD logging
-    config->log = s3b_nbd_logger;
-
     // Done
     return 0;
 }
@@ -256,6 +254,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 static int
 s3b_nbd_plugin_get_ready(void)
 {
+    pre_fork_pid = getpid();
     if ((s3b = s3backer_create_store(config)) == NULL) {
         nbdkit_error("error creating s3backer_store: %m");
         return -1;
@@ -271,6 +270,11 @@ s3b_nbd_plugin_get_ready(void)
 static int
 s3b_nbd_plugin_after_fork(void)
 {
+    // If we have forked, start logging to syslog instead of stderr
+    if (getpid() != pre_fork_pid)
+        config->log = s3b_nbd_logger;
+
+    // Startup threads etc.
     fuse_priv = (*fuse_ops->init)(NULL);
     return 0;
 }
