@@ -1492,12 +1492,14 @@ validate_config(int nbd)
         warnx("`--blockCacheNumProtected' is larger than cache size; this may cause performance problems");
 
     // Check mount point
-    if (config.erase || config.reset) {
+    if (config.nbd)
+        config.mount = config.bucket;           // this is just so something other than "(null)" appears in log output
+    else if (config.erase || config.reset) {
         if (config.mount != NULL) {
             warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
             return -1;
         }
-    } else if (!config.nbd && config.mount == NULL) {
+    } else if (config.mount == NULL) {
         warnx("no mount point specified");
         return -1;
     }
