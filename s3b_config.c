@@ -324,6 +324,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--blockCacheFileAdvise",
+        .offset=    offsetof(struct s3b_config, block_cache.fadvise),
+        .value=     1
+    },
+    {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
     },
@@ -1756,8 +1761,7 @@ validate_config(void)
                 if (errno != ENOENT)
                     err(1, "can't open cache file `%s'", config.block_cache.cache_file);
             } else {
-                if ((r = s3b_dcache_open(&dcache, config.log, config.block_cache.cache_file,
-                  config.block_cache.block_size, config.block_cache.cache_size, NULL, NULL, 0)) != 0)
+                if ((r = s3b_dcache_open(&dcache, &config.block_cache, NULL, NULL, 0)) != 0)
                     errx(1, "error opening cache file `%s': %s", config.block_cache.cache_file, strerror(r));
                 if (s3b_dcache_has_mount_token(dcache) && (r = s3b_dcache_set_mount_token(dcache, &cache_mount_token, -1)) != 0)
                     errx(1, "error reading mount token from `%s': %s", config.block_cache.cache_file, strerror(r));
@@ -1861,6 +1865,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
       config.block_cache.cache_file != NULL ? config.block_cache.cache_file : "");
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "fadvise", config.block_cache.fadvise ? "true" : "false");
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);

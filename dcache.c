@@ -35,6 +35,7 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
 #include "dcache.h"
 #include "util.h"
 
@@ -126,6 +127,7 @@ struct s3b_dcache {
     u_int                           block_size;
     u_int                           max_blocks;
     u_int                           num_alloc;
+    u_int                           fadvise;
     uint32_t                        flags;              // copy of file_header.flags
     off_t                           data;
     u_int                           free_list_len;
@@ -156,8 +158,8 @@ static const struct dir_entry zero_entry;
 // Public functions
 
 int
-s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filename,
-  u_int block_size, u_int max_blocks, s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
+s3b_dcache_open(struct s3b_dcache **dcachep, struct block_cache_conf *config,
+  s3b_dcache_visit_t *visitor, void *arg, u_int visit_dirty)
 {
     struct ofile_header oheader;
     struct file_header header;
@@ -169,7 +171,7 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
     int r;
 
     // Sanity check
-    if (max_blocks == 0)
+    if (config->cache_size == 0)
         return EINVAL;
 
     // Initialize private structure
@@ -177,10 +179,11 @@ s3b_dcache_open(struct s3b_dcache **dcachep, log_func_t *log, const char *filena
         return errno;
     memset(priv, 0, sizeof(*priv));
     priv->fd = -1;
-    priv->log = log;
-    priv->block_size = block_size;
-    priv->max_blocks = max_blocks;
-    if ((priv->filename = strdup(filename)) == NULL) {
+    priv->log = config->log;
+    priv->block_size = config->block_size;
+    priv->max_blocks = config->cache_size;
+    priv->fadvise = config->fadvise;
+    if ((priv->filename = strdup(config->cache_file)) == NULL) {
         r = errno;
         goto fail1;
     }
@@ -511,6 +514,8 @@ s3b_dcache_free_block(struct s3b_dcache *priv, u_int dslot)
 int
 s3b_dcache_read_block(struct s3b_dcache *priv, u_int dslot, void *dest, u_int off, u_int len)
 {
+    int r;
+
     // Sanity check
     assert(dslot < priv->max_blocks);
     assert(off <= priv->block_size);
@@ -518,7 +523,17 @@ s3b_dcache_read_block(struct s3b_dcache *priv, u_int dslot, void *dest, u_int of
     assert(off + len <= priv->block_size);
 
     // Read data
-    return s3b_dcache_read(priv, DATA_OFFSET(priv, dslot) + off, dest, len);
+    if ((r = s3b_dcache_read(priv, DATA_OFFSET(priv, dslot) + off, dest, len)) != 0)
+        return r;
+
+    // Advise the kernel to not cache this data block
+#if HAVE_DECL_POSIX_FADVISE
+    if (priv->fadvise && (r = posix_fadvise(priv->fd, DATA_OFFSET(priv, dslot), priv->block_size, POSIX_FADV_DONTNEED)) != 0)
+        (*priv->log)(LOG_WARNING, "posix_fadvise(\"%s\"): %s", priv->filename, strerror(r));
+#endif
+
+    // Done
+    return 0;
 }
 
 /*
@@ -527,6 +542,8 @@ s3b_dcache_read_block(struct s3b_dcache *priv, u_int dslot, void *dest, u_int of
 int
 s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_int off, u_int len)
 {
+    int r;
+
     // Sanity check
     assert(dslot < priv->max_blocks);
     assert(off <= priv->block_size);
@@ -534,7 +551,17 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
     assert(off + len <= priv->block_size);
 
     // Write data
-    return s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : zero_block, len);
+    if ((r = s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : zero_block, len)) != 0)
+        return r;
+
+    // Advise the kernel to not cache this data block
+#if HAVE_DECL_POSIX_FADVISE
+    if (priv->fadvise && (r = posix_fadvise(priv->fd, DATA_OFFSET(priv, dslot), priv->block_size, POSIX_FADV_DONTNEED)) != 0)
+        (*priv->log)(LOG_WARNING, "posix_fadvise(\"%s\"): %s", priv->filename, strerror(r));
+#endif
+
+    // Done
+    return 0;
 }
 
 /*

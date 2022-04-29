@@ -500,6 +500,20 @@ This option can be used to improve performance by reducing network reads for the
 With this option enabled, blocks after the first
 .Ar NUM
 blocks will be evicted before any protected blocks.
+.It Fl \-blockCacheFileAdvise
+Immediately after being read or written by the kernel, data in the block cache file can end up being cached twice by the kernel:
+once in the cache for the block cache file, and again in the cache for the
+.Nm
+file.
+.Pp
+When this flag is given,
+.Xr posix_fadvise 2
+is used whenever data is read or written to/from the block cache file to tell the kernel not to cache that data
+on behalf of the block cache file.
+.Pp
+This flag is ignored if
+.Fl \-blockCacheFile
+is not specified.
 .It Fl \-blockHashPrefix
 Prepend random prefixes (generated deterministically from the block number) to block object names.
 This spreads requests more evenly across the namespace, and prevents heavy access to a narrow range of blocks from all being directed to the same backend server.

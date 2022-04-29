@@ -6,6 +6,7 @@ Version Next
     - Clean up mount token if FUSE itself fails to start (issue #175)
     - Detect HTTP redirects and emit appropriate hint/warning (issue #174)
     - Added man page reference to Linux bcache (issue #169)
+    - Added "--blockCacheFileAdvise" flag (pr #176)
     - Treat 3xx HTTP response codes as errors
 
 Version 1.6.3 released October 2, 2021
