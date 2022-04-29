@@ -54,12 +54,13 @@
 // Concurrent requests are supported
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
 
-// s3backer state
+// Internal state
 static char *configFile = NULL;
 static struct s3b_config *config;
 static const struct fuse_operations *fuse_ops;
 static struct s3backer_store *s3b;
 static struct fuse_ops_private *fuse_priv;
+static int saw_mount_point;
 
 // Internal functions
 static void s3b_nbd_logger(int level, const char *fmt, ...);
@@ -220,11 +221,18 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
     if (key == FUSE_OPT_KEY_OPT) {
 
         // Notice debug flag
-        if (strcmp(arg, "-d") == 0)
+        if (strcmp(arg, "-d") == 0) {
             new_config->debug = 1;
+            return 1;
+        }
+
+        // Ignore "foreground" flag
+        if (strcmp(arg, "-f") == 0)
+            return 1;
 
         // Unknown
-        return 1;
+        nbdkit_error("invalid flag \"%s\"", arg);
+        return -1;
     }
 
     // Get bucket parameter
@@ -234,8 +242,15 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         return 0;
     }
 
+    // Ignore mount point parameter, if any, allowing re-use of normal "foobar.conf" config files
+    if (!saw_mount_point) {
+        saw_mount_point = 1;
+        return 0;
+    }
+
     // Unknown
-    return 1;
+    nbdkit_error("invalid extraneous parameter \"%s\"", arg);
+    return -1;
 }
 
 static int
