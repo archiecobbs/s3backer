@@ -391,8 +391,7 @@ fuse_op_release(const char *path, struct fuse_file_info *fi)
 }
 
 static int
-fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
-    struct fuse_file_info *fi)
+fuse_op_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     struct boundary_info info;
@@ -441,8 +440,8 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
     return orig_size;
 }
 
-static int fuse_op_write(const char *path, const char *buf, size_t size,
-    off_t offset, struct fuse_file_info *fi)
+static int
+fuse_op_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
     struct boundary_info info;
@@ -566,7 +565,7 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
 */
 
     // Calculate what bits to write, then write them
-    calculate_boundary_info(&info, config->block_size, (void *)1, size, offset);
+    calculate_boundary_info(&info, config->block_size, NULL, size, offset);
     if (info.beg_length > 0
       && (r = (*priv->s3b->write_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, zero_block)) != 0)
         return -r;
