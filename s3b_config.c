@@ -973,6 +973,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
         // Debug flags
         if (strcmp(arg, "-d") == 0) {
             config.debug = 1;
+            config.foreground = 1;
             config.log = stderr_logger;
         }
         if (strcmp(arg, "-f") == 0) {
