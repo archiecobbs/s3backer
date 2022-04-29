@@ -589,8 +589,10 @@ s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_han
     append_fuse_arg(argv[0]);
 
     // Add our default FUSE options so they are seen first
-    for (i = 0; i < sizeof(s3backer_fuse_defaults) / sizeof(*s3backer_fuse_defaults); i++)
-        append_fuse_arg(s3backer_fuse_defaults[i]);
+    if (!nbd) {
+        for (i = 0; i < sizeof(s3backer_fuse_defaults) / sizeof(*s3backer_fuse_defaults); i++)
+            append_fuse_arg(s3backer_fuse_defaults[i]);
+    }
 
     // Append command line args
     for (i = 1; i < argc; i++)
