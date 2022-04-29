@@ -324,6 +324,11 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--blockCacheFileAdvise",
+        .offset=    offsetof(struct s3b_config, block_cache.fadvise),
+        .value=     1
+    },
+    {
         .templ=     "--blockSize=%s",
         .offset=    offsetof(struct s3b_config, block_size_str),
     },
@@ -1852,6 +1857,7 @@ dump_config(void)
     (*config.log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
       config.block_cache.cache_file != NULL ? config.block_cache.cache_file : "");
     (*config.log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", config.block_cache.no_verify ? "true" : "false");
+    (*config.log)(LOG_DEBUG, "%24s: %s", "fadvise", config.block_cache.fadvise ? "true" : "false");
     (*config.log)(LOG_DEBUG, "fuse_main arguments:");
     for (i = 0; i < config.fuse_args.argc; i++)
         (*config.log)(LOG_DEBUG, "  [%d] = \"%s\"", i, config.fuse_args.argv[i]);

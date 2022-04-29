@@ -46,6 +46,7 @@ struct block_cache_conf {
     u_int               read_ahead;
     u_int               read_ahead_trigger;
     u_int               no_verify;
+    u_int               fadvise;
     u_int               recover_dirty_blocks;
     u_int               perform_flush;
     u_int               num_protected;
