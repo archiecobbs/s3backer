@@ -200,7 +200,7 @@ s3b_dcache_open(struct s3b_dcache **dcachep, struct block_cache_conf *config,
 retry:
     // Open cache file
     assert(priv->fd == -1);
-    if ((priv->fd = open(priv->filename, O_RDWR, 0)) == -1) {
+    if ((priv->fd = open(priv->filename, O_RDWR|O_CLOEXEC, 0)) == -1) {
         r = errno;
         (*priv->log)(LOG_ERR, "can't open cache file `%s': %s", priv->filename, strerror(r));
         goto fail2;
@@ -780,7 +780,7 @@ s3b_dcache_create_file(struct s3b_dcache *priv, int *fdp, const char *filename, 
     header.data_align = getpagesize();
 
     // Create file
-    if ((*fdp = open(filename, O_RDWR|O_CREAT|O_EXCL, 0644)) == -1) {
+    if ((*fdp = open(filename, O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0644)) == -1) {
         r = errno;
         (*priv->log)(LOG_ERR, "can't create file `%s': %s", filename, strerror(r));
         return r;

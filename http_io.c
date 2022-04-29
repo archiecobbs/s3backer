@@ -352,6 +352,7 @@ static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int
 static int http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len);
 static void http_io_free_error_payload(struct http_io *const io);
 static void http_io_log_error_payload(struct http_io *const io);
+static int http_io_sockopt_callback(void *clientp, curl_socket_t curlfd, curlsocktype purpose);
 
 // Misc
 static void http_io_openssl_locker(int mode, int i, const char *file, int line);
@@ -3084,6 +3085,7 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
+    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, http_io_sockopt_callback);
     if (config->max_speed[HTTP_UPLOAD] != 0)
         curl_easy_setopt(curl, CURLOPT_MAX_SEND_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_UPLOAD] / 8));
     if (config->max_speed[HTTP_DOWNLOAD] != 0)
@@ -3198,6 +3200,13 @@ http_io_curl_header_reset(struct http_io *const io)
     memset(io->etag, 0, sizeof(io->etag));
     memset(io->hmac, 0, sizeof(io->hmac));
     memset(io->content_encoding, 0, sizeof(io->content_encoding));
+}
+
+static int
+http_io_sockopt_callback(void *cookie, curl_socket_t fd, curlsocktype purpose)
+{
+    (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+    return CURL_SOCKOPT_OK;
 }
 
 static void
