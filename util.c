@@ -442,11 +442,15 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
         info->beg_data = current_data;
         info->beg_block = current_block;
         info->beg_length = block_size - info->beg_offset;
+        if (info->beg_length > size)
+            info->beg_length = size;
         size -= info->beg_length;
-        offset += info->beg_length;
+        offset += size;
         current_data += info->beg_length;
         current_block++;
     }
+    if (size == 0)
+        return;
 
     // Handle center, if any
     info->mid_block_count = size >> shift;
