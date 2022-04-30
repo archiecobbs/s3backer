@@ -55,13 +55,15 @@
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
 
 // Internal state
-static char *configFile = NULL;
 static struct s3b_config *config;
 static const struct fuse_operations *fuse_ops;
 static struct s3backer_store *s3b;
 static struct fuse_ops_private *fuse_priv;
 static int pre_fork_pid;
 static int saw_mount_point;
+static char* s3backer_argv[80];
+static int s3backer_argc;
+static char* bucket;
 
 // Internal functions
 static void s3b_nbd_logger(int level, const char *fmt, ...);
@@ -80,9 +82,12 @@ static int s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uin
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
 static void s3b_nbd_plugin_unload(void);
+static void s3b_nbd_plugin_load(void);
+
 
 #define PLUGIN_HELP             \
-    "    " CONFIG_FILE_PARAMETER_NAME "=<path>   s3backer config file with command line flags and bucket[/prefix]"
+    "    s3b_<opt>=<value>   set corresponding --<opt> s3backer command line option.\n" \
+    "    [bucket=]<bucket>   set bucket (and subdirectory) to mount."
 
 // NBDKit plugin declaration
 static struct nbdkit_plugin plugin = {
@@ -107,7 +112,7 @@ static struct nbdkit_plugin plugin = {
     .is_rotational=         NULL,
 
     // Startup lifecycle callbacks
-    .load=                  NULL,
+    .load=                  s3b_nbd_plugin_load,
     .dump_plugin=           NULL,
     .config=                s3b_nbd_plugin_config,
     .config_complete=       s3b_nbd_plugin_config_complete,
@@ -133,20 +138,66 @@ static struct nbdkit_plugin plugin = {
 };
 NBDKIT_REGISTER_PLUGIN(plugin)
 
+
+#define SET_OR_FAIL(value) do {                    \
+    if (s3backer_argc >= sizeof(s3backer_argv)-1) {       \
+        nbdkit_error("too many parameters");            \
+        return -1;                                      \
+    }                                                       \
+    char* cpy = strdup(value);                              \
+    if (!cpy) {                                                 \
+        nbdkit_error("out of memory");                          \
+        return -1;                                              \
+    }                                                           \
+    s3backer_argv[s3backer_argc++] = cpy;                             \
+} while(0);
+    
+    
+static void
+s3b_nbd_plugin_load(void)
+{
+    assert(s3backer_argc == 0);
+    char *cpy = strdup("s3backer");
+    assert(cpy != NULL);
+    s3backer_argv[s3backer_argc++] = cpy;
+}
+
+
 // Called for each key=value passed on the nbdkit command line
 static int
 s3b_nbd_plugin_config(const char *key, const char *value)
 {
-    // Handle "configFile=xxx"
-    if (strcmp(key, CONFIG_FILE_PARAMETER_NAME) == 0) {
-        if ((configFile = nbdkit_realpath(value)) == NULL)
-            return -1;
-        return 0;
+  if (strcmp(key, "bucket") == 0) {
+    bucket = strdup(value);
+    if (!bucket) {
+      nbdkit_error("%m");
+      return -1;
     }
+    return 0;
+  }
 
-    // Unknown parameter
-    nbdkit_error("unknown parameter \"%s\"", key);
+  if (strncmp("s3b_", key, 4) != 0) {
+    nbdkit_error("unknown parameter '%s'", key);
     return -1;
+  }
+
+  // Convert s3b_foo=true into just --foo
+  if (strcmp(value, "true") == 0) {
+      SET_OR_FAIL(key + 2);
+      s3backer_argv[s3backer_argc-1][0] = '-';
+      s3backer_argv[s3backer_argc-1][1] = '-';
+      return 0;
+  }
+  
+  // Convert s3b_foo=bar into --foo=bar
+  char buf[strlen(key) + strlen(value)];
+  strcpy(buf, "--");
+  strcat(buf, key + 4);
+  strcat(buf, "=");
+  strcat(buf, value);
+  SET_OR_FAIL(buf);
+
+  return 0;
 }
 
 static void
@@ -173,29 +224,19 @@ s3b_nbd_logger(int level, const char *fmt, ...)
 static int
 s3b_nbd_plugin_config_complete(void)
 {
-    char *argv[3];
-    int argc = 0;
-
-    // Sanity check
-    if (configFile == NULL) {
-        nbdkit_error("missing required \"%s\" parameter", CONFIG_FILE_PARAMETER_NAME);
+    if (!bucket) {
+        nbdkit_error("missing option: bucket");
         return -1;
     }
 
-    // Create fake s3backer command line; strdup() is needed to eliminate "const"
-    memset(argv, 0, sizeof(*argv));
-    if ((argv[argc++] = strdup("s3backer")) == NULL) {
-        nbdkit_error("strdup: %m");
-        return -1;
-    }
-    if (asprintf(&argv[argc++], "--configFile=%s", configFile) == -1) {
-        nbdkit_error("strdup: %m");
-        return -1;
-    }
-    assert(argc < sizeof(argv));
+    // Add bucket
+    SET_OR_FAIL(bucket);
+    
+    // Add dummy mountpoint at end of arguments (not actually used)
+    SET_OR_FAIL("/tmp");
 
     // Parse fake s3backer command line
-    if ((config = s3backer_get_config2(argc, argv, 1, handle_unknown_option)) == NULL)
+    if ((config = s3backer_get_config2(s3backer_argc, s3backer_argv, 1, handle_unknown_option)) == NULL)
         return -1;
 
     // Disallow "--erase" and "--reset" flags
@@ -282,7 +323,10 @@ s3b_nbd_plugin_unload(void)
 {
     if (fuse_priv != NULL)
         (*fuse_ops->destroy)(fuse_priv);
-    free(configFile);
+    free(bucket);
+    for (int i = 0; s3backer_argv[i] != NULL; i++) {
+        free(s3backer_argv[i]);
+    }
 }
 
 static void *
