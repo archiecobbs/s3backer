@@ -79,7 +79,6 @@ static int s3b_nbd_plugin_pwrite(void *handle, const void *bufp, uint32_t size, 
 static int s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags);
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
-static void s3b_nbd_plugin_cleanup(void);
 static void s3b_nbd_plugin_unload(void);
 
 #define PLUGIN_HELP             \
@@ -130,7 +129,6 @@ static struct nbdkit_plugin plugin = {
     .close=                 NULL,
 
     // Shutdown lifecycle callbacks
-    .cleanup=               s3b_nbd_plugin_cleanup,
     .unload=                s3b_nbd_plugin_unload,
 };
 NBDKIT_REGISTER_PLUGIN(plugin)
@@ -280,15 +278,10 @@ s3b_nbd_plugin_after_fork(void)
 }
 
 static void
-s3b_nbd_plugin_cleanup(void)
+s3b_nbd_plugin_unload(void)
 {
     if (fuse_priv != NULL)
         (*fuse_ops->destroy)(fuse_priv);
-}
-
-static void
-s3b_nbd_plugin_unload(void)
-{
     free(configFile);
 }
 
