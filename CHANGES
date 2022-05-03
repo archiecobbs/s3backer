@@ -1,6 +1,7 @@
 Version Next
 
-    - Fix bug where "(null)" was appearing in usage message (issue #161).
+    - Disable MD5 cache by default now that Amazon S3 is consistent (issue #183)
+    - Fix bug where "(null)" was appearing in usage message (issue #161)
     - Give more meaningful usage error when size limits are exceeded (issue #162)
     - Added flag "--http11" to restrict cURL to HTTP 1.1 (issue #168)
     - Clean up mount token if FUSE itself fails to start (issue #175)

@@ -112,7 +112,7 @@ also includes its own internal block cache for increased performance, using asyn
 to take advantage of the parallelism inherent in the network.
 .El
 .Ss Consistency Guarantees
-Amazon S3 makes relatively weak guarantees relating to the timing and consistency of reads vs. writes
+Previously, Amazon S3 made relatively weak guarantees relating to the timing and consistency of reads vs. writes
 (collectively known as ``eventual consistency'').
 .Nm
 includes logic and configuration parameters to work around these limitations, allowing the user to
@@ -134,6 +134,12 @@ This logic is configured by the following command line options:
 .Fl \-md5CacheTime ,
 and
 .Fl \-minWriteDelay .
+.Pp
+In December of 2020, Amazon announced that S3 is now fully consistent.
+Therefore, the MD5 cache is disabled by default in
+.Nm
+versions after 1.6.3.
+Other S3-compatible services may still require it however.
 .Pp
 To guarantee consistency,
 .Fl \-md5CacheTime
@@ -798,7 +804,7 @@ according to the frequency of writes to the filesystem overall and to the same b
 Alternately, a value equal to the number of blocks in the filesystem eliminates this problem but consumes
 the most memory when full (each entry in the cache is approximately 40 bytes).
 A value of zero disables the MD5 cache.
-Default value is 1000.
+Default value is zero (disabled).
 .It Fl \-md5CacheTime=MILLIS
 Specify in milliseconds the time after a block has been successfully written for which the MD5 checksum
 of the block's contents should be cached, for the purpose of detecting stale data during subsequent reads.
