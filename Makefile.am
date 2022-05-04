@@ -54,7 +54,8 @@ noinst_HEADERS=		s3backer.h \
 			test_io.h \
 			s3b_config.h
 
-# Setup build for NBD plugin shared library
+# Setup build for NBD plugin shared library (if NBDKit is available)
+if NBDKIT_FOUND
 
 nbdplugindir=		$(NBDKIT_PLUGINDIR)
 
@@ -81,6 +82,7 @@ nbdkit_s3backer_plugin_la_SOURCES = \
 
 nbdkit_s3backer_plugin_la_LDFLAGS = \
 			-module -avoid-version -shared
+endif
 
 # See https://www.gnu.org/software/automake/manual/html_node/Objects-created-both-with-libtool-and-without.html
 s3backer_CFLAGS=	$(AM_CFLAGS)
