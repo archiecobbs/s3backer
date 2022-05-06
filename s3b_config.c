@@ -1512,10 +1512,13 @@ validate_config(int parse_only)
     if (config.block_cache.num_protected > config.block_cache.cache_size)
         warnx("`--blockCacheNumProtected' is larger than cache size; this may cause performance problems");
 
-    // Check mount point
-    if (config.nbd)
-        config.mount = config.bucket;           // this is just so something other than "(null)" appears in log output
-    else if (config.erase || config.reset) {
+    // Check mount point, flag combinations
+    if (config.nbd) {
+        if (config.erase || config.reset) {
+            warnx("NBD version of s3backer does not support \"--erase\" or \"--reset\"");
+            return -1;
+        }
+    } else if (config.erase || config.reset) {
         if (config.mount != NULL) {
             warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
             return -1;
