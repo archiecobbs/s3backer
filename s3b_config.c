@@ -524,6 +524,7 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
 };
+static const int num_options = sizeof(option_list) / sizeof(*option_list);
 
 // Default flags we send to FUSE
 static const char *const s3backer_fuse_defaults[] = {
@@ -566,7 +567,6 @@ s3backer_get_config(int argc, char **argv)
 struct s3b_config *
 s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_handler)
 {
-    const int num_options = sizeof(option_list) / sizeof(*option_list);
     struct fuse_opt dup_option_list[2 * sizeof(option_list) + 1];
     int num_subst = 0;
     char buf[1024];
