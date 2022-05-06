@@ -686,6 +686,28 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
     return &config;
 }
 
+// Determine if flag (without the double dashes) is a valid flag
+// Returns 0 if not, 1 if so and a boolean flag, 2 if so and a name=value flag
+int
+is_valid_s3b_flag(const char *flag)
+{
+    const size_t flag_len = strlen(flag);
+    int i;
+
+    if (strcmp(flag, "configFile") == 0)                        // this flag is handled specially and not in the table
+        return 2;
+    for (i = 0; i < num_options; i++) {
+        const char *const opt = option_list[i].templ;
+        if (strncmp(opt, "--", 2) == 0 && strncmp(opt + 2, flag, flag_len) == 0) {
+            if (opt[2 + flag_len] == '\0')
+                return 1;
+            if (opt[2 + flag_len] == '=')
+                return 2;
+        }
+    }
+    return 0;
+}
+
 /*
  * Create the s3backer_store used at runtime.
  */
