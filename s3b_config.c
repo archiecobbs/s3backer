@@ -113,7 +113,6 @@ static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 static int validate_config(void);
-static void usage(void);
 
 /****************************************************************************
  *                          VARIABLE DEFINITIONS                            *
@@ -1870,7 +1869,7 @@ dump_config(const struct s3b_config *const c)
         (*c->log)(LOG_DEBUG, "  [%d] = \"%s\"", i, c->fuse_args.argv[i]);
 }
 
-static void
+void
 usage(void)
 {
     const char *const *sptr;
