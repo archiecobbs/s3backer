@@ -1864,9 +1864,11 @@ dump_config(const struct s3b_config *const c)
       c->block_cache.cache_file != NULL ? c->block_cache.cache_file : "");
     (*c->log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", c->block_cache.no_verify ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: %s", "fadvise", c->block_cache.fadvise ? "true" : "false");
-    (*c->log)(LOG_DEBUG, "fuse_main arguments:");
-    for (i = 0; i < c->fuse_args.argc; i++)
-        (*c->log)(LOG_DEBUG, "  [%d] = \"%s\"", i, c->fuse_args.argv[i]);
+    if (!c->nbd) {
+        (*c->log)(LOG_DEBUG, "fuse_main arguments:");
+        for (i = 0; i < c->fuse_args.argc; i++)
+            (*c->log)(LOG_DEBUG, "  [%d] = \"%s\"", i, c->fuse_args.argv[i]);
+    }
 }
 
 void
