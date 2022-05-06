@@ -78,13 +78,15 @@ PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.24.1],
 AC_SUBST([NBDKIT_FOUND])
 AM_CONDITIONAL([NBDKIT_FOUND], [test "x$NBDKIT_FOUND" = xtrue])
 
-# If NBDKit was found, find the plugin directory
+# If NBDKit was found, find the plugin directory and executable
 AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
     AC_MSG_CHECKING([NBDKit plugins directory])
     PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
     AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
         [AC_MSG_FAILURE([Unable to identify the NBDKit plugin directory.])],
         [AC_MSG_RESULT([$NBDKIT_PLUGINDIR])])
+    AC_PATH_PROGS([NBDKIT_EXECUTABLE], [nbdkit])
+    AC_DEFINE_UNQUOTED([NBDKIT_EXECUTABLE], ["$NBDKIT_EXECUTABLE"], [path to nbdkit(1) executable])
 ])
 
 # Check for required libraries
