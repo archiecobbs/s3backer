@@ -54,7 +54,7 @@ main(int argc, char **argv)
     struct s3b_config *config;
 
     // Get configuration
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
+    if ((config = s3backer_get_config(argc, argv, 0, 0)) == NULL)
         return 1;
 
     // Handle `--erase' flag

@@ -112,7 +112,7 @@ static void remove_fuse_arg(int pos);
 static void read_fuse_args(const char *filename, int pos);
 static int search_access_for(const char *file, const char *accessId, char **idptr, char **pwptr);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
-static int validate_config(void);
+static int validate_config(int parse_only);
 
 /****************************************************************************
  *                          VARIABLE DEFINITIONS                            *
@@ -559,13 +559,13 @@ struct s3backer_store *test_io_store;
  ****************************************************************************/
 
 struct s3b_config *
-s3backer_get_config(int argc, char **argv)
+s3backer_get_config(int argc, char **argv, int nbd, int parse_only)
 {
-    return s3backer_get_config2(argc, argv, 0, handle_unknown_option);
+    return s3backer_get_config2(argc, argv, nbd, parse_only, handle_unknown_option);
 }
 
 struct s3b_config *
-s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_handler)
+s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_proc_t unknown_handler)
 {
     struct fuse_opt dup_option_list[2 * sizeof(option_list) + 1];
     int num_subst = 0;
@@ -666,7 +666,7 @@ s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_han
         return NULL;
 
     // Validate configuration
-    if (validate_config() != 0)
+    if (validate_config(parse_only) != 0)
         return NULL;
 
     // Set fsname based on configuration
@@ -679,7 +679,7 @@ s3backer_get_config2(int argc, char **argv, int nbd, fuse_opt_proc_t unknown_han
     config.fuse_ops.s3bconf = &config;
 
     // Debug
-    if (config.debug)
+    if (!parse_only && config.debug)
         dump_config(&config);
 
     // Done
@@ -1060,7 +1060,7 @@ search_access_for(const char *file, const char *accessId, char **idptr, char **p
 }
 
 static int
-validate_config(void)
+validate_config(int parse_only)
 {
     struct s3backer_store *s3b;
     const int customBaseURL = config.http_io.baseURL != NULL;
@@ -1519,6 +1519,10 @@ validate_config(void)
         snvprintf(config.description, sizeof(config.description), "%s%s", config.http_io.baseURL, config.prefix);
     else
         snvprintf(config.description, sizeof(config.description), "%s%s/%s", config.http_io.baseURL, config.bucket, config.prefix);
+
+    // Are we just parsing?
+    if (parse_only)
+        return 0;
 
     /*
      * Read the first block (if any) to determine existing file and block size,

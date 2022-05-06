@@ -195,7 +195,7 @@ s3b_nbd_plugin_config_complete(void)
     assert(argc < sizeof(argv));
 
     // Parse fake s3backer command line
-    if ((config = s3backer_get_config2(argc, argv, 1, handle_unknown_option)) == NULL)
+    if ((config = s3backer_get_config2(argc, argv, 1, 0, handle_unknown_option)) == NULL)
         return -1;
 
     // Disallow "--erase" and "--reset" flags

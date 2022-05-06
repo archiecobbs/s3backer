@@ -79,7 +79,7 @@ main(int argc, char **argv)
     int r;
 
     // Get configuration
-    if ((config = s3backer_get_config(argc, argv)) == NULL)
+    if ((config = s3backer_get_config(argc, argv, 0, 0)) == NULL)
         exit(1);
     if (config->block_size < sizeof(u_int))
         err(1, "block size too small");
