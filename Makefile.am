@@ -47,6 +47,7 @@ noinst_HEADERS=		s3backer.h \
 			erase.h \
 			fuse_ops.h \
 			hash.h \
+			nbdkit.h \
 			util.h \
 			compress.h \
 			http_io.h \

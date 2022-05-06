@@ -44,14 +44,10 @@
 #include "test_io.h"
 #include "s3b_config.h"
 #include "util.h"
+#include "nbdkit.h"
 
 #define NBDKIT_API_VERSION              2
 #include <nbdkit-plugin.h>
-
-// Parameter name
-#define BUCKET_PARAMETER_NAME           "bucket"
-#define S3B_PARAM_PREFIX                "s3b_"
-#define S3B_PARAM_PREFIX_LEN            (sizeof(S3B_PARAM_PREFIX) - 1)
 
 // Concurrent requests are supported
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
@@ -101,7 +97,7 @@ static struct nbdkit_plugin plugin = {
     .version=               PACKAGE_VERSION,
     .longname=              PACKAGE,
     .description=           "Block-based backing store via Amazon S3",
-    .magic_config_key=      BUCKET_PARAMETER_NAME,
+    .magic_config_key=      NBD_BUCKET_PARAMETER_NAME,
     .config_help=           PLUGIN_HELP,
     .errno_is_preserved=    0,
     .can_multi_conn=        s3b_nbd_plugin_can_multi_conn,
@@ -155,15 +151,15 @@ s3b_nbd_plugin_config(const char *key, const char *value)
     }
 
     // Strip "s3b_" prefix, if any
-    if (strlen(key) > S3B_PARAM_PREFIX_LEN && strncmp(key, S3B_PARAM_PREFIX, S3B_PARAM_PREFIX_LEN) == 0) {
-        key += S3B_PARAM_PREFIX_LEN;
+    if (strlen(key) > NBD_S3B_PARAM_PREFIX_LEN && strncmp(key, NBD_S3B_PARAM_PREFIX, NBD_S3B_PARAM_PREFIX_LEN) == 0) {
+        key += NBD_S3B_PARAM_PREFIX_LEN;
         had_s3b_prefix = 1;
     }
 
     // Handle special parameter "bucket=xxx" (save for later)
-    if (strcmp(key, BUCKET_PARAMETER_NAME) == 0) {
+    if (strcmp(key, NBD_BUCKET_PARAMETER_NAME) == 0) {
         if (bucket_param != NULL) {
-            nbdkit_error("duplicate \"%s\" parameter", BUCKET_PARAMETER_NAME);
+            nbdkit_error("duplicate \"%s\" parameter", NBD_BUCKET_PARAMETER_NAME);
             return -1;
         }
         if ((bucket_param = strdup(value)) == NULL) {
