@@ -50,6 +50,8 @@
 
 // Parameter name
 #define BUCKET_PARAMETER_NAME           "bucket"
+#define S3B_PARAM_PREFIX                "s3b_"
+#define S3B_PARAM_PREFIX_LEN            (sizeof(S3B_PARAM_PREFIX) - 1)
 
 // Concurrent requests are supported
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
@@ -87,6 +89,7 @@ static void s3b_nbd_plugin_unload(void);
 #define PLUGIN_HELP                                                                                                 \
     "    foo=bar                Equivalent to s3backer(1) command line flag \"--foo=bar\"\n"                        \
     "    foo=true               Equivalent to boolean s3backer(1) command line flag \"--foo\"\n"                    \
+    "    s3b_foo=bar            Alternate form of the above parameters (ensures uniqueness within nbdkit)\n"        \
     "    bucket=name[/subdir]   Specify S3 target bucket (with optional subdirectory)\n"                            \
     "    name[/subdir]          Equivalent to \"bucket=name[/subdir]\""
 
@@ -143,10 +146,18 @@ NBDKIT_REGISTER_PLUGIN(plugin)
 static int
 s3b_nbd_plugin_config(const char *key, const char *value)
 {
+    int had_s3b_prefix = 0;
+
     // Initialize params array (first time only)
     if (params.num_strings == 0 && add_string(&params, "%s", PACKAGE_NAME) == -1) {
         nbdkit_error("add_string: %m");
         return -1;
+    }
+
+    // Strip "s3b_" prefix, if any
+    if (strlen(key) > S3B_PARAM_PREFIX_LEN && strncmp(key, S3B_PARAM_PREFIX, S3B_PARAM_PREFIX_LEN) == 0) {
+        key += S3B_PARAM_PREFIX_LEN;
+        had_s3b_prefix = 1;
     }
 
     // Handle special parameter "bucket=xxx" (save for later)
@@ -184,9 +195,11 @@ s3b_nbd_plugin_config(const char *key, const char *value)
         }
         break;
     default:                                                    // unknown flag
+        if (had_s3b_prefix) {
+            nbdkit_error("unknown %s parameter \"%s\"", PACKAGE, key);
+            return -1;
+        }
         // XXX what is the correct thing to do here?
-        //nbdkit_error("unknown %s parameter \"%s\"", PACKAGE, key);
-        //return -1;
         break;
     }
 
