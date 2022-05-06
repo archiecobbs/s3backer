@@ -49,6 +49,14 @@
 .Pp
 .Nm s3backer
 .Bk -words
+.Fl \-nbd
+.Op options
+.Ar bucket[/subdir]
+.Op Ar address
+.Ek
+.Pp
+.Nm s3backer
+.Bk -words
 .Fl \-test
 .Op options
 .Ar dir
@@ -820,6 +828,44 @@ is not running, you must delay at least
 .Fl \-md5CacheTime
 milliseconds between stopping and restarting
 .Nm .
+.It Fl \-nbd
+Execute
+.Nm
+as a Network Block Device (NBD) server instead of a FUSE filesystem on platforms with
+.Xr ndbkit 1 .
+.Pp
+This flag trampolines to the
+.Xr nbdkit 1
+command.
+Only the
+.Fl \-doubleDash
+style flags are supported, with the exception of
+.Fl f
+and
+.Fl d ;
+any other flags (including any FUSE-specific flags) are disallowed.
+The
+.Fl \-nbd
+flag may not appear in a
+.Fl \-configFile
+file, although
+.Fl \-configFile
+may be used.
+.Pp
+For convenience, the
+.Ar address
+on which the NDB server will listen for connections may be directly specified.
+An
+.Ar address
+consisting of only digits, dots, and colon characters is assumed to be a bind address
+(TCP port optionally prefixed by IP address and colon), otherwise a UNIX socket file.
+.It Fl \-nbd-flag=value
+.It Fl \-nbd-param=value
+Add
+.Ar value
+as an
+.Xr nbdkit 1
+command line parameter, either before or after the plugin name (respectively).
 .It Fl \-noAutoDetect
 Disable block and file size auto-detection at startup.
 If this flag is given, then the block size defaults to 4096 and the
@@ -1060,6 +1106,7 @@ Contains Amazon S3 `accessID:accessKey' pairs.
 .Xr curl 1 ,
 .Xr losetup 8 ,
 .Xr mount 8 ,
+.Xr nbdkit 1 ,
 .Xr umount 8 ,
 .Xr fusermount 8 .
 .Rs

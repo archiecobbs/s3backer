@@ -1907,6 +1907,7 @@ usage(void)
 
     fprintf(stderr, "Usage:\n");
     fprintf(stderr, "\ts3backer [options] bucket[/subdir] /mount/point\n");
+    fprintf(stderr, "\ts3backer --nbd [options] directory [address]\n");
     fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
     fprintf(stderr, "\ts3backer --erase [options] bucket[/subdir]\n");
     fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket[/subdir]\n");
@@ -1964,6 +1965,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheSize=NUM", "Max size of MD5 cache (zero = disabled)");
     fprintf(stderr, "\t--%-27s %s\n", "md5CacheTime=MILLIS", "Expire time for MD5 cache (zero = infinite)");
     fprintf(stderr, "\t--%-27s %s\n", "minWriteDelay=MILLIS", "Minimum time between same block writes");
+    fprintf(stderr, "\t--%-27s %s\n", "nbd", "Run as an NBD server instead of a FUSE filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "no-vhost", "Disable virtual hosted style requests");
     fprintf(stderr, "\t--%-27s %s\n", "password=PASSWORD", "Encrypt using PASSWORD");
     fprintf(stderr, "\t--%-27s %s\n", "passwordFile=FILE", "Encrypt using password read from FILE");
