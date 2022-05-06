@@ -49,19 +49,22 @@
 #include <nbdkit-plugin.h>
 
 // Parameter name
-#define CONFIG_FILE_PARAMETER_NAME      "configFile"
+#define BUCKET_PARAMETER_NAME           "bucket"
 
 // Concurrent requests are supported
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
 
-// Internal state
-static char *configFile = NULL;
+// Configuration state
+static struct string_array params;      // array of standard s3backer command line flags and parameters
+static char *bucket_param;              // bucket specified on the nbdkit command line via "bucket=xxx", if any
+static int saw_mount_point;
+
+// Runtime state
 static struct s3b_config *config;
 static const struct fuse_operations *fuse_ops;
 static struct s3backer_store *s3b;
 static struct fuse_ops_private *fuse_priv;
 static int pre_fork_pid;
-static int saw_mount_point;
 
 // Internal functions
 static void s3b_nbd_logger(int level, const char *fmt, ...);
@@ -81,8 +84,11 @@ static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
 static void s3b_nbd_plugin_unload(void);
 
-#define PLUGIN_HELP             \
-    "    " CONFIG_FILE_PARAMETER_NAME "=<path>   s3backer config file with command line flags and bucket[/prefix]"
+#define PLUGIN_HELP                                                                                                 \
+    "    foo=bar                Equivalent to s3backer(1) command line flag \"--foo=bar\"\n"                        \
+    "    foo=true               Equivalent to boolean s3backer(1) command line flag \"--foo\"\n"                    \
+    "    bucket=name[/subdir]   Specify S3 target bucket (with optional subdirectory)\n"                            \
+    "    name[/subdir]          Equivalent to \"bucket=name[/subdir]\""
 
 // NBDKit plugin declaration
 static struct nbdkit_plugin plugin = {
@@ -92,7 +98,7 @@ static struct nbdkit_plugin plugin = {
     .version=               PACKAGE_VERSION,
     .longname=              PACKAGE,
     .description=           "Block-based backing store via Amazon S3",
-    .magic_config_key=      CONFIG_FILE_PARAMETER_NAME,
+    .magic_config_key=      BUCKET_PARAMETER_NAME,
     .config_help=           PLUGIN_HELP,
     .errno_is_preserved=    0,
     .can_multi_conn=        s3b_nbd_plugin_can_multi_conn,
@@ -137,16 +143,55 @@ NBDKIT_REGISTER_PLUGIN(plugin)
 static int
 s3b_nbd_plugin_config(const char *key, const char *value)
 {
-    // Handle "configFile=xxx"
-    if (strcmp(key, CONFIG_FILE_PARAMETER_NAME) == 0) {
-        if ((configFile = nbdkit_realpath(value)) == NULL)
+    // Initialize params array (first time only)
+    if (params.num_strings == 0 && add_string(&params, "%s", PACKAGE_NAME) == -1) {
+        nbdkit_error("add_string: %m");
+        return -1;
+    }
+
+    // Handle special parameter "bucket=xxx" (save for later)
+    if (strcmp(key, BUCKET_PARAMETER_NAME) == 0) {
+        if (bucket_param != NULL) {
+            nbdkit_error("duplicate \"%s\" parameter", BUCKET_PARAMETER_NAME);
             return -1;
+        }
+        if ((bucket_param = strdup(value)) == NULL) {
+            nbdkit_error("strdup: %m");
+            return -1;
+        }
         return 0;
     }
 
-    // Unknown parameter
-    nbdkit_error("unknown parameter \"%s\"", key);
-    return -1;
+    // Convert "name=value" plugin parameter into "--foo=bar" s3backer command line flag or "--foo=true" into "--foo" if boolean
+    switch (is_valid_s3b_flag(key)) {
+    case 1:                                                     // boolean flag
+        if (strcasecmp(value, "true") == 0) {
+            if (add_string(&params, "--%s", key) == -1) {
+                nbdkit_error("add_string: %m");
+                return -1;
+            }
+            break;
+        }
+        if (strcasecmp(value, "false") != 0) {
+            nbdkit_error("invalid value \"%s\" for boolean flag \"--%s\"", value, key);
+            return -1;
+        }
+        break;
+    case 2:                                                     // value flag
+        if (add_string(&params, "--%s=%s", key, value) == -1) {
+            nbdkit_error("add_string: %m");
+            return -1;
+        }
+        break;
+    default:                                                    // unknown flag
+        // XXX what is the correct thing to do here?
+        //nbdkit_error("unknown %s parameter \"%s\"", PACKAGE, key);
+        //return -1;
+        break;
+    }
+
+    // Done
+    return 0;
 }
 
 static void
@@ -173,36 +218,23 @@ s3b_nbd_logger(int level, const char *fmt, ...)
 static int
 s3b_nbd_plugin_config_complete(void)
 {
-    char *argv[3];
-    int argc = 0;
-
-    // Sanity check
-    if (configFile == NULL) {
-        nbdkit_error("missing required \"%s\" parameter", CONFIG_FILE_PARAMETER_NAME);
-        return -1;
+    // Append bucket parameter, if explicitly provided via "bucket=foo"
+    if (bucket_param != NULL) {
+        if (add_string(&params, "%s", bucket_param) == -1) {
+            nbdkit_error("add_string: %m");
+            return -1;
+        }
+        free(bucket_param);
+        bucket_param = NULL;
     }
-
-    // Create fake s3backer command line; strdup() is needed to eliminate "const"
-    memset(argv, 0, sizeof(*argv));
-    if ((argv[argc++] = strdup("s3backer")) == NULL) {
-        nbdkit_error("strdup: %m");
-        return -1;
-    }
-    if (asprintf(&argv[argc++], "--configFile=%s", configFile) == -1) {
-        nbdkit_error("strdup: %m");
-        return -1;
-    }
-    assert(argc < sizeof(argv));
 
     // Parse fake s3backer command line
-    if ((config = s3backer_get_config2(argc, argv, 1, 0, handle_unknown_option)) == NULL)
+    if ((config = s3backer_get_config2(params.num_strings, params.strings, 1, 0, handle_unknown_option)) == NULL)
         return -1;
 
-    // Disallow "--erase" and "--reset" flags
-    if (config->erase || config->reset) {
-        nbdkit_error("NBDKit version of s3backer does not support \"--erase\" or \"--reset\" flags");
-        return -1;
-    }
+    // Ensure something other than "(null)" appears in log output
+    if (config->mount == NULL)
+        config->mount = config->bucket;
 
     // Done
     return 0;
@@ -213,7 +245,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 {
     struct s3b_config *const new_config = data;
 
-    // Check options
+    // Any unrecognized options must be FUSE flags that came from a "foobar.conf" config file
     if (key == FUSE_OPT_KEY_OPT) {
 
         // Notice debug flag
@@ -222,17 +254,14 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
             return 1;
         }
 
-        // Ignore "foreground" flag
-        if (strcmp(arg, "-f") == 0)
-            return 1;
-
-        // Unknown
-        nbdkit_error("invalid flag \"%s\"", arg);
-        return -1;
+        // Otherwise ignore
+        nbdkit_debug("ignoring FUSE flag \"%s\"", arg);
+        return 0;
     }
 
-    // Get bucket parameter
+    // Get bucket parameter (if not already defined)
     if (new_config->bucket == NULL) {
+        nbdkit_debug("recording bucket parameter \"%s\"", arg);
         if ((new_config->bucket = strdup(arg)) == NULL)
             err(1, "strdup");
         return 0;
@@ -240,6 +269,7 @@ handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *ou
 
     // Ignore mount point parameter, if any, allowing re-use of normal "foobar.conf" config files
     if (!saw_mount_point) {
+        nbdkit_debug("ignoring mount point parameter \"%s\"", arg);
         saw_mount_point = 1;
         return 0;
     }
@@ -282,7 +312,7 @@ s3b_nbd_plugin_unload(void)
 {
     if (fuse_priv != NULL)
         (*fuse_ops->destroy)(fuse_priv);
-    free(configFile);
+    free_strings(&params);
 }
 
 static void *
@@ -292,7 +322,7 @@ s3b_nbd_plugin_open(int readonly)
     return NBDKIT_HANDLE_NOT_NEEDED;
 }
 
-/* Size of the data we are going to serve. */
+// Size of the data we are going to serve
 static int64_t
 s3b_nbd_plugin_get_size(void *handle)
 {
