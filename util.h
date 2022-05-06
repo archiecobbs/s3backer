@@ -63,6 +63,13 @@ struct boundary_info {
     u_int           end_length;
 };
 
+// A list of strings
+struct string_array {
+    char            **strings;
+    size_t          num_alloc;
+    size_t          num_strings;
+};
+
 // Globals
 extern int log_enable_debug;
 extern const void *zero_block;
@@ -78,6 +85,8 @@ extern int block_is_zeros(const void *data, u_int block_size);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
 extern char *prefix_log_format(int level, const char *fmt);
 extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
+extern int add_string(struct string_array *array, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
+extern void free_strings(struct string_array *array);
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);

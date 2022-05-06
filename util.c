@@ -468,3 +468,45 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
         info->end_block = current_block;
     }
 }
+
+int
+add_string(struct string_array *array, const char *format, ...)
+{
+    size_t new_num_alloc;
+    char **new_strings;
+    char *string;
+    va_list args;
+    int r;
+
+    // Extend array if needed
+    if (array->num_strings + 2 > array->num_alloc) {
+        new_num_alloc = 13 + array->num_alloc * 2;
+        if ((new_strings = realloc(array->strings, new_num_alloc * sizeof(*array->strings))) == NULL)
+            return -1;
+        array->strings = new_strings;
+        array->num_alloc = new_num_alloc;
+    }
+
+    // Format new string
+    va_start(args, format);
+    r = vasprintf(&string, format, args);
+    va_end(args);
+    if (r == -1)
+        return -1;
+
+    // Add string to array
+    array->strings[array->num_strings++] = string;
+    array->strings[array->num_strings] = NULL;                  // keep string list NULL-terminated (when non-empty)
+
+    // Done
+    return 0;
+}
+
+void
+free_strings(struct string_array *array)
+{
+    while (array->num_strings > 0)
+        free(array->strings[--array->num_strings]);
+    free(array->strings);
+    memset(array, 0, sizeof(*array));
+}
