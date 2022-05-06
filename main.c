@@ -72,10 +72,8 @@ main(int argc, char **argv)
     }
 
     // Create backing store
-    if ((s3b = s3backer_create_store(config)) == NULL) {
-        (*config->log)(LOG_ERR, "error creating s3backer_store: %s", strerror(errno));
-        return 1;
-    }
+    if ((s3b = s3backer_create_store(config)) == NULL)
+        err(1, "error creating s3backer_store");
 
     // Start logging to syslog now
     if (!config->foreground)
