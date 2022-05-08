@@ -151,6 +151,7 @@ AC_ARG_ENABLE(sanitize,
 # Generated files
 AC_CONFIG_FILES(Makefile)
 AC_CONFIG_FILES(s3backer.spec)
+AC_CONFIG_FILES(s3backer.1)
 AM_CONFIG_HEADER(config.h)
 
 # Go

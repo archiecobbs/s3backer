@@ -13,6 +13,6 @@ rm -f *.lo *.la libtool
 rm -rf .libs scripts m4 TAGS
 find . \( -name Makefile -o -name Makefile.in \) -print0 | xargs -0 rm -f
 rm -f gitrev.c s3backer.spec
-rm -f *.o s3backer tester
+rm -f *.o s3backer{,.1} tester
 rm -f s3backer-?.?.?.tar.gz
 
