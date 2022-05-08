@@ -302,6 +302,31 @@ Use
 .Fl \-statsFilename
 to change the name of this file (default `stats').
 The statistics can be reset to zero by attempting to remove the file.
+.Ss NBD Plugin
+On platforms with
+.Xr ndbkit 1 ,
+.Nm
+is also installed as an
+.Xr nbdkit 1
+plugin.
+.Pp
+The
+.Fl \-nbd
+flag causes
+.Nm
+to start up
+.Xr nbdkit 1
+thereby serving the S3 volume on the specified address.
+.Pp
+To use the plugin directly, command line flags like
+.Fl \-blockSize=SIZE
+should instead as specified parameters like
+.Ar blockSize=SIZE ;
+boolean flags should be specified with the value
+.Ar true .
+The bucket name (with optional subdirectory) must be specified with the
+.Ar bucket
+parameter.
 .Ss Logging
 In normal operation
 .Nm
@@ -829,15 +854,15 @@ is not running, you must delay at least
 milliseconds between stopping and restarting
 .Nm .
 .It Fl \-nbd
-Execute
-.Nm
-as a Network Block Device (NBD) server instead of a FUSE filesystem on platforms with
-.Xr ndbkit 1 .
+Create a Network Block Device (NBD) instead of a FUSE filesystem.
+This is probably a more logical and direct way to do things on systems that support NBD.
 .Pp
-This flag trampolines to the
+This flag causes
+.Nm
+to start
 .Xr nbdkit 1
-command.
-Only the
+listening on the specified address.
+Only
 .Fl \-doubleDash
 style flags are supported, with the exception of
 .Fl f
@@ -859,10 +884,11 @@ An
 .Ar address
 consisting of only digits, dots, and colon characters is assumed to be a bind address
 (TCP port optionally prefixed by IP address and colon), otherwise a UNIX socket file.
-.It Fl \-nbd-flag=value
-.It Fl \-nbd-param=value
+file.
+.It Fl \-nbd-flag=string
+.It Fl \-nbd-param=string
 Add
-.Ar value
+.Ar string
 as an
 .Xr nbdkit 1
 command line parameter, either before or after the plugin name (respectively).
@@ -1160,10 +1186,6 @@ uses 32 bit values to index individual blocks.
 Therefore, the block size must be increased beyond the default 4K when very large filesystems
 (greater than 16 terabytes) are created.
 .Pp
-.Nm
-should really be implemented as a device rather than a filesystem.
-In Linux this is possible via NBD; see issue #147.
-.Pp
 On Mac OS X, the kernel imposes its own timeout (600 seconds) on FUSE operations, and automatically
 unmounts the filesystem when this limit is reached.
 This can happen when a combination of
@@ -1177,5 +1199,9 @@ Filesystem size is limited by the maximum allowable size of a single file.
 .Pp
 The default block size of 4k is non-optimal from a compression and cost perspective.
 Typically, users will want a larger value to maximize compression and minimize transaction costs, e.g., 1m.
+.Pp
+When running under NBD, the
+.Ar stats
+file in not available.
 .Sh AUTHOR
 .An Archie L. Cobbs Aq archie.cobbs@gmail.com
