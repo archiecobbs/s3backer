@@ -48,7 +48,22 @@
 #include "nbdkit.h"
 
 #if NBDKIT
+
+// Some definitions
+#define NBD_CLIENT_BLOCK_SIZE                   4096
+#define NBDKIT_STARTUP_WAIT_PAUSE               (long)50
+#define MAX_NBDKIT_STARTUP_WAIT_MILLIS          (long)1000
+#define NUM_CHILD_PROCESSES                     2
+
+// Internal state
+static const int forward_signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM };
+static const int num_forward_signals = sizeof(forward_signals) / sizeof(*forward_signals);
+static int child_pids[NUM_CHILD_PROCESSES];
+
+// Internal functions
 static int trampoline_to_nbd(int argc, char **argv);
+static void kill_child_processes(int signal);
+static void debug_exec(const char *executable, struct string_array *strings);
 #endif
 
 int
@@ -139,8 +154,16 @@ trampoline_to_nbd(int argc, char **argv)
     struct string_array nbd_flags;
     struct string_array nbd_params;
     struct s3b_config *config;
+    struct sigaction act;
+    struct timespec pause;
     char *bucket_param;
-    char *address_param;
+    char *device_param;
+    char *unix_socket;
+    long elapsed_millis;
+    int file_created;
+    struct stat sb;
+    int wstatus;
+    pid_t pid;
     int i;
 
     // Initialize
@@ -182,18 +205,33 @@ trampoline_to_nbd(int argc, char **argv)
             err(1, "add_string");
     }
 
-    // There should be either one or two remaining parameters
+    // There should be two remaining parameters
     switch (argc - i) {
-    case 1:
-        bucket_param = argv[i];
-        address_param = NULL;
-        break;
     case 2:
         bucket_param = argv[i];
-        address_param = argv[i + 1];
+        device_param = argv[i + 1];
         break;
     default:
         return 2;
+    }
+
+    // Get info about /dev/nbd0 block device
+    if (stat(device_param, &sb) == -1)
+        errx(1, "%s", device_param);
+
+    // Determine the UNIX socket file uniquely corresponding to the block device
+    if (asprintf(&unix_socket, "%s/%0*jx_%0*jx", S3B_NBD_DIR,
+      (int)(sizeof(dev_t) * 2), (uintmax_t)sb.st_dev, (int)(sizeof(ino_t) * 2), (uintmax_t)sb.st_ino) == -1)
+        err(1, "asprintf");
+
+    // Delete any leftover UNIX socket file, if any
+    (void)unlink(unix_socket);
+
+    // Verify we have sufficient privileges
+    if (stat(unix_socket, &sb) == -1 && errno != ENOENT) {
+        if (errno == EPERM || errno == EACCES)
+            errx(1, "must be run as root when the \"--nbd\" flag is used");
+        err(1, "%s", unix_socket);
     }
 
     // Get configuration (parse only)
@@ -201,58 +239,13 @@ trampoline_to_nbd(int argc, char **argv)
         return 1;
 
     // Initialize nbdkit(1) command line
-    if (add_string(&command_line, "%s", NBDKIT_EXECUTABLE) == -1)
+    if (add_string(&command_line, "%s", NBDKIT_EXECUTABLE) == -1
+      || (config->debug && add_string(&command_line, "--verbose") == -1)
+      || (config->foreground && add_string(&command_line, "--foreground") == -1)
+      || (config->fuse_ops.read_only && add_string(&command_line, "--read-only") == -1)
+      || add_string(&command_line, "--unix") == -1
+      || add_string(&command_line, "%s", unix_socket) == -1)
         err(1, "add_string");
-    if (config->debug && add_string(&command_line, "--verbose") == -1)
-        err(1, "add_string");
-    if (config->foreground && add_string(&command_line, "--foreground") == -1)
-        err(1, "add_string");
-    if (config->fuse_ops.read_only && add_string(&command_line, "--read-only") == -1)
-        err(1, "add_string");
-
-    // Was an address specified?
-    if (address_param != NULL) {
-        int unix_socket;
-        const char *s;
-
-        // Did we get a UNIX socket file or IP address and port?
-        unix_socket = 0;
-        for (s = address_param; *s != '\0'; s++) {
-            if (strchr(":.0123456789", *s) == NULL) {
-                unix_socket = 1;
-                break;
-            }
-        }
-
-        // Add address, either UNIX socket or ipaddr:port
-        if (unix_socket) {
-            if (add_string(&command_line, "--unix") == -1
-              || add_string(&command_line, "%s", address_param) == -1)
-                err(1, "add_string");
-        } else {
-            char *ipaddr;
-            char *port;
-
-            // Split IP address and port as needed
-            if ((port = strchr(address_param, ':')) != NULL) {
-                *port++ = '\0';
-                ipaddr = address_param;
-            } else {
-                port = address_param;
-                ipaddr = NULL;
-            }
-
-            // Add (optional) IP address and port parameters
-            if (ipaddr != NULL) {
-                if (add_string(&command_line, "--ipaddr") == -1
-                  || add_string(&command_line, "%s", ipaddr) == -1)
-                    err(1, "add_string");
-            }
-            if (add_string(&command_line, "--port") == -1
-              || add_string(&command_line, "%s", port) == -1)
-                err(1, "add_string");
-        }
-    }
 
     // Add any custom "--nbd-flag" flags
     for (i = 0; i < nbd_flags.num_strings; i++) {
@@ -320,15 +313,110 @@ trampoline_to_nbd(int argc, char **argv)
             err(1, "add_string");
     }
 
-    // Debug
-    if (config->debug) {
-        warnx("executing %s with these parameters:", NBDKIT_EXECUTABLE);
-        for (i = 0; i < command_line.num_strings; i++)
-            warnx("  [%02d] \"%s\"", i, command_line.strings[i]);
+    // Fire up nbdkit
+    if (config->debug)
+        debug_exec(NBDKIT_EXECUTABLE, &command_line);
+    if ((child_pids[0] = fork_off(NBDKIT_EXECUTABLE, command_line.strings)) == -1)
+        err(1, "%s", NBDKIT_EXECUTABLE);
+    free_strings(&command_line);
+
+    // Wait for socket file to come into existence
+    file_created = 0;
+    for (elapsed_millis = 0; elapsed_millis <= MAX_NBDKIT_STARTUP_WAIT_MILLIS; elapsed_millis += NBDKIT_STARTUP_WAIT_PAUSE) {
+        if (stat(unix_socket, &sb) == 0) {
+            file_created = 1;
+            break;
+        }
+        if (errno != ENOENT)
+            err(1, "%s", unix_socket);
+        pause.tv_sec = 0;
+        pause.tv_nsec = NBDKIT_STARTUP_WAIT_PAUSE * (long)1000000;
+        (void)nanosleep(&pause, NULL);
+    }
+    if (!file_created)
+        errx(1, "%s failed to start within %lums", NBDKIT_EXECUTABLE, MAX_NBDKIT_STARTUP_WAIT_MILLIS);
+
+    // Build nbd-client command line
+    if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
+      || add_string(&command_line, "-unix") == -1
+      || add_string(&command_line, "%s", unix_socket) == -1
+      || add_string(&command_line, "-block-size") == -1
+      || add_string(&command_line, "%u", NBD_CLIENT_BLOCK_SIZE) == -1
+      || (config->foreground && add_string(&command_line, "-nofork") == -1)
+      || add_string(&command_line, "%s", device_param) == -1)
+        err(1, "add_string");
+
+    // Fire up nbd-client
+    if (config->debug)
+        debug_exec(NBD_CLIENT_EXECUTABLE, &command_line);
+    if ((child_pids[1] = fork_off(NBD_CLIENT_EXECUTABLE, command_line.strings)) == -1)
+        err(1, "%s", NBD_CLIENT_EXECUTABLE);
+
+    // Setup so if we get a death signal, we terminate our child processes (via SIGTERM)
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = &kill_child_processes;
+    act.sa_flags = SA_RESTART;
+    for (i = 0; i < num_forward_signals; i++) {
+        if (sigaction(forward_signals[i], &act, NULL) == -1)
+            err(1, "sigaction");
     }
 
-    // Invoke nbkdit
-    (void)execve(NBDKIT_EXECUTABLE, command_line.strings, environ);
-    err(1, "nbdkit");
+    // Wait for the first child process to exit
+    while (1) {
+        if ((pid = wait(&wstatus)) == -1) {
+            if (errno == EINTR)             // interrupted by signal, try again
+                continue;
+            err(1, "waitpid");
+        }
+        assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+        break;
+    }
+
+    // Kill all others
+    kill_child_processes((int)-pid);
+
+    // Wait for all remaining child process(es) to exit
+    while (1) {
+        if ((pid = wait(&wstatus)) == -1) {
+            if (errno == ECHILD)
+                break;
+            if (errno == EINTR) {           // interrupted by signal, try again
+                i--;
+                continue;
+            }
+            err(1, "waitpid");
+        }
+        assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+    }
+
+    // Delete UNIX socket file
+    (void)unlink(unix_socket);
+
+    // Done
+    return 0;
+}
+
+// If signal is negative, then skip that PID
+static void
+kill_child_processes(int signal)
+{
+    int i;
+
+    for (i = 0; i < NUM_CHILD_PROCESSES; i++) {
+        if (signal < 0 && signal == (int)-child_pids[i])
+            continue;
+        (void)kill(child_pids[i], SIGTERM);
+    }
+}
+
+static void
+debug_exec(const char *executable, struct string_array *params)
+{
+    char **const argv = params->strings;
+    int i;
+
+    warnx("executing %s with these parameters:", executable);
+    for (i = 0; argv[i] != NULL; i++)
+        warnx("  [%02d] \"%s\"", i, argv[i]);
 }
 #endif

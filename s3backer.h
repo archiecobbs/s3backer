@@ -42,6 +42,7 @@
 #include <sys/statvfs.h>
 #endif
 #include <sys/queue.h>
+#include <sys/wait.h>
 
 // Add some queue.h definitions missing on Linux
 #ifndef LIST_FIRST
@@ -77,6 +78,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
+#include <signal.h>
 
 #include <openssl/bio.h>
 #include <openssl/buffer.h>

@@ -52,7 +52,7 @@
 .Fl \-nbd
 .Op options
 .Ar bucket[/subdir]
-.Op Ar address
+.Ar /dev/nbdX
 .Ek
 .Pp
 .Nm s3backer
@@ -314,9 +314,11 @@ The
 .Fl \-nbd
 flag causes
 .Nm
-to start up
+to start up instances of
 .Xr nbdkit 1
-thereby serving the S3 volume on the specified address.
+and
+.Xr nbd-client 1 ,
+thereby attaching the S3 volume to the specified device.
 .Pp
 To use the plugin directly, command line flags like
 .Fl \-blockSize=SIZE
@@ -861,7 +863,9 @@ This flag causes
 .Nm
 to start
 .Xr nbdkit 1
-listening on the specified address.
+and
+.Xr nbd-client 1
+commands that serve data on the specified NBD device.
 Only
 .Fl \-doubleDash
 style flags are supported, with the exception of
@@ -873,17 +877,6 @@ The
 .Fl \-nbd
 flag may not appear in a
 .Fl \-configFile
-file, although
-.Fl \-configFile
-may be used.
-.Pp
-For convenience, the
-.Ar address
-on which the NDB server will listen for connections may be directly specified.
-An
-.Ar address
-consisting of only digits, dots, and colon characters is assumed to be a bind address
-(TCP port optionally prefixed by IP address and colon), otherwise a UNIX socket file.
 file.
 .It Fl \-nbd-flag=string
 .It Fl \-nbd-param=string
@@ -1127,6 +1120,15 @@ to FUSE (unless overridden by the user on the command line):
 .Bl -tag -compact -width Ds
 .It Pa $HOME/.s3backer_passwd
 Contains Amazon S3 `accessID:accessKey' pairs.
+.It Pa @S3B_NBD_DIR@
+Contains UNIX socket files used by
+.Xr nbd-client
+and
+.Xr nbdkit 1
+when running in
+.Fl \-nbd
+mode.
+For security reasons this directory is only readable by root.
 .El
 .Sh SEE ALSO
 .Xr curl 1 ,

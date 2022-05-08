@@ -56,6 +56,7 @@ noinst_HEADERS=		s3backer.h \
 			s3b_config.h
 
 # Setup build for NBD plugin shared library (if NBDKit is available)
+s3bnbddir=		$(S3B_NBD_DIR)
 if NBDKIT_FOUND
 
 nbdplugindir=		$(NBDKIT_PLUGINDIR)
@@ -83,6 +84,12 @@ nbdkit_s3backer_plugin_la_SOURCES = \
 
 nbdkit_s3backer_plugin_la_LDFLAGS = \
 			-module -avoid-version -shared
+
+# Create an empty, root-only directory for UNIX socket files
+install-data-hook:
+			$(MKDIR_P) $(DESTDIR)$(s3bnbddir)
+			chmod 0700 $(DESTDIR)$(s3bnbddir)
+
 endif
 
 # See https://www.gnu.org/software/automake/manual/html_node/Objects-created-both-with-libtool-and-without.html
