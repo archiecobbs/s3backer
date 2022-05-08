@@ -48,7 +48,7 @@
 #include "nbdkit.h"
 
 #if NBDKIT
-static void trampoline_to_nbd(int argc, char **argv);
+static int trampoline_to_nbd(int argc, char **argv);
 #endif
 
 int
@@ -74,8 +74,11 @@ main(int argc, char **argv)
     // Handle `--nbd' flag
     if (nbd) {
 #if NBDKIT
-        trampoline_to_nbd(argc, argv);
-        return 1;                                           // we should never get here; something went wrong
+        if ((i = trampoline_to_nbd(argc, argv)) == 2) {
+            usage();
+            i = 1;
+        }
+        return i;
 #else
         errx(1, "invalid flag \"--nbd\": NBDKit not installed");
 #endif
@@ -129,7 +132,7 @@ main(int argc, char **argv)
 }
 
 #if NBDKIT
-static void
+static int
 trampoline_to_nbd(int argc, char **argv)
 {
     struct string_array command_line;
@@ -164,8 +167,7 @@ trampoline_to_nbd(int argc, char **argv)
             continue;
         if ((value = strchr(flag, '=')) == NULL) {
             warnx("invalid flag \"%s\"", flag);
-            usage();
-            return;
+            return 2;
         }
         *value++ = '\0';
         if (strcmp(flag, "--nbd-flag") == 0)
@@ -174,8 +176,7 @@ trampoline_to_nbd(int argc, char **argv)
             nbd_list = &nbd_params;
         else {
             warnx("invalid flag \"%s\"", flag);
-            usage();
-            return;
+            return 2;
         }
         if (add_string(nbd_list, "%s", value) == -1)
             err(1, "add_string");
@@ -192,13 +193,12 @@ trampoline_to_nbd(int argc, char **argv)
         address_param = argv[i + 1];
         break;
     default:
-        usage();
-        return;
+        return 2;
     }
 
     // Get configuration (parse only)
     if ((config = s3backer_get_config(argc, argv, 1, 1)) == NULL)
-        return;
+        return 1;
 
     // Initialize nbdkit(1) command line
     if (add_string(&command_line, "%s", NBDKIT_EXECUTABLE) == -1)
@@ -280,8 +280,7 @@ trampoline_to_nbd(int argc, char **argv)
         // Only accept --doubleDashFlags from here on out
         if (param[1] != '-') {
             warnx("invalid flag \"%s\"", param);
-            usage();
-            return;
+            return 2;
         }
         param += 2;
 
@@ -292,21 +291,18 @@ trampoline_to_nbd(int argc, char **argv)
         case 1:
             if (value != NULL && strcasecmp(value, "true") != 0) {
                 warnx("boolean flag \"--%s\" value must be \"true\"", param);
-                usage();
-                return;
+                return 2;
             }
             break;
         case 2:
             if (value == NULL) {
                 warnx("flag \"--%s\" requires a value", param);
-                usage();
-                return;
+                return 2;
             }
             break;
         default:
             warnx("invalid flag \"--%s\"", param);
-            usage();
-            return;
+            return 2;
         }
 
         // Add corresponding nbdkit parameter
@@ -332,7 +328,7 @@ trampoline_to_nbd(int argc, char **argv)
     }
 
     // Invoke nbkdit
-    if (execve(NBDKIT_EXECUTABLE, command_line.strings, environ) == -1)
-        err(1, "nbdkit");
+    (void)execve(NBDKIT_EXECUTABLE, command_line.strings, environ);
+    err(1, "nbdkit");
 }
 #endif
