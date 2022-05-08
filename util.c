@@ -469,6 +469,22 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
     }
 }
 
+pid_t
+fork_off(const char *executable, char **argv)
+{
+    pid_t child;
+
+    // Fork
+    if ((child = fork()) == -1)
+        return -1;
+    if (child > 0)                                      // we are the parent
+        return child;
+
+    // Execute
+    execve(executable, argv, environ);
+    err(1, "%s", executable);
+}
+
 int
 add_string(struct string_array *array, const char *format, ...)
 {
