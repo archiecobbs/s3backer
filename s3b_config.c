@@ -576,6 +576,8 @@ s3backer_get_config(int argc, char **argv)
 
     // Copy program name
     memset(&config.fuse_args, 0, sizeof(config.fuse_args));
+    if (argc < 1)
+        errx(1, "missing program name");
     append_fuse_arg(argv[0]);
 
     // Add our default FUSE options so they are seen first
