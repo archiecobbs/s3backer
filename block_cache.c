@@ -173,6 +173,7 @@ struct block_cache_private {
     u_int                           ra_count;       // # of blocks of read-ahead initiated
     u_int                           thread_id;      // next thread id
     u_int                           num_threads;    // number of alive worker threads
+    pthread_t                       *threads;       // worker threads
     int                             stopping;       // signals worker threads to exit
     block_list_func_t               *survey_callback;// non-zero survey is running and this is the callback
     void                            *survey_arg;    // non-zero survey is running and this is the arg
@@ -284,11 +285,13 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
         goto fail6;
     if ((r = pthread_cond_init(&priv->write_complete, NULL)) != 0)
         goto fail7;
+    if ((priv->threads = calloc(config->num_threads, sizeof(*priv->threads))) == NULL)
+        goto fail8;
     TAILQ_INIT(&priv->lo_cleans);
     TAILQ_INIT(&priv->hi_cleans);
     TAILQ_INIT(&priv->dirties);
     if ((r = s3b_hash_create(&priv->hashtable, config->cache_size)) != 0)
-        goto fail8;
+        goto fail9;
     s3b->data = priv;
 
     // Compute dirty ratio at which we will be writing immediately
@@ -299,7 +302,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     // Initialize on-disk cache and read in directory
     if (config->cache_file != NULL) {
         if ((r = s3b_dcache_open(&priv->dcache, config, block_cache_dcache_load, priv, config->perform_flush)) != 0)
-            goto fail9;
+            goto fail10;
         if (config->perform_flush && priv->num_dirties > 0)
             (*config->log)(LOG_INFO, "%u dirty blocks in cache file `%s' will be recovered", priv->num_dirties, config->cache_file);
         priv->stats.initial_size = priv->num_cleans + priv->num_dirties;
@@ -313,7 +316,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     return s3b;
 
-fail9:
+fail10:
     if (config->cache_file != NULL) {
         while ((entry = TAILQ_FIRST(&priv->lo_cleans)) != NULL) {
             TAILQ_REMOVE(&priv->lo_cleans, entry, link);
@@ -327,6 +330,8 @@ fail9:
             s3b_dcache_close(priv->dcache);
     }
     s3b_hash_destroy(priv->hashtable);
+fail9:
+    free(priv->threads);
 fail8:
     pthread_cond_destroy(&priv->write_complete);
 fail7:
@@ -408,7 +413,6 @@ block_cache_create_threads(struct s3backer_store *s3b)
 {
     struct block_cache_private *const priv = s3b->data;
     struct block_cache_conf *const config = priv->config;
-    pthread_t thread;
     int r;
 
     // Create threads in lower layer
@@ -421,7 +425,7 @@ block_cache_create_threads(struct s3backer_store *s3b)
 
     // Create threads
     while (priv->num_threads < config->num_threads) {
-        if ((r = pthread_create(&thread, NULL, block_cache_worker_main, priv)) != 0)
+        if ((r = pthread_create(&priv->threads[priv->num_threads], NULL, block_cache_worker_main, priv)) != 0)
             goto fail;
         priv->num_threads++;
     }
@@ -461,16 +465,25 @@ static int
 block_cache_shutdown(struct s3backer_store *const s3b)
 {
     struct block_cache_private *const priv = s3b->data;
+    struct block_cache_conf *const config = priv->config;
+    u_int orig_num_threads;
+    int i;
+    int r;
 
     // Grab lock and sanity check
     pthread_mutex_lock(&priv->mutex);
     S3BCACHE_CHECK_INVARIANTS(priv, 0);
 
     // Wait for all dirty blocks to be written and all worker threads to exit
+    orig_num_threads = priv->num_threads;
     priv->stopping = 1;
     while (TAILQ_FIRST(&priv->dirties) != NULL || priv->num_threads > 0) {
         pthread_cond_broadcast(&priv->worker_work);
         pthread_cond_wait(&priv->worker_exit, &priv->mutex);
+    }
+    for (i = 0; i < orig_num_threads; i++) {
+        if ((r = pthread_join(priv->threads[i], NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
     }
 
     // Release lock
@@ -506,6 +519,7 @@ block_cache_destroy(struct s3backer_store *const s3b)
     pthread_cond_destroy(&priv->space_avail);
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
     pthread_mutex_destroy(&priv->mutex);
+    free(priv->threads);
     free(priv);
     free(s3b);
 }
