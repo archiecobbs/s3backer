@@ -202,7 +202,8 @@ struct http_io_private {
 
     // Block survey info
     struct http_io_survey       *survey_threads;                // survey threads that are running now, if any
-    u_int                       num_survey_threads;             // length of "survey_threads" array
+    u_int                       num_survey_threads;             // the number of survey threads that are still alive
+    u_int                       num_survey_threads_joinable;    // the number of survey threads not yet joined
     pthread_cond_t              survey_done;                    // indicates last survey thread has finished
     volatile int                abort_survey;                   // set to 1 to abort block survey
     int                         survey_error;                   // error from any survey thread
@@ -665,6 +666,7 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
     // Lock mutex
     pthread_mutex_lock(&priv->mutex);
     assert(priv->num_survey_threads == 0);
+    assert(priv->num_survey_threads_joinable == 0);
 
     // Allocate survey_threads array
     if (priv->num_survey_threads != 0) {
@@ -710,6 +712,7 @@ http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback,
         }
         priv->num_survey_threads++;
     }
+    priv->num_survey_threads_joinable = priv->num_survey_threads;
 
     // Wait for survey threads to finish
     http_io_wait_for_survey_threads_to_exit(priv);
@@ -726,9 +729,18 @@ done:
 static void
 http_io_wait_for_survey_threads_to_exit(struct http_io_private *const priv)
 {
+    struct http_io_conf *const config = priv->config;
+    int r;
+
     // Wait for all survey threads to finish
     while (priv->num_survey_threads > 0)
         pthread_cond_wait(&priv->survey_done, &priv->mutex);
+
+    // Join them
+    while (priv->num_survey_threads_joinable > 0) {
+        if ((r = pthread_join(priv->survey_threads[--priv->num_survey_threads_joinable].thread, NULL)) != 0)
+            (*config->log)(LOG_ERR, "pthread_join: %s", strerror(r));
+    }
 
     // Reset state
     free(priv->survey_threads);

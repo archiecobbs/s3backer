@@ -937,12 +937,8 @@ s3b_config_clear_stats(void)
 static void
 insert_fuse_arg(int pos, const char *arg)
 {
-    const char *copy;
-
     assert(pos >= 0 && pos <= config.fuse_args.argc);
-    if ((copy = strdup(arg)) == NULL)
-        err(1, "malloc");
-    if (fuse_opt_insert_arg(&config.fuse_args, pos, copy) != 0)
+    if (fuse_opt_insert_arg(&config.fuse_args, pos, arg) != 0)
         err(1, "fuse_opt_insert_arg");
 }
 

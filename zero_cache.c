@@ -79,7 +79,7 @@ struct zero_cache_private {
     volatile int                stopping;
 
     // Survey thread info
-    int                         survey_running; // the survey thread is running
+    int                         thread_started; // the survey thread was started
     bitmap_t                    *survey_zeros;  // 1 = might still be zero, 0 = might not be zero; NULL if no survey running
     pthread_t                   survey_thread;  // the survey thread
     pthread_mutex_t             survey_mutex;   // this protects "survey_zeros" during the survey
@@ -207,7 +207,7 @@ zero_cache_create_threads(struct s3backer_store *s3b)
         (*config->log)(LOG_ERR, "pthread_create(): %s", strerror(r));
         goto fail2;
     }
-    priv->survey_running = 1;
+    priv->thread_started = 1;
 
     // Unlock mutex
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -245,7 +245,6 @@ zero_cache_survey_main(void *arg)
 
     // Finish up
     bitmap_free(&priv->survey_zeros);
-    priv->survey_running = 0;
 
     // Unlock main mutex
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -307,7 +306,7 @@ zero_cache_shutdown(struct s3backer_store *const s3b)
 
     // Stop the survey, if any
     pthread_mutex_lock(&priv->mutex);
-    if (priv->survey_running) {
+    if (priv->thread_started) {
         priv->stopping = 1;
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
         if ((r = pthread_join(priv->survey_thread, NULL)) != 0)
