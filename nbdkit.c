@@ -69,6 +69,7 @@ static void s3b_nbd_logger(int level, const char *fmt, ...);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 
 // NBDKit plugin functions
+static void s3b_nbd_plugin_load(void);
 static int s3b_nbd_plugin_config(const char *key, const char *value);
 static int s3b_nbd_plugin_config_complete(void);
 static int s3b_nbd_plugin_get_ready(void);
@@ -112,7 +113,7 @@ static struct nbdkit_plugin plugin = {
     .is_rotational=         NULL,
 
     // Startup lifecycle callbacks
-    .load=                  NULL,
+    .load=                  s3b_nbd_plugin_load,
     .dump_plugin=           NULL,
     .config=                s3b_nbd_plugin_config,
     .config_complete=       s3b_nbd_plugin_config_complete,
@@ -140,17 +141,18 @@ NBDKIT_REGISTER_PLUGIN(plugin)
 
 ////////////// NBDKit Hooks
 
+static void
+s3b_nbd_plugin_load(void)
+{
+    if (add_string(&params, "%s", PACKAGE_NAME) == -1)
+        err(1, "add_string");
+}
+
 // Called for each key=value passed on the nbdkit command line
 static int
 s3b_nbd_plugin_config(const char *key, const char *value)
 {
     int had_s3b_prefix = 0;
-
-    // Initialize params array (first time only)
-    if (params.num_strings == 0 && add_string(&params, "%s", PACKAGE_NAME) == -1) {
-        nbdkit_error("add_string: %m");
-        return -1;
-    }
 
     // Strip "s3b_" prefix, if any
     if (strlen(key) > NBD_S3B_PARAM_PREFIX_LEN && strncmp(key, NBD_S3B_PARAM_PREFIX, NBD_S3B_PARAM_PREFIX_LEN) == 0) {
