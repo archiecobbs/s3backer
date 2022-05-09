@@ -380,10 +380,8 @@ trampoline_to_nbd(int argc, char **argv)
         if ((pid = wait(&wstatus)) == -1) {
             if (errno == ECHILD)
                 break;
-            if (errno == EINTR) {           // interrupted by signal, try again
-                i--;
+            if (errno == EINTR)             // interrupted by signal, try again
                 continue;
-            }
             err(1, "waitpid");
         }
         assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
