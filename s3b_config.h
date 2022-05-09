@@ -82,5 +82,6 @@ struct s3b_config {
 
 extern struct s3b_config *s3backer_get_config(int argc, char **argv);
 extern struct s3backer_store *s3backer_create_store(struct s3b_config *config);
+extern void s3b_cleanup(void);
 extern void dump_config(const struct s3b_config *config);
 

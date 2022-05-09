@@ -766,6 +766,59 @@ fail:
     return NULL;
 }
 
+#define FORCE_FREE2(p, def) do {                                        \
+                                if ((p) != NULL && (p) != (def)) {      \
+                                    free((void *)(intptr_t)(p));        \
+                                    (p) = NULL;                         \
+                                }                                       \
+                            } while (0)
+#define FORCE_FREE(p)       FORCE_FREE2(p, NULL)
+
+// Free memory prior to unload/exit. This is mainly to make valgrind happy.
+void
+s3b_cleanup(void)
+{
+    // Config flags
+    FORCE_FREE(config.http_io.accessId);
+    FORCE_FREE(config.http_io.accessKey);
+    FORCE_FREE(config.accessKeyEnv);
+    FORCE_FREE2(config.http_io.accessType, S3BACKER_DEFAULT_ACCESS_TYPE);
+    FORCE_FREE(config.http_io.ec2iam_role);
+    FORCE_FREE2(config.http_io.authVersion, S3BACKER_DEFAULT_AUTH_VERSION);
+    FORCE_FREE(config.http_io.baseURL);
+    FORCE_FREE2(config.http_io.region, S3BACKER_DEFAULT_REGION);
+    FORCE_FREE(config.http_io.sse);
+    FORCE_FREE(config.http_io.sse_key_id);
+    FORCE_FREE(config.block_cache.cache_file);
+    FORCE_FREE(config.block_size_str);
+    FORCE_FREE(config.max_speed_str[HTTP_UPLOAD]);
+    FORCE_FREE(config.max_speed_str[HTTP_DOWNLOAD]);
+    FORCE_FREE2(config.prefix, S3BACKER_DEFAULT_PREFIX);
+    FORCE_FREE(config.http_io.default_ce);
+    FORCE_FREE(config.http_io.vhostURL);
+    FORCE_FREE(config.file_size_str);
+    FORCE_FREE2(config.fuse_ops.filename, S3BACKER_DEFAULT_FILENAME);
+    FORCE_FREE2(config.fuse_ops.stats_filename, S3BACKER_DEFAULT_STATS_FILENAME);
+    FORCE_FREE(config.http_io.storage_class);
+    FORCE_FREE(config.http_io.cacert);
+    FORCE_FREE2(config.compress_alg, S3BACKER_DEFAULT_COMPRESSION);
+    FORCE_FREE(config.compress_level);
+    FORCE_FREE(config.http_io.encryption);
+    FORCE_FREE(config.http_io.password);
+    FORCE_FREE(config.password_file);
+
+    // Config params
+    FORCE_FREE(config.bucket);
+    FORCE_FREE(config.mount);
+
+    // Misc
+    FORCE_FREE(zero_block);
+    fuse_opt_free_args(&config.fuse_args);
+
+    // Done
+    memset(&config, 0, sizeof(config));
+}
+
 /****************************************************************************
  *                    INTERNAL FUNCTION DEFINITIONS                         *
  ****************************************************************************/
