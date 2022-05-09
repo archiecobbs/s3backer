@@ -225,8 +225,10 @@ s3b_nbd_plugin_config_complete(void)
         return -1;
 
     // Ensure something other than "(null)" appears in log output
-    if (config->mount == NULL)
-        config->mount = config->bucket;
+    if (config->mount == NULL && (config->mount = strdup(config->bucket)) == NULL) {
+        nbdkit_error("strdup: %m");
+        return -1;
+    }
 
     // Done
     return 0;
@@ -305,6 +307,7 @@ s3b_nbd_plugin_unload(void)
     if (fuse_priv != NULL)
         (*fuse_ops->destroy)(fuse_priv);
     free_strings(&params);
+    s3b_cleanup();
 }
 
 static void *
