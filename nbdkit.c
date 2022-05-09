@@ -138,6 +138,8 @@ static struct nbdkit_plugin plugin = {
 };
 NBDKIT_REGISTER_PLUGIN(plugin)
 
+////////////// NBDKit Hooks
+
 // Called for each key=value passed on the nbdkit command line
 static int
 s3b_nbd_plugin_config(const char *key, const char *value)
@@ -201,27 +203,6 @@ s3b_nbd_plugin_config(const char *key, const char *value)
 
     // Done
     return 0;
-}
-
-static void
-s3b_nbd_logger(int level, const char *fmt, ...)
-{
-    va_list args;
-    char *fmt2;
-
-    // Filter debug if needed
-    if ((config == NULL || !config->debug) && level == LOG_DEBUG)
-        return;
-
-    // Prefix format string
-    if ((fmt2 = prefix_log_format(level, fmt)) == NULL)
-        return;
-
-    // Print log message
-    va_start(args, fmt);
-    nbdkit_vdebug(fmt2, args);
-    va_end(args);
-    free(fmt2);
 }
 
 static int
@@ -466,4 +447,27 @@ static int
 s3b_nbd_plugin_can_multi_conn(void *handle)
 {
     return 1;
+}
+
+////////////// Internal functions
+
+static void
+s3b_nbd_logger(int level, const char *fmt, ...)
+{
+    va_list args;
+    char *fmt2;
+
+    // Filter debug if needed
+    if ((config == NULL || !config->debug) && level == LOG_DEBUG)
+        return;
+
+    // Prefix format string
+    if ((fmt2 = prefix_log_format(level, fmt)) == NULL)
+        return;
+
+    // Print log message
+    va_start(args, fmt);
+    nbdkit_vdebug(fmt2, args);
+    va_end(args);
+    free(fmt2);
 }
