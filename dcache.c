@@ -526,7 +526,7 @@ s3b_dcache_read_block(struct s3b_dcache *priv, u_int dslot, void *dest, u_int of
     if ((r = s3b_dcache_read(priv, DATA_OFFSET(priv, dslot) + off, dest, len)) != 0)
         return r;
 
-    // Advise the kernel to not cache this data block
+    // Advise the kernel to not cache this data block (note this may or may not work if transparent huge pages are being used)
 #if HAVE_DECL_POSIX_FADVISE
     if (priv->fadvise && (r = posix_fadvise(priv->fd, DATA_OFFSET(priv, dslot), priv->block_size, POSIX_FADV_DONTNEED)) != 0)
         (*priv->log)(LOG_WARNING, "posix_fadvise(\"%s\"): %s", priv->filename, strerror(r));
@@ -554,7 +554,7 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
     if ((r = s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : zero_block, len)) != 0)
         return r;
 
-    // Advise the kernel to not cache this data block
+    // Advise the kernel to not cache this data block (note this may or may not work if transparent huge pages are being used)
 #if HAVE_DECL_POSIX_FADVISE
     if (priv->fadvise && (r = posix_fadvise(priv->fd, DATA_OFFSET(priv, dslot), priv->block_size, POSIX_FADV_DONTNEED)) != 0)
         (*priv->log)(LOG_WARNING, "posix_fadvise(\"%s\"): %s", priv->filename, strerror(r));

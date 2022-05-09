@@ -75,7 +75,7 @@
 #define S3BACKER_DEFAULT_MAX_RETRY_PAUSE            30000           // 30s
 #define S3BACKER_DEFAULT_MIN_WRITE_DELAY            500             // 500ms
 #define S3BACKER_DEFAULT_MD5_CACHE_TIME             10000           // 10s
-#define S3BACKER_DEFAULT_MD5_CACHE_SIZE             10000
+#define S3BACKER_DEFAULT_MD5_CACHE_SIZE             0               // disabled
 #define S3BACKER_DEFAULT_BLOCK_CACHE_SIZE           1000
 #define S3BACKER_DEFAULT_BLOCK_CACHE_NUM_THREADS    20
 #define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    250             // 250ms
