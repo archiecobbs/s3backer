@@ -412,8 +412,6 @@ static int
 s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags)
 {
     struct boundary_info info;
-    s3b_block_t *block_nums;
-    int i;
     int r;
 
     // Calculate what bits to trim, then trim them
@@ -426,6 +424,8 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
         return -1;
     }
     if (info.mid_block_count > 0) {
+        s3b_block_t *block_nums;
+        int i;
 
         // Use our "bulk_zero" functionality
         if ((block_nums = malloc(info.mid_block_count * sizeof(*block_nums))) == NULL) {
@@ -438,6 +438,7 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
             nbdkit_error("error zeroing %jd block(s) starting at %0*jx: %m",
               (uintmax_t)info.mid_block_count, S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start);
             nbdkit_set_error(r);
+            free(block_nums);
             return -1;
         }
         free(block_nums);
