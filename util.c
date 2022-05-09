@@ -446,7 +446,8 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
             info->beg_length = size;
         size -= info->beg_length;
         offset += size;
-        current_data += info->beg_length;
+        if (current_data != NULL)
+            current_data += info->beg_length;
         current_block++;
     }
     if (size == 0)
@@ -457,7 +458,8 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
     if (info->mid_block_count > 0) {
         info->mid_data = current_data;
         info->mid_block_start = current_block;
-        current_data += info->mid_block_count * block_size;
+        if (current_data != NULL)
+            current_data += info->mid_block_count * block_size;
         current_block += info->mid_block_count;
     }
 
