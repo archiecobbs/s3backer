@@ -1,4 +1,5 @@
 TODO
 
 - support alternate backends, generalize `--test' to `--backend=localfs', etc.
+- Add "flush", "fua", and "extents" support to NBD plugin
 
