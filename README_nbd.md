@@ -1,7 +1,7 @@
 Using the NBD plugin
 --------------------
 
-Instead of using S3Backer to provide a FUSE file system with a single file that is then loop-mounted to provide a block device, s3backer can also act as a NBD (Network Block Device) server. In this case, the kernel will directly provide a `/dev/nbdX` block device that is backed by s3backer.
+Instead of using s3backer to provide a FUSE file system with a single file that is then loop-mounted to provide a block device, it can also act as a Network Block Device (NBD) server. In this case, the kernel will directly provide a `/dev/nbdX` block device that is backed by s3backer. NBD is supported on Linux, FreeBSD, and other systems.
 
 Architecturally, using a network block device makes more sense than using a FUSE file system since it is both simpler and better matches the intented use of either feature. In theory, NBD-mode should use less memory and give higher throughput and lower latency because:
 
@@ -11,33 +11,19 @@ Architecturally, using a network block device makes more sense than using a FUSE
  - Requests pass through the VFS only once, not twice
  - Data is present in the page cache only once, not twice
 
-However, this mode of s3backer operation is still experimental. It is possible that in practice, performance is actually inferior due to implementation details in any of s3backer, nbdkit, FUSE, or NBD. Please do report any improvements, degradations, or bugs that you observe.
+However, this mode of s3backer operation is still experimental. It is possible that in practice, performance is actually inferior due to implementation details in any of s3backer, nbdkit, FUSE, or NBD. Please report any improvements, degradations, or bugs that you observe.
 
-To use NBD-mode, make sure you have [nbdkit](https://github.com/libguestfs/nbdkit) installed. Then compile and install s3backer normally. You can then run the s3backer nbdkit plugin with:
+To use NBD-mode, make sure you have [nbdkit](https://github.com/libguestfs/nbdkit) installed, then build and install s3backer normally. You can then run s3backer in NBD mode using the `--nbd` flag. In this mode, specify an NBD device such as `/dev/nbd0` instead of a mount point. Then `/dev/nbd0` can be used with regular filesystems commands (`mkfs` et al). You must run s3backer as root when using the `--nbd` flag.
 
-```
-$ nbdkit --foreground --unix nbd_socket --filter=exitlast s3backer myconfig.conf
-```
-
-All of the usual s3backer command line arguments must be placed in the file `myconfig.conf`, including the `bucket[/subdir]`, but without any mount point argument. This file is parsed as if via the s3backer `--configFile` flag, so blank lines and comments are ignored, etc.
-
-nbdkit should now be running in foreground, waiting for connections on the `nbd_socket` socket.
-
-Note that everyone with write access to the `nbd_socket` file will be able to write and read from your filesystem at will. To control access, run `nbdkit` in a directory with appropriate permissions.
-
-To connect a block device to the nbdkit instance, run:
-
-```
-$ nbd-client -unix nbd_socket /dev/ndb0
-```
-
-Now `/dev/nbd0` can be used with regular filesystems commands (`mkfs` et al). To disconnect the block device, use:
+To disconnect the block device, use:
 
 ```
 $ nbd-client -d /dev/ndb0
 ```
 
-This should also result in the `nbdkit` instance terminating.
+The `ndbkit` server (and s3backer plugin) will still be running; to have it disconnect automatically when the client disconnects, add `--ndb-flags --filter=exitlast` to the `s3backer` command line.
+
+You can also invoke the installed `s3backer` NBD plugin directly using `ndbkit(1)`. See the `s3backer(1)` and `nbdkit(1)` man pages for details.
 
 Performance Tuning
 ------------------
