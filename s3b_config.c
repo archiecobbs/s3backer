@@ -1358,8 +1358,11 @@ validate_config(int parse_only)
     }
 
     // Always use the virtual host style URL if configured to do so
-    if (config.http_io.vhost)
-        config.http_io.baseURL = config.http_io.vhostURL;
+    if (config.http_io.vhost) {
+        free((void *)(intptr_t)config.http_io.baseURL);
+        if ((config.http_io.baseURL = strdup(config.http_io.vhostURL)) == NULL)
+            err(1, "strdup");
+    }
 
     // Check S3 access privilege
     if (!find_string_in_table(s3_acls, config.http_io.accessType)) {
