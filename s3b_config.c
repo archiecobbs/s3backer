@@ -1383,13 +1383,8 @@ validate_config(int parse_only)
 
     // Uppercase encryption name for consistency
     if (config.http_io.encryption != NULL) {
-        char *t;
-
-        if ((t = strdup(config.http_io.encryption)) == NULL)
-            err(1, "strdup()");
-        for (i = 0; t[i] != '\0'; i++)
-            t[i] = toupper(t[i]);
-        config.http_io.encryption = t;
+        for (p = (char *)(intptr_t)config.http_io.encryption; *p != '\0'; p++)
+            *p = toupper(*p);
     }
 
     // Check encryption and get key
