@@ -1378,8 +1378,10 @@ validate_config(int parse_only)
     }
 
     // Apply default encryption
-    if (config.http_io.encryption == NULL && config.encrypt)
-        config.http_io.encryption = strdup(S3BACKER_DEFAULT_ENCRYPTION);
+    if (config.http_io.encryption == NULL && config.encrypt) {
+        if ((config.http_io.encryption = strdup(S3BACKER_DEFAULT_ENCRYPTION)) == NULL)
+            err(1, "strdup");
+    }
 
     // Uppercase encryption name for consistency
     if (config.http_io.encryption != NULL) {
