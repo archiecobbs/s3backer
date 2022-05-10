@@ -847,6 +847,10 @@ s3b_cleanup(void)
     // Misc
     FORCE_FREE(zero_block);
     fuse_opt_free_args(&config.fuse_args);
+    if (config.http_io.compress_alg != NULL) {
+        (*config.http_io.compress_alg->lfree)(config.http_io.compress_level);
+        config.http_io.compress_level = NULL;
+    }
 
     // Done
     memset(&config, 0, sizeof(config));
