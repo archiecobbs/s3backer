@@ -812,6 +812,7 @@ void
 s3b_cleanup(void)
 {
     // Config flags
+    FORCE_FREE(config.accessFile);
     FORCE_FREE(config.http_io.accessId);
     FORCE_FREE(config.http_io.accessKey);
     FORCE_FREE(config.accessKeyEnv);
