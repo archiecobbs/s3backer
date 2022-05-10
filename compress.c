@@ -41,6 +41,7 @@
 static comp_cfunc_t    deflate_compress;
 static comp_dfunc_t    deflate_decompress;
 static comp_lparse_t   deflate_lparse;
+static comp_lfree_t    deflate_lfree;
 
 // Compression algorithms
 const struct comp_alg comp_algs[] = {
@@ -51,7 +52,8 @@ const struct comp_alg comp_algs[] = {
         .name=      "deflate",
         .cfunc=     deflate_compress,
         .dfunc=     deflate_decompress,
-        .lparse=    deflate_lparse
+        .lparse=    deflate_lparse,
+        .lfree=     deflate_lfree
     }
 };
 const size_t num_comp_algs = sizeof(comp_algs) / sizeof(*comp_algs);
@@ -183,3 +185,8 @@ invalid:
     return NULL;
 }
 
+static void
+deflate_lfree(void *level)
+{
+    free(level);
+}

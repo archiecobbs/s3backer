@@ -76,12 +76,20 @@ typedef int         comp_dfunc_t(log_func_t *log, const void *input, size_t inle
  */
 typedef void        *comp_lparse_t(const char *string);
 
+/*
+ * Compression level free function.
+ *
+ * Frees value previously returned by comp_lparse_t. Must gracefully handle NULL.
+ */
+typedef void        comp_lfree_t(void *value);
+
 // Compression algorithms
 struct comp_alg {
     const char      *name;
     comp_cfunc_t    *cfunc;
     comp_dfunc_t    *dfunc;
     comp_lparse_t   *lparse;
+    comp_lfree_t    *lfree;
 };
 
 // Globals
