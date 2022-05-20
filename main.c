@@ -62,7 +62,8 @@ static int child_pids[NUM_CHILD_PROCESSES];
 
 // Internal functions
 static int trampoline_to_nbd(int argc, char **argv);
-static void kill_child_processes(int signal);
+static void handle_signal(int signal);
+static void kill_child_processes_except(pid_t exception);
 static void debug_exec(const char *executable, struct string_array *strings);
 #endif
 
@@ -224,7 +225,7 @@ trampoline_to_nbd(int argc, char **argv)
       (int)(sizeof(dev_t) * 2), (uintmax_t)sb.st_dev, (int)(sizeof(ino_t) * 2), (uintmax_t)sb.st_ino) == -1)
         err(1, "asprintf");
 
-    // Delete any leftover UNIX socket file, if any
+    // Delete leftover UNIX socket file from last time, if any
     (void)unlink(unix_socket);
 
     // Verify we have sufficient privileges
@@ -356,7 +357,7 @@ trampoline_to_nbd(int argc, char **argv)
 
     // Setup so if we get a death signal, we terminate our child processes (via SIGTERM)
     memset(&act, 0, sizeof(act));
-    act.sa_handler = &kill_child_processes;
+    act.sa_handler = &handle_signal;
     act.sa_flags = SA_RESTART;
     for (i = 0; i < num_forward_signals; i++) {
         if (sigaction(forward_signals[i], &act, NULL) == -1)
@@ -374,10 +375,8 @@ trampoline_to_nbd(int argc, char **argv)
         break;
     }
 
-    // Kill all others
-    kill_child_processes((int)-pid);
-
-    // Wait for all remaining child process(es) to exit
+    // Kill all other child processes and wait for them to exit
+    kill_child_processes_except(pid);
     while (1) {
         if ((pid = wait(&wstatus)) == -1) {
             if (errno == ECHILD)
@@ -396,16 +395,22 @@ trampoline_to_nbd(int argc, char **argv)
     return 0;
 }
 
-// If signal is negative, then skip that PID
+// Somebody killed us, so we need to kill our child processes as well.
+// Thanks to SA_RESTART, the wait() system call will return with EAGAIN.
 static void
-kill_child_processes(int signal)
+handle_signal(int signal)
+{
+    kill_child_processes_except((pid_t)0);             // kill ALL child proceses
+}
+
+static void
+kill_child_processes_except(pid_t exception)
 {
     int i;
 
     for (i = 0; i < NUM_CHILD_PROCESSES; i++) {
-        if (signal < 0 && signal == (int)-child_pids[i])
-            continue;
-        (void)kill(child_pids[i], SIGTERM);
+        if (child_pids[i] != exception)
+            (void)kill(child_pids[i], SIGTERM);
     }
 }
 
