@@ -1,4 +1,4 @@
-Version Next
+Version 2.0.0
 
     - Support running as a Network Block Device (NBD) server (issue #178)
     - Disable MD5 cache by default now that Amazon S3 is consistent (issue #183)
