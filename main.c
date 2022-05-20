@@ -252,6 +252,7 @@ trampoline_to_nbd(int argc, char **argv)
         if (add_string(&command_line, "%s", nbd_flags.strings[i]) == -1)
             err(1, "add_string");
     }
+    free_strings(&nbd_flags);
 
     // Add plugin name
     if (add_string(&command_line, "%s", PACKAGE) == -1)
@@ -312,6 +313,7 @@ trampoline_to_nbd(int argc, char **argv)
         if (add_string(&command_line, "%s", nbd_params.strings[i]) == -1)
             err(1, "add_string");
     }
+    free_strings(&nbd_params);
 
     // Fire up nbdkit
     if (config->debug)
