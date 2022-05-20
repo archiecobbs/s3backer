@@ -46,6 +46,9 @@
 // Internal state
 struct test_io_private {
     struct test_io_conf         *config;
+    pthread_mutex_t             mutex;
+    bitmap_t                    *blocks_reading;         // 1 = block is currently being read
+    bitmap_t                    *blocks_writing;         // 1 = block is currently being written
     volatile int                shutdown;
 };
 
@@ -73,6 +76,7 @@ test_io_create(struct test_io_conf *config)
 {
     struct s3backer_store *s3b;
     struct test_io_private *priv;
+    int r;
 
     // Initialize structures
     if ((s3b = calloc(1, sizeof(*s3b))) == NULL)
@@ -89,12 +93,23 @@ test_io_create(struct test_io_conf *config)
     s3b->shutdown = test_io_shutdown;
     s3b->destroy = test_io_destroy;
     if ((priv = calloc(1, sizeof(*priv))) == NULL) {
-        free(s3b);
-        errno = ENOMEM;
-        return NULL;
+        r = errno;
+        goto fail1;
     }
     priv->config = config;
     s3b->data = priv;
+
+    // Initialize bitmaps and mutex
+    if ((priv->blocks_reading = bitmap_init(config->num_blocks, 0)) == NULL) {
+        r = errno;
+        goto fail2;
+    }
+    if ((priv->blocks_writing = bitmap_init(config->num_blocks, 0)) == NULL) {
+        r = errno;
+        goto fail3;
+    }
+    if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
+        goto fail4;
 
     // Random initialization
     if (config->random_delays || config->random_errors)
@@ -102,6 +117,17 @@ test_io_create(struct test_io_conf *config)
 
     // Done
     return s3b;
+
+fail4:
+    free(priv->blocks_writing);
+fail3:
+    free(priv->blocks_reading);
+fail2:
+    free(priv);
+fail1:
+    free(s3b);
+    errno = r;
+    return NULL;
 }
 
 static int
@@ -138,6 +164,9 @@ test_io_destroy(struct s3backer_store *const s3b)
 {
     struct test_io_private *const priv = s3b->data;
 
+    pthread_mutex_destroy(&priv->mutex);
+    free(priv->blocks_reading);
+    free(priv->blocks_writing);
     free(priv);
     free(s3b);
 }
@@ -151,6 +180,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
     u_char md5[MD5_DIGEST_LENGTH];
     char path[PATH_MAX];
+    int read_overlap;
+    int write_overlap;
     int is_zero_block;
     MD5_CTX ctx;
     int fd;
@@ -164,10 +195,23 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     if (config->random_delays)
         usleep((random() % 200) * 1000);
 
+    // Detect overlapping reads and/or writes
+    pthread_mutex_lock(&priv->mutex);
+    if (!(read_overlap = bitmap_test(priv->blocks_reading, block_num)))
+        bitmap_set(priv->blocks_reading, block_num, 1);
+    write_overlap = bitmap_test(priv->blocks_writing, block_num);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+    if (read_overlap || write_overlap) {
+        (*config->log)(LOG_WARNING, "test_io: detected simultaneous %s of block %0*jx",
+          read_overlap && write_overlap ? "reads and write" : read_overlap ? "reads" : "read and write",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    }
+
     // Random error
     if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure reading %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-        return EAGAIN;
+        r = EAGAIN;
+        goto done;
     }
 
     // Read block
@@ -190,7 +234,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                     r = errno;
                     (*config->log)(LOG_ERR, "can't read %s: %s", path, strerror(r));
                     close(fd);
-                    return r;
+                    goto done;
                 }
                 if (r == 0)
                     break;
@@ -200,7 +244,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             // Check for short read
             if (total != config->block_size) {
                 (*config->log)(LOG_ERR, "%s: file is truncated (only read %d out of %u bytes)", path, total, config->block_size);
-                return EIO;
+                r = EIO;
+                goto done;
             }
 
             // Done
@@ -218,7 +263,7 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     // Check for other error
     if (r != 0) {
         (*config->log)(LOG_ERR, "can't open %s: %s", path, strerror(r));
-        return r;
+        goto done;
     }
 
     // Compute MD5
@@ -249,7 +294,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
                   (u_int)expect_etag[4], (u_int)expect_etag[5], (u_int)expect_etag[6], (u_int)expect_etag[7],
                   (u_int)expect_etag[8], (u_int)expect_etag[9], (u_int)expect_etag[10], (u_int)expect_etag[11],
                   (u_int)expect_etag[12], (u_int)expect_etag[13], (u_int)expect_etag[14], (u_int)expect_etag[15]);
-                return EINVAL;
+                r = EINVAL;
+                goto done;
             }
         } else if (match)
             r = EEXIST;
@@ -267,6 +313,15 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
           is_zero_block ? " (zero)" : "", r == EEXIST ? " (expected md5 match)" : "");
     }
 
+done:
+    // Reset reading flag
+    if (!read_overlap) {
+        pthread_mutex_lock(&priv->mutex);
+        assert(bitmap_test(priv->blocks_reading, block_num));
+        bitmap_set(priv->blocks_reading, block_num, 0);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+    }
+
     // Done
     return r;
 }
@@ -281,6 +336,8 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     u_char md5[MD5_DIGEST_LENGTH];
     char temp[PATH_MAX];
     char path[PATH_MAX];
+    int read_overlap;
+    int write_overlap;
     MD5_CTX ctx;
     int total;
     int fd;
@@ -318,17 +375,31 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if (config->random_delays)
         usleep((random() % 200) * 1000);
 
+    // Detect overlapping reads and/or writes
+    pthread_mutex_lock(&priv->mutex);
+    read_overlap = bitmap_test(priv->blocks_reading, block_num);
+    if (!(write_overlap = bitmap_test(priv->blocks_writing, block_num)))
+        bitmap_set(priv->blocks_writing, block_num, 1);
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+    if (read_overlap || write_overlap) {
+        (*config->log)(LOG_WARNING, "test_io: detected simultaneous %s of block %0*jx",
+          read_overlap && write_overlap ? "read and writes" : write_overlap ? "writes" : "read and write",
+          S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+    }
+
     // Random error
     if (config->random_errors && (random() % 100) < RANDOM_ERROR_PERCENT) {
         (*config->log)(LOG_ERR, "test_io: random failure writing %0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-        return EAGAIN;
+        r = EAGAIN;
+        goto done;
     }
 
     // Discarding data?
     if (config->discard_data) {
         if (config->debug)
             (*config->log)(LOG_DEBUG, "test_io: discard %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-        return 0;
+        r = 0;
+        goto done;
     }
 
     // Generate path
@@ -341,9 +412,10 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         if (unlink(path) == -1 && errno != ENOENT) {
             r = errno;
             (*config->log)(LOG_ERR, "can't unlink %s: %s", path, strerror(r));
-            return r;
+            goto done;
         }
-        return 0;
+        r = 0;
+        goto done;
     }
 
     // Write into temporary file
@@ -351,7 +423,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     if ((fd = mkstemp(temp)) == -1) {
         r = errno;
         (*config->log)(LOG_ERR, "%s: %s", temp, strerror(r));
-        return r;
+        goto done;
     }
     for (total = 0; total < config->block_size; total += r) {
         if ((r = write(fd, (const char *)src + total, config->block_size - total)) == -1) {
@@ -359,7 +431,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             (*config->log)(LOG_ERR, "can't write %s: %s", temp, strerror(r));
             close(fd);
             (void)unlink(temp);
-            return r;
+            goto done;
         }
     }
     close(fd);
@@ -369,15 +441,25 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         r = errno;
         (*config->log)(LOG_ERR, "can't rename %s: %s", temp, strerror(r));
         (void)unlink(temp);
-        return r;
+        goto done;
     }
+    r = 0;
 
     // Logging
     if (config->debug)
         (*config->log)(LOG_DEBUG, "test_io: write %0*jx complete", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
 
+done:
+    // Reset writing flag
+    if (!write_overlap) {
+        pthread_mutex_lock(&priv->mutex);
+        assert(bitmap_test(priv->blocks_writing, block_num));
+        bitmap_set(priv->blocks_writing, block_num, 0);
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+    }
+
     // Done
-    return 0;
+    return r;
 }
 
 static int
