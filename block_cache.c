@@ -193,8 +193,6 @@ static int block_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
-static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
-static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int block_cache_shutdown(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
@@ -255,8 +253,6 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->set_mount_token = block_cache_set_mount_token;
     s3b->read_block = block_cache_read_block;
     s3b->write_block = block_cache_write_block;
-    s3b->read_block_part = block_cache_read_block_part;
-    s3b->write_block_part = block_cache_write_block_part;
     s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = block_cache_survey_non_zero;
     s3b->shutdown = block_cache_shutdown;
@@ -611,14 +607,6 @@ block_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
     return block_cache_read(priv, block_num, 0, config->block_size, dest);
 }
 
-static int
-block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
-{
-    struct block_cache_private *const priv = s3b->data;
-
-    return block_cache_read(priv, block_num, off, len, dest);
-}
-
 /*
  * Read a block, and trigger read-ahead if necessary.
  */
@@ -855,14 +843,6 @@ block_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num,
 
     assert(etag == NULL);
     return block_cache_write(priv, block_num, 0, config->block_size, src);
-}
-
-static int
-block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
-{
-    struct block_cache_private *const priv = s3b->data;
-
-    return block_cache_write(priv, block_num, off, len, src);
 }
 
 /*

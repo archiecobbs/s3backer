@@ -423,6 +423,7 @@ snvprintf(char *buf, int size, const char *format, ...)
 }
 
 // Calculate the partial initial, partial trailing, and complete central blocks associated with a range of bytes
+// It's allowed for buf == NULL, in which case on return all data pointers in *info will also be NULL.
 void
 calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset)
 {
@@ -437,17 +438,17 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
     current_data = (char *)(uintptr_t)buf;
 
     // Handle header, if any
-    info->beg_offset = (u_int)(offset & mask);
-    if (info->beg_offset > 0) {
-        info->beg_data = current_data;
-        info->beg_block = current_block;
-        info->beg_length = block_size - info->beg_offset;
-        if (info->beg_length > size)
-            info->beg_length = size;
-        size -= info->beg_length;
+    info->header.offset = (u_int)(offset & mask);
+    if (info->header.offset > 0) {
+        info->header.data = current_data;
+        info->header.block = current_block;
+        info->header.length = block_size - info->header.offset;
+        if (info->header.length > size)
+            info->header.length = size;
+        size -= info->header.length;
         offset += size;
         if (current_data != NULL)
-            current_data += info->beg_length;
+            current_data += info->header.length;
         current_block++;
     }
     if (size == 0)
@@ -464,10 +465,10 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
     }
 
     // Handle footer, if any
-    info->end_length = (u_int)(size & mask);
-    if (info->end_length > 0) {
-        info->end_data = current_data;
-        info->end_block = current_block;
+    info->footer.length = (u_int)(size & mask);
+    if (info->footer.length > 0) {
+        info->footer.data = current_data;
+        info->footer.block = current_block;
     }
 }
 

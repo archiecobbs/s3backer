@@ -44,23 +44,24 @@ struct block_list {
 };
 
 // Block boundary condition handling info
+struct boundary_edge {
+    char            *data;
+    s3b_block_t     block;
+    u_int           offset;
+    u_int           length;
+};
 struct boundary_info {
 
     // Header portion
-    char            *beg_data;
-    s3b_block_t     beg_block;
-    u_int           beg_offset;
-    u_int           beg_length;
+    struct boundary_edge    header;
 
     // Center block-aligned portion
-    char            *mid_data;
-    s3b_block_t     mid_block_start;
-    size_t          mid_block_count;
+    char                    *mid_data;
+    s3b_block_t             mid_block_start;
+    size_t                  mid_block_count;
 
     // Footer portion
-    char            *end_data;
-    s3b_block_t     end_block;
-    u_int           end_length;
+    struct boundary_edge    footer;
 };
 
 // A list of strings

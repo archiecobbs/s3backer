@@ -36,6 +36,7 @@
 
 #include "s3backer.h"
 #include "block_cache.h"
+#include "block_part.h"
 #include "ec_protect.h"
 #include "zero_cache.h"
 #include "fuse_ops.h"
@@ -140,6 +141,7 @@ fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
         (*config0->log)(LOG_ERR, "fuse_ops_create(): duplicate invocation");
         return NULL;
     }
+    config = config0;
 
     // Create private structure
     if ((the_priv = calloc(1, sizeof(*the_priv))) == NULL) {
@@ -147,9 +149,13 @@ fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
         return NULL;
     }
     the_priv->s3b = s3b;
+    if ((the_priv->block_part = block_part_create(config->block_size, config->num_blocks)) == NULL) {
+        (*config->log)(LOG_ERR, "fuse_ops_create(): %s", strerror(errno));
+        free(the_priv);
+        return NULL;
+    }
 
     // Now we're ready
-    config = config0;
     return &s3backer_fuse_ops;
 }
 
@@ -158,6 +164,7 @@ fuse_ops_destroy(void)
 {
     struct fuse_ops_private *const priv = the_priv;
 
+    block_part_destroy(&priv->block_part);
     fuse_op_destroy(priv);
 }
 
@@ -412,16 +419,14 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
 
     // Calculate what bits to read, then read them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
-    if (info.beg_length > 0
-      && (r = (*priv->s3b->read_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0)
+    if (info.header.length > 0 && (r = block_part_read_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
         if ((r = (*priv->s3b->read_block)(priv->s3b, info.mid_block_start++, info.mid_data, NULL, NULL, 0)) != 0)
             return -r;
         info.mid_data += config->block_size;
     }
-    if (info.end_length > 0
-      && (r = (*priv->s3b->read_block_part)(priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0)
+    if (info.footer.length > 0 && (r = block_part_read_block_part(priv->s3b, priv->block_part, &info.footer)) != 0)
         return -r;
 
     // Done
@@ -461,16 +466,14 @@ fuse_op_write(const char *path, const char *buf, size_t size, off_t offset, stru
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
-    if (info.beg_length > 0
-      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0)
+    if (info.header.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
         if ((r = (*priv->s3b->write_block)(priv->s3b, info.mid_block_start++, info.mid_data, NULL, NULL, NULL)) != 0)
             return -r;
         info.mid_data += config->block_size;
     }
-    if (info.end_length > 0
-      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0)
+    if (info.footer.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.footer)) != 0)
         return -r;
 
     // Done
@@ -555,15 +558,13 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
-    if (info.beg_length > 0
-      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.beg_block, info.beg_offset, info.beg_length, zero_block)) != 0)
+    if (info.header.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
         if ((r = (*priv->s3b->write_block)(priv->s3b, info.mid_block_start++, NULL, NULL, NULL, NULL)) != 0)
             return -r;
     }
-    if (info.end_length > 0
-      && (r = (*priv->s3b->write_block_part)(priv->s3b, info.end_block, 0, info.end_length, zero_block)) != 0)
+    if (info.footer.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.footer)) != 0)
         return -r;
 
     // Done

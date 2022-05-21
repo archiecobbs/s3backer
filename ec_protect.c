@@ -36,7 +36,6 @@
 
 #include "s3backer.h"
 #include "ec_protect.h"
-#include "block_part.h"
 #include "hash.h"
 #include "util.h"
 
@@ -143,8 +142,6 @@ static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_n
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
-static int ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
-static int ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int ec_protect_shutdown(struct s3backer_store *s3b);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
@@ -195,8 +192,6 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->set_mount_token = ec_protect_set_mount_token;
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
-    s3b->read_block_part = ec_protect_read_block_part;
-    s3b->write_block_part = ec_protect_write_block_part;
     s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = ec_protect_survey_non_zero;
     s3b->shutdown = ec_protect_shutdown;
@@ -592,24 +587,6 @@ writeit:
     binfo->u.data = src;
     TAILQ_REMOVE(&priv->list, binfo, link);
     goto writeit;
-}
-
-static int
-ec_protect_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
-{
-    struct ec_protect_private *const priv = s3b->data;
-    struct ec_protect_conf *const config = priv->config;
-
-    return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
-}
-
-static int
-ec_protect_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
-{
-    struct ec_protect_private *const priv = s3b->data;
-    struct ec_protect_conf *const config = priv->config;
-
-    return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
 
 /*

@@ -37,6 +37,7 @@
 // Forward decl's
 struct s3b_config;
 struct s3backer_store;
+struct block_part;
 
 // Function types
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
@@ -63,6 +64,7 @@ struct fuse_ops_conf {
 // Private information
 struct fuse_ops_private {
     struct s3backer_store   *s3b;
+    struct block_part       *block_part;
     u_int                   block_bits;
     off_t                   file_size;
     time_t                  start_time;
@@ -72,6 +74,6 @@ struct fuse_ops_private {
 };
 
 // fuse_ops.c
-const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *s3b);
-void fuse_ops_destroy(void);
+extern const struct fuse_operations *fuse_ops_create(struct fuse_ops_conf *config, struct s3backer_store *s3b);
+extern void fuse_ops_destroy(void);
 

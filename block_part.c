@@ -36,88 +36,196 @@
 
 #include "s3backer.h"
 #include "block_part.h"
+#include "util.h"
+
+// Block read/write lock states: 0x00-0xfe: there are this many readers; 0xff: there is one writer
+#define BLOCK_IDLE              ((u_int8_t)0x00)
+#define BLOCK_WRITING           ((u_int8_t)0xff)
+#define BLOCK_READERS_MAX       ((u_int8_t)0xfe)            // inclusive upper bound
+
+// Internal state
+struct block_part {
+    u_int                       block_size;
+    s3b_block_t                 num_blocks;
+    pthread_mutex_t             mutex;
+    pthread_cond_t              wakeup;
+    u_int8_t                    *block_states;              // read/write locks for each block
+};
+
+struct block_part *
+block_part_create(u_int block_size, s3b_block_t num_blocks)
+{
+    struct block_part *priv;
+    int r;
+
+    if ((priv = malloc(sizeof(*priv))) == NULL)
+        return NULL;
+    memset(priv, 0, sizeof(*priv));
+    priv->block_size = block_size;
+    priv->num_blocks = num_blocks;
+    if ((priv->block_states = calloc(num_blocks, sizeof(*priv->block_states))) == NULL) {
+        r = errno;
+        goto fail1;
+    }
+    if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
+        goto fail2;
+    if ((r = pthread_cond_init(&priv->wakeup, NULL)) != 0)
+        goto fail3;
+
+    // Done
+    return priv;
+
+    // Fail
+fail3:
+    pthread_mutex_destroy(&priv->mutex);
+fail2:
+    free(priv->block_states);
+fail1:
+    free(priv);
+    errno = r;
+    return NULL;
+}
+
+void
+block_part_destroy(struct block_part **block_partp)
+{
+    struct block_part *const priv = *block_partp;
+
+    *block_partp = NULL;
+    pthread_cond_destroy(&priv->wakeup);
+    pthread_mutex_destroy(&priv->mutex);
+    free(priv->block_states);
+    free(priv);
+}
 
 /*
- * Generic "dumb" implementation of the read_block_part function.
+ * Read a partial block by reading the whole block, then copying the part we want.
+ *
+ * For any given block, we can do this simultaneously with other readers, but not while there are any writers.
  */
 int
-block_part_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
-    u_int block_size, u_int off, u_int len, void *dest)
+block_part_read_block_part(struct s3backer_store *s3b, struct block_part *const priv, const struct boundary_edge *const edge)
 {
+    u_int8_t block_state;
     u_char *buf;
     int r;
 
     // Sanity check
-    assert(off <= block_size);
-    assert(len <= block_size);
-    assert(off + len <= block_size);
+    assert(edge->offset <= priv->block_size);
+    assert(edge->length <= priv->block_size);
+    assert(edge->offset + edge->length <= priv->block_size);
 
     // Check for degenerate cases
-    if (len == 0)
+    if (edge->length == 0)
         return 0;
-    if (off == 0 && len == block_size)
-        return (*s3b->read_block)(s3b, block_num, dest, NULL, NULL, 0);
+    if (edge->offset == 0 && edge->length == priv->block_size)
+        return (*s3b->read_block)(s3b, edge->block, edge->data, NULL, NULL, 0);
 
     // Allocate buffer
-    if ((buf = malloc(block_size)) == NULL)
+    if ((buf = malloc(priv->block_size)) == NULL)
         return errno;
 
-    // Read entire block
-    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, NULL, 0)) != 0) {
-        free(buf);
-        return r;
+    // Increment readers count
+    pthread_mutex_lock(&priv->mutex);
+    while (1) {
+        switch ((block_state = priv->block_states[(size_t)edge->block])) {
+        case BLOCK_WRITING:
+        case BLOCK_READERS_MAX:
+            pthread_cond_wait(&priv->wakeup, &priv->mutex);
+            continue;
+        default:
+            break;
+        }
+        priv->block_states[(size_t)edge->block] = (u_int8_t)(block_state + 1);          // increment #readers
+        break;
     }
+    pthread_mutex_unlock(&priv->mutex);
+
+    // Read entire block
+    if ((r = (*s3b->read_block)(s3b, edge->block, buf, NULL, NULL, 0)) != 0)
+        goto done;
 
     // Copy out desired fragment
-    memcpy(dest, buf + off, len);
+    memcpy(edge->data, buf + edge->offset, edge->length);
+
+done:
+    // Decrement readers count
+    pthread_mutex_lock(&priv->mutex);
+    block_state = priv->block_states[(size_t)edge->block];
+    assert(block_state != BLOCK_IDLE);
+    assert(block_state != BLOCK_WRITING);
+    if (block_state == BLOCK_READERS_MAX)                                       // there might be a waiting reader
+        pthread_cond_signal(&priv->wakeup);
+    block_state = (u_int8_t)(block_state - 1);                                  // decrement #readers
+    if ((priv->block_states[(size_t)edge->block] = block_state) == BLOCK_IDLE)  // there might be a waiting writer
+        pthread_cond_signal(&priv->wakeup);
+    pthread_mutex_unlock(&priv->mutex);
 
     // Done
     free(buf);
-    return 0;
+    return r;
 }
 
 /*
- * Generic "dumb" implementation of the write_block_part function.
+ * Write a partial block by reading the whole block, patching it, and writing it back.
+ *
+ * If edge->data is NULL then write zeroes.
+ *
+ * For any given block, we can only do this if there are no other simultaneous readers or writers.
  */
 int
-block_part_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
-    u_int block_size, u_int off, u_int len, const void *src)
+block_part_write_block_part(struct s3backer_store *s3b, struct block_part *const priv, const struct boundary_edge *const edge)
 {
+    const void *data = edge->data != NULL ? edge->data : zero_block;        // if edge->data is NULL then write zeros
     u_char *buf;
     int r;
 
     // Sanity check
-    assert(off <= block_size);
-    assert(len <= block_size);
-    assert(off + len <= block_size);
+    assert(edge->offset <= priv->block_size);
+    assert(edge->length <= priv->block_size);
+    assert(edge->offset + edge->length <= priv->block_size);
 
     // Check for degenerate cases
-    if (len == 0)
+    if (edge->length == 0)
         return 0;
-    if (off == 0 && len == block_size)
-        return (*s3b->write_block)(s3b, block_num, src, NULL, NULL, NULL);
+    if (edge->offset == 0 && edge->length == priv->block_size)
+        return (*s3b->write_block)(s3b, edge->block, data, NULL, NULL, NULL);
 
     // Allocate buffer
-    if ((buf = malloc(block_size)) == NULL)
+    if ((buf = malloc(priv->block_size)) == NULL)
         return errno;
 
-    // Read entire block
-    if ((r = (*s3b->read_block)(s3b, block_num, buf, NULL, NULL, 0)) != 0) {
-        free(buf);
-        return r;
+    // Grab exclusive lock on this block
+    pthread_mutex_lock(&priv->mutex);
+    while (1) {
+        if (priv->block_states[(size_t)edge->block] != BLOCK_IDLE) {
+            pthread_cond_wait(&priv->wakeup, &priv->mutex);
+            continue;
+        }
+        priv->block_states[(size_t)edge->block] = BLOCK_WRITING;            // grab exclusive write lock
+        break;
     }
+    pthread_mutex_unlock(&priv->mutex);
+
+    // Read entire block
+    if ((r = (*s3b->read_block)(s3b, edge->block, buf, NULL, NULL, 0)) != 0)
+        goto done;
 
     // Write in supplied fragment
-    memcpy(buf + off, src, len);
+    memcpy(buf + edge->offset, data, edge->length);
 
     // Write back entire block
-    if ((r = (*s3b->write_block)(s3b, block_num, buf, NULL, NULL, NULL)) != 0) {
-        free(buf);
-        return r;
-    }
+    r = (*s3b->write_block)(s3b, edge->block, buf, NULL, NULL, NULL);
+
+done:
+    // Release exclusive lock on this block
+    pthread_mutex_lock(&priv->mutex);
+    assert(priv->block_states[(size_t)edge->block] == BLOCK_WRITING);
+    priv->block_states[(size_t)edge->block] = BLOCK_IDLE;                   // release exclusive write lock
+    pthread_cond_signal(&priv->wakeup);                                     // there might be a waiting reader or writer
+    pthread_mutex_unlock(&priv->mutex);
 
     // Done
     free(buf);
-    return 0;
+    return r;
 }
-

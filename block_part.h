@@ -34,9 +34,12 @@
  * also delete it here.
  */
 
-// block_part.c
-extern int block_part_read_block_part(struct s3backer_store *inner, s3b_block_t block_num,
-    u_int block_size, u_int off, u_int len, void *dest);
-extern int block_part_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num,
-    u_int block_size, u_int off, u_int len, const void *src);
+// Forward decl's
+struct block_part;
+struct boundary_edge;
 
+// block_part.c
+extern struct block_part *block_part_create(u_int block_size, s3b_block_t num_blocks);
+extern int block_part_read_block_part(struct s3backer_store *s3b, struct block_part *block_part, const struct boundary_edge *edge);
+extern int block_part_write_block_part(struct s3backer_store *s3b, struct block_part *block_part, const struct boundary_edge *edge);
+extern void block_part_destroy(struct block_part **block_partp);

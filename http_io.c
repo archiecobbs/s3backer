@@ -35,7 +35,6 @@
  */
 
 #include "s3backer.h"
-#include "block_part.h"
 #include "http_io.h"
 #include "compress.h"
 #include "util.h"
@@ -292,8 +291,6 @@ static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num,
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
-static int http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
-static int http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks);
 static int http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_shutdown(struct s3backer_store *s3b);
@@ -412,8 +409,6 @@ http_io_create(struct http_io_conf *config)
     s3b->set_mount_token = http_io_set_mount_token;
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
-    s3b->read_block_part = http_io_read_block_part;
-    s3b->write_block_part = http_io_write_block_part;
     s3b->bulk_zero = http_io_bulk_zero;
     s3b->survey_non_zero = http_io_survey_non_zero;
     s3b->shutdown = http_io_shutdown;
@@ -2009,24 +2004,6 @@ http_io_write_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     http_io_curl_header_reset(io);
-}
-
-static int
-http_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
-{
-    struct http_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
-
-    return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
-}
-
-static int
-http_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
-{
-    struct http_io_private *const priv = s3b->data;
-    struct http_io_conf *const config = priv->config;
-
-    return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
 
 static int

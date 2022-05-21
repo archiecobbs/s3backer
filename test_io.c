@@ -36,7 +36,6 @@
 
 #include "s3backer.h"
 #include "http_io.h"
-#include "block_part.h"
 #include "test_io.h"
 #include "util.h"
 
@@ -60,8 +59,6 @@ static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num,
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
-static int test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
-static int test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int test_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int test_io_shutdown(struct s3backer_store *s3b);
 static void test_io_destroy(struct s3backer_store *s3b);
@@ -86,8 +83,6 @@ test_io_create(struct test_io_conf *config)
     s3b->set_mount_token = test_io_set_mount_token;
     s3b->read_block = test_io_read_block;
     s3b->write_block = test_io_write_block;
-    s3b->read_block_part = test_io_read_block_part;
-    s3b->write_block_part = test_io_write_block_part;
     s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = test_io_survey_non_zero;
     s3b->shutdown = test_io_shutdown;
@@ -460,24 +455,6 @@ done:
 
     // Done
     return r;
-}
-
-static int
-test_io_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
-{
-    struct test_io_private *const priv = s3b->data;
-    struct test_io_conf *const config = priv->config;
-
-    return block_part_read_block_part(s3b, block_num, config->block_size, off, len, dest);
-}
-
-static int
-test_io_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
-{
-    struct test_io_private *const priv = s3b->data;
-    struct test_io_conf *const config = priv->config;
-
-    return block_part_write_block_part(s3b, block_num, config->block_size, off, len, src);
 }
 
 static int

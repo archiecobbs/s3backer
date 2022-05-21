@@ -37,6 +37,7 @@
 
 #include "s3backer.h"
 #include "block_cache.h"
+#include "block_part.h"
 #include "ec_protect.h"
 #include "zero_cache.h"
 #include "fuse_ops.h"
@@ -332,10 +333,8 @@ s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, ui
 
     // Calculate what bits to read, then read them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
-    if (info.beg_length > 0
-      && (r = (*fuse_priv->s3b->read_block_part)(fuse_priv->s3b,
-       info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0) {
-        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.beg_block);
+    if (info.header.length > 0 && (r = block_part_read_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
+        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
         nbdkit_set_error(r);
         return -1;
     }
@@ -348,9 +347,8 @@ s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, ui
         info.mid_block_start++;
         info.mid_data += config->block_size;
     }
-    if (info.end_length > 0
-      && (r = (*fuse_priv->s3b->read_block_part)(fuse_priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0) {
-        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.end_block);
+    if (info.footer.length > 0 && (r = block_part_read_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
+        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
         nbdkit_set_error(r);
         return -1;
     }
@@ -367,10 +365,8 @@ s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t off
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
-    if (info.beg_length > 0
-      && (r = (*fuse_priv->s3b->write_block_part)(fuse_priv->s3b,
-       info.beg_block, info.beg_offset, info.beg_length, info.beg_data)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.beg_block);
+    if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
+        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
         nbdkit_set_error(r);
         return -1;
     }
@@ -383,9 +379,8 @@ s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t off
         info.mid_block_start++;
         info.mid_data += config->block_size;
     }
-    if (info.end_length > 0
-      && (r = (*fuse_priv->s3b->write_block_part)(fuse_priv->s3b, info.end_block, 0, info.end_length, info.end_data)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.end_block);
+    if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
+        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
         nbdkit_set_error(r);
         return -1;
     }
@@ -402,10 +397,8 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
 
     // Calculate what bits to trim, then trim them
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
-    if (info.beg_length > 0
-      && (r = (*fuse_priv->s3b->write_block_part)(fuse_priv->s3b,
-       info.beg_block, info.beg_offset, info.beg_length, zero_block)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.beg_block);
+    if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
+        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
         nbdkit_set_error(r);
         return -1;
     }
@@ -429,9 +422,8 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
         }
         free(block_nums);
     }
-    if (info.end_length > 0
-      && (r = (*fuse_priv->s3b->write_block_part)(fuse_priv->s3b, info.end_block, 0, info.end_length, zero_block)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.end_block);
+    if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
+        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
         nbdkit_set_error(r);
         return -1;
     }
