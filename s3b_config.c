@@ -1963,7 +1963,7 @@ usage(void)
 
     fprintf(stderr, "Usage:\n");
     fprintf(stderr, "\ts3backer [options] bucket[/subdir] /mount/point\n");
-    fprintf(stderr, "\ts3backer --nbd [options] directory [address]\n");
+    fprintf(stderr, "\ts3backer --nbd [options] bucket[/subdir] /dev/nbdX\n");
     fprintf(stderr, "\ts3backer --test [options] directory /mount/point\n");
     fprintf(stderr, "\ts3backer --erase [options] bucket[/subdir]\n");
     fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket[/subdir]\n");
