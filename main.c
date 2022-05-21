@@ -53,18 +53,22 @@
 #define NBD_CLIENT_BLOCK_SIZE                   4096
 #define NBDKIT_STARTUP_WAIT_PAUSE               (long)50
 #define MAX_NBDKIT_STARTUP_WAIT_MILLIS          (long)1000
-#define NUM_CHILD_PROCESSES                     2
+#define MAX_CHILD_PROCESSES                     10
 
 // Internal state
 static const int forward_signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM };
 static const int num_forward_signals = sizeof(forward_signals) / sizeof(*forward_signals);
-static int child_pids[NUM_CHILD_PROCESSES];
+static pid_t child_pids[MAX_CHILD_PROCESSES];
+static int num_child_pids;
+static int debug_signals;
 
 // Internal functions
 static int trampoline_to_nbd(int argc, char **argv);
 static void handle_signal(int signal);
-static void kill_child_processes_except(pid_t exception);
-static void debug_exec(const char *executable, struct string_array *strings);
+static pid_t start_child_process(int debug, const char *executable, struct string_array *params);
+static void record_child_exited(int debug, pid_t pid);
+static void kill_remaining_children(int debug);
+static pid_t wait_for_child_to_exit(int debug);
 #endif
 
 int
@@ -162,9 +166,9 @@ trampoline_to_nbd(int argc, char **argv)
     char *unix_socket;
     long elapsed_millis;
     int file_created;
+    pid_t client_pid;
+    pid_t exit_pid;
     struct stat sb;
-    int wstatus;
-    pid_t pid;
     int i;
 
     // Initialize
@@ -317,10 +321,7 @@ trampoline_to_nbd(int argc, char **argv)
     free_strings(&nbd_params);
 
     // Fire up nbdkit
-    if (config->debug)
-        debug_exec(NBDKIT_EXECUTABLE, &command_line);
-    if ((child_pids[0] = fork_off(NBDKIT_EXECUTABLE, command_line.strings)) == -1)
-        err(1, "%s", NBDKIT_EXECUTABLE);
+    start_child_process(config->debug, NBDKIT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
     // Wait for socket file to come into existence
@@ -345,47 +346,48 @@ trampoline_to_nbd(int argc, char **argv)
       || add_string(&command_line, "%s", unix_socket) == -1
       || add_string(&command_line, "-block-size") == -1
       || add_string(&command_line, "%u", NBD_CLIENT_BLOCK_SIZE) == -1
+      || (config->fuse_ops.read_only && add_string(&command_line, "-readonly") == -1)
       || (config->foreground && add_string(&command_line, "-nofork") == -1)
       || add_string(&command_line, "%s", device_param) == -1)
         err(1, "add_string");
 
     // Fire up nbd-client
-    if (config->debug)
-        debug_exec(NBD_CLIENT_EXECUTABLE, &command_line);
-    if ((child_pids[1] = fork_off(NBD_CLIENT_EXECUTABLE, command_line.strings)) == -1)
-        err(1, "%s", NBD_CLIENT_EXECUTABLE);
+    client_pid = start_child_process(config->debug, NBD_CLIENT_EXECUTABLE, &command_line);
+    free_strings(&command_line);
 
     // Setup so if we get a death signal, we terminate our child processes (via SIGTERM)
+    debug_signals = config->debug;
     memset(&act, 0, sizeof(act));
     act.sa_handler = &handle_signal;
-    act.sa_flags = SA_RESTART;
     for (i = 0; i < num_forward_signals; i++) {
         if (sigaction(forward_signals[i], &act, NULL) == -1)
             err(1, "sigaction");
     }
 
-    // Wait for the first child process to exit
+    // Wait for the first child process to exit or a signal to be recieved, but ignore exit of nbd-client
     while (1) {
-        if ((pid = wait(&wstatus)) == -1) {
-            if (errno == EINTR)             // interrupted by signal, try again
-                continue;
-            err(1, "waitpid");
+        if ((exit_pid = wait_for_child_to_exit(config->debug)) == client_pid) {             // nbd-client exited
+            client_pid = (pid_t)-2;                                                         // don't match this pid again
+            continue;
         }
-        assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
         break;
     }
 
-    // Kill all other child processes and wait for them to exit
-    kill_child_processes_except(pid);
+    // Run "nbd-client -d" to help clean up
+    if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
+      || add_string(&command_line, "-d") == -1
+      || add_string(&command_line, "%s", device_param) == -1)
+        err(1, "add_string");
+    start_child_process(config->debug, NBD_CLIENT_EXECUTABLE, &command_line);
+    free_strings(&command_line);
+
+    // Kill all other child processes
+    kill_remaining_children(config->debug);
+
+    // Wait for them to exit
     while (1) {
-        if ((pid = wait(&wstatus)) == -1) {
-            if (errno == ECHILD)
-                break;
-            if (errno == EINTR)             // interrupted by signal, try again
-                continue;
-            err(1, "waitpid");
-        }
-        assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+        if (wait_for_child_to_exit(config->debug) == 0)
+            break;
     }
 
     // Delete UNIX socket file
@@ -400,28 +402,90 @@ trampoline_to_nbd(int argc, char **argv)
 static void
 handle_signal(int signal)
 {
-    kill_child_processes_except((pid_t)0);             // kill ALL child proceses
+    if (debug_signals)
+        warnx("got signal %d", signal);
+    kill_remaining_children(debug_signals);
+}
+
+static pid_t
+start_child_process(int debug, const char *executable, struct string_array *params)
+{
+    pid_t pid;
+    int i;
+
+    // Debug
+    if (debug) {
+        warnx("executing %s with these parameters:", executable);
+        for (i = 0; params->strings[i] != NULL; i++)
+            warnx("  [%02d] \"%s\"", i, params->strings[i]);
+    }
+
+    // Fork & exec
+    assert(num_child_pids < MAX_CHILD_PROCESSES);
+    if ((pid = fork_off(executable, params->strings)) == -1)
+        err(1, "%s", executable);
+    child_pids[num_child_pids++] = pid;
+
+    // Debug
+    if (debug)
+        warnx("started %s as process %d", executable, (int)pid);
+
+    // Done
+    return pid;
 }
 
 static void
-kill_child_processes_except(pid_t exception)
+record_child_exited(int debug, pid_t pid)
 {
     int i;
 
-    for (i = 0; i < NUM_CHILD_PROCESSES; i++) {
-        if (child_pids[i] != exception)
-            (void)kill(child_pids[i], SIGTERM);
+    for (i = 0; i < num_child_pids; i++) {
+        if (child_pids[i] == pid) {
+            if (debug)
+                warnx("reaped child %d", (int)pid);
+            memmove(child_pids + i, child_pids + i + 1, (--num_child_pids - i) * sizeof(*child_pids));
+            break;
+        }
     }
 }
 
-static void
-debug_exec(const char *executable, struct string_array *params)
+
+// Wait for any child process to exit.
+// Returns:
+// pid  Child process that exited
+//  -1  Got interrupted by signal
+//   0  No more child processes left
+static pid_t
+wait_for_child_to_exit(int debug)
 {
-    char **const argv = params->strings;
+    int wstatus;
+    pid_t pid;
+
+    if (num_child_pids == 0)
+        return 0;
+    if ((pid = wait(&wstatus)) == -1) {
+        if (errno == EINTR) {           // interrupted by signal
+            if (debug)
+                warnx("rec'd signal during wait(2)");
+            return (pid_t)-1;
+        }
+        err(1, "waitpid");
+    }
+    assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+    record_child_exited(debug, pid);
+    return pid;
+}
+
+static void
+kill_remaining_children(int debug)
+{
     int i;
 
-    warnx("executing %s with these parameters:", executable);
-    for (i = 0; argv[i] != NULL; i++)
-        warnx("  [%02d] \"%s\"", i, argv[i]);
+    for (i = 0; i < num_child_pids; i++) {
+        if (debug)
+            warnx("killing child %d", (int)child_pids[i]);
+        if (kill(child_pids[i], SIGTERM) == -1 && debug)
+            warn("kill(%d, %d)", (int)child_pids[i], SIGTERM);
+    }
 }
 #endif
