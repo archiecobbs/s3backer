@@ -112,14 +112,9 @@ block_part_read_block_part(struct s3backer_store *s3b, struct block_part *const 
 
     // Sanity check
     assert(edge->offset <= priv->block_size);
-    assert(edge->length <= priv->block_size);
+    assert(edge->length > 0);
+    assert(edge->length < priv->block_size);
     assert(edge->offset + edge->length <= priv->block_size);
-
-    // Check for degenerate cases
-    if (edge->length == 0)
-        return 0;
-    if (edge->offset == 0 && edge->length == priv->block_size)
-        return (*s3b->read_block)(s3b, edge->block, edge->data, NULL, NULL, 0);
 
     // Allocate buffer
     if ((buf = malloc(priv->block_size)) == NULL)
@@ -182,14 +177,9 @@ block_part_write_block_part(struct s3backer_store *s3b, struct block_part *const
 
     // Sanity check
     assert(edge->offset <= priv->block_size);
-    assert(edge->length <= priv->block_size);
+    assert(edge->length > 0);
+    assert(edge->length < priv->block_size);
     assert(edge->offset + edge->length <= priv->block_size);
-
-    // Check for degenerate cases
-    if (edge->length == 0)
-        return 0;
-    if (edge->offset == 0 && edge->length == priv->block_size)
-        return (*s3b->write_block)(s3b, edge->block, data, NULL, NULL, NULL);
 
     // Allocate buffer
     if ((buf = malloc(priv->block_size)) == NULL)
