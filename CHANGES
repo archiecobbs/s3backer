@@ -1,5 +1,6 @@
 Version 2.0.0
 
+    - Fix slow write performance with large block sizes since 1.6.0 (issue ##185)
     - Support running as a Network Block Device (NBD) server (issue #178)
     - Disable MD5 cache by default now that Amazon S3 is consistent (issue #183)
     - Fix bug where "(null)" was appearing in usage message (issue #161)
