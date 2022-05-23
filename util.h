@@ -82,13 +82,14 @@ extern void describe_size(char *buf, int bmax, uintmax_t value);
 extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);
-extern int block_is_zeros(const void *data, u_int block_size);
+extern int block_is_zeros(const void *data);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
 extern char *prefix_log_format(int level, const char *fmt);
 extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
 extern pid_t fork_off(const char *executable, char **argv);
 extern int add_string(struct string_array *array, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void free_strings(struct string_array *array);
+extern int init_zero_block(u_int block_size);
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);

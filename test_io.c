@@ -339,7 +339,7 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     int r;
 
     // Check for zero block
-    if (src != NULL && memcmp(src, zero_block, config->block_size) == 0)
+    if (src != NULL && block_is_zeros(src))
         src = NULL;
 
     // Compute MD5

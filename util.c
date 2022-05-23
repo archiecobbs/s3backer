@@ -82,6 +82,7 @@ int log_enable_debug;
 
 // A block's worth of data containing only zero bytes
 const void *zero_block;
+static size_t zero_block_size;
 
 // stderr logging mutex
 static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -259,21 +260,21 @@ bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks)
 }
 
 int
-block_is_zeros(const void *data, u_int block_size)
+init_zero_block(u_int block_size)
 {
-    static const u_long zero;
-    const u_int *ptr;
-    int i;
+    assert(zero_block == NULL);
+    if ((zero_block = calloc(1, block_size)) == NULL)
+        return -1;
+    zero_block_size = block_size;
+    return 0;
+}
 
-    if (block_size <= sizeof(zero))
-        return memcmp(data, &zero, block_size) == 0;
-    assert(block_size % sizeof(*ptr) == 0);
-    ptr = (const u_int *)data;
-    for (i = 0; i < block_size / sizeof(*ptr); i++) {
-        if (*ptr++ != 0)
-            return 0;
-    }
-    return 1;
+int
+block_is_zeros(const void *data)
+{
+    assert(zero_block != NULL);
+    assert(zero_block_size > 0);
+    return memcmp(data, zero_block, zero_block_size) == 0;
 }
 
 void

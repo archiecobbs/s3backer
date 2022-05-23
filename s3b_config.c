@@ -1711,8 +1711,8 @@ validate_config(int parse_only)
     config.num_blocks = (s3b_block_t)big_num_blocks;
 
     // Allocate zero block
-    if ((zero_block = calloc(1, config.block_size)) == NULL) {
-        warn("calloc");
+    if (init_zero_block(config.block_size) == -1) {
+        warn("init_zero_block");
         return -1;
     }
 

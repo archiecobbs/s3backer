@@ -367,7 +367,7 @@ zero_cache_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, v
 
     // Update cache - if read was successful (or EEXIST case)
     if (r == 0 || (expect_etag != NULL && !strict && r == EEXIST && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) == 0)) {
-        const int zero = block_is_zeros(dest, config->block_size);
+        const int zero = block_is_zeros(dest);
         pthread_mutex_lock(&priv->mutex);
         zero_cache_update_block(priv, block_num, zero);
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -382,12 +382,11 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
   check_cancel_t *check_cancel, void *check_cancel_arg)
 {
     struct zero_cache_private *const priv = s3b->data;
-    struct zero_cache_conf *const config = priv->config;
     int known_zero;
     int r;
 
     // Detect zero blocks
-    if (src != NULL && block_is_zeros(src, config->block_size))
+    if (src != NULL && block_is_zeros(src))
         src = NULL;
     known_zero = src == NULL;
 
