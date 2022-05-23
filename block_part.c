@@ -116,6 +116,10 @@ block_part_read_block_part(struct s3backer_store *s3b, struct block_part *const 
     assert(edge->length < priv->block_size);
     assert(edge->offset + edge->length <= priv->block_size);
 
+    // Does the next layer down support partial block reads natively?
+    if (s3b->read_block_part != NULL)
+        return (*s3b->read_block_part)(s3b, edge->block, edge->offset, edge->length, edge->data);
+
     // Allocate buffer
     if ((buf = malloc(priv->block_size)) == NULL)
         return errno;
@@ -180,6 +184,10 @@ block_part_write_block_part(struct s3backer_store *s3b, struct block_part *const
     assert(edge->length > 0);
     assert(edge->length < priv->block_size);
     assert(edge->offset + edge->length <= priv->block_size);
+
+    // Does the next layer down support partial block writes natively?
+    if (s3b->write_block_part != NULL)
+        return (*s3b->write_block_part)(s3b, edge->block, edge->offset, edge->length, edge->data);
 
     // Allocate buffer
     if ((buf = malloc(priv->block_size)) == NULL)

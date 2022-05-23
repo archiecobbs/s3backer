@@ -209,6 +209,16 @@ struct s3backer_store {
                   u_char *actual_etag, const u_char *expect_etag, int strict);
 
     /*
+     * Read part of one block.
+     *
+     * This is an optional function; if not supported, this hook may be null.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     * May return ENOTCONN if create_threads() has not yet been invoked.
+     */
+    int         (*read_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
+
+    /*
      * Write one block.
      *
      * Passing src == NULL is equivalent to passing a block containing all zeros.
@@ -224,6 +234,16 @@ struct s3backer_store {
      */
     int         (*write_block)(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
                   check_cancel_t *check_cancel, void *arg);
+
+    /*
+     * Write part of one block.
+     *
+     * This is an optional function; if not supported, this hook may be null.
+     *
+     * Returns zero on success or a (positive) errno value on error.
+     * May return ENOTCONN if create_threads() has not yet been invoked.
+     */
+    int         (*write_block_part)(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 
     /*
      * Bulk block zeroing (i.e., deletion).

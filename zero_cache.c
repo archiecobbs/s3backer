@@ -93,6 +93,8 @@ static int zero_cache_read_block(struct s3backer_store *s3b, s3b_block_t block_n
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int zero_cache_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
+static int zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
+static int zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks);
 static int zero_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int zero_cache_shutdown(struct s3backer_store *s3b);
@@ -129,6 +131,10 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     s3b->set_mount_token = zero_cache_set_mount_token;
     s3b->read_block = zero_cache_read_block;
     s3b->write_block = zero_cache_write_block;
+    if (inner->read_block_part != NULL)
+        s3b->read_block_part = zero_cache_read_block_part;
+    if (inner->write_block_part != NULL)
+        s3b->write_block_part = zero_cache_write_block_part;
     s3b->bulk_zero = zero_cache_bulk_zero;
     s3b->survey_non_zero = zero_cache_survey_non_zero;
     s3b->shutdown = zero_cache_shutdown;
@@ -415,6 +421,62 @@ zero_cache_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, 
 
     // Done
     return r;
+}
+
+static int
+zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest)
+{
+    struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+
+    // Sanity check
+    assert(len > 0);
+    assert(len < config->block_size);
+    assert(off + len <= config->block_size);
+
+    // Check for the case where we are reading a block that is already known to be zero
+    pthread_mutex_lock(&priv->mutex);
+    if (bitmap_test(priv->zeros, block_num)) {
+        priv->stats.read_hits++;
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+        memset(dest, 0, len);
+        return 0;
+    }
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+
+    // Perform the partial read
+    return (*priv->inner->read_block_part)(priv->inner, block_num, off, len, dest);
+}
+
+static int
+zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src)
+{
+    struct zero_cache_private *const priv = s3b->data;
+    struct zero_cache_conf *const config = priv->config;
+    int data_is_zeros;
+
+    // Sanity check
+    assert(len > 0);
+    assert(len < config->block_size);
+    assert(off + len <= config->block_size);
+
+    // Check whether data is all zeros
+    data_is_zeros = memcmp(src, zero_block, len) == 0;
+
+    // Handle the case where we know this block is zero
+    pthread_mutex_lock(&priv->mutex);
+    if (bitmap_test(priv->zeros, block_num)) {
+        if (data_is_zeros) {                                    // ok, it's still zero -> return immediately
+            priv->stats.write_hits++;
+            CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+            return 0;
+        }
+        zero_cache_update_block(priv, block_num, 0);            // be conservative and say we are no longer sure
+    }
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+
+    // Perform the partial write
+    return (*priv->inner->write_block_part)(priv->inner, block_num, off, len, src);
 }
 
 static int
