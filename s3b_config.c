@@ -595,6 +595,12 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
             append_fuse_arg(s3backer_fuse_defaults[i]);
     }
 
+    // Disable read-ahead in NBD mode (assume kernel already does that)
+    if (nbd && !parse_only) {
+        config.block_cache.read_ahead = 0;
+        config.block_cache.read_ahead_trigger = 0;
+    }
+
     // Append command line args
     for (i = 1; i < argc; i++)
         append_fuse_arg(argv[i]);

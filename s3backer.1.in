@@ -933,12 +933,12 @@ Suppress progress output during initial startup.
 Configure the number of blocks of read ahead.
 This determines how many blocks will be read into the block cache ahead of the last block read by the kernel when read ahead is active.
 This option has no effect if the block cache is disabled.
-Default value is 4.
+Default value is 4 in FUSE mode, zero in NBD mode.
 .It Fl \-readAheadTrigger=NUM
 Configure the number of blocks that must be read consecutively before the read ahead algorithm is triggered.
 Once triggered, read ahead will continue as long as the kernel continues reading blocks sequentially.
 This option has no effect if the block cache is disabled.
-Default value is 2.
+Default value is 2 in FUSE mode, zero in NBD mode.
 .It Fl \-readOnly
 Assume the filesystem is going to be mounted read-only, and return
 .Er EROFS
