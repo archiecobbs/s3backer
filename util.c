@@ -489,6 +489,29 @@ fork_off(const char *executable, char **argv)
     err(1, "%s", executable);
 }
 
+// Sync (i.e., persist) the specified file or directory
+int
+fsync_path(const char *path, int must_exist)
+{
+    int fd;
+    int r = 0;
+
+    // Open file
+    if ((fd = open(path, O_RDONLY|O_CLOEXEC)) == -1) {
+        if (errno == ENOENT && !must_exist)
+            return 0;
+        return errno;
+    }
+
+    // Sync file
+    if (fsync(fd) == -1)
+        r = errno;
+
+    // Done
+    (void)close(fd);
+    return r;
+}
+
 int
 add_string(struct string_array *array, const char *format, ...)
 {
