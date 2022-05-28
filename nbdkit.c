@@ -361,32 +361,36 @@ static int
 s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t offset, uint32_t flags)
 {
     struct boundary_info info;
+    size_t i;
     int r;
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
         nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
-        nbdkit_set_error(r);
-        return -1;
+        goto fail;
     }
-    while (info.mid_block_count-- > 0) {
-        if ((r = (*fuse_priv->s3b->write_block)(fuse_priv->s3b, info.mid_block_start, info.mid_data, NULL, NULL, NULL)) != 0) {
-            nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start);
-            nbdkit_set_error(r);
-            return -1;
+    for (i = 0; i < info.mid_block_count; i++) {
+        const s3b_block_t block_num = info.mid_block_start + i;
+
+        if ((r = (*fuse_priv->s3b->write_block)(fuse_priv->s3b, block_num, info.mid_data, NULL, NULL, NULL)) != 0) {
+            nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            goto fail;
         }
-        info.mid_block_start++;
         info.mid_data += config->block_size;
     }
     if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
         nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
-        nbdkit_set_error(r);
-        return -1;
+        goto fail;
     }
 
     // Done
     return 0;
+
+fail:
+    // Fail
+    nbdkit_set_error(r);
+    return -1;
 }
 
 static int
@@ -399,37 +403,40 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
         nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
-        nbdkit_set_error(r);
-        return -1;
+        goto fail;
     }
     if (info.mid_block_count > 0) {
         s3b_block_t *block_nums;
-        int i;
+        size_t i;
 
         // Use our "bulk_zero" functionality
         if ((block_nums = malloc(info.mid_block_count * sizeof(*block_nums))) == NULL) {
-            nbdkit_set_error(errno);
-            return -1;
+            nbdkit_error("malloc: %m");
+            r = errno;
+            goto fail;
         }
         for (i = 0; i < info.mid_block_count; i++)
             block_nums[i] = info.mid_block_start + i;
-        if ((r = (*fuse_priv->s3b->bulk_zero)(fuse_priv->s3b, block_nums, info.mid_block_count)) != 0) {
+        r = (*fuse_priv->s3b->bulk_zero)(fuse_priv->s3b, block_nums, info.mid_block_count);
+        free(block_nums);
+        if (r != 0) {
             nbdkit_error("error zeroing %jd block(s) starting at %0*jx: %m",
               (uintmax_t)info.mid_block_count, S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start);
-            nbdkit_set_error(r);
-            free(block_nums);
-            return -1;
+            goto fail;
         }
-        free(block_nums);
     }
     if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
         nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
-        nbdkit_set_error(r);
-        return -1;
+        goto fail;
     }
 
     // Done
     return 0;
+
+fail:
+    // Fail
+    nbdkit_set_error(r);
+    return -1;
 }
 
 // Pre-loading the cache is supported when the block cache is enabled
