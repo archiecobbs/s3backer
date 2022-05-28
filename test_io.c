@@ -59,6 +59,7 @@ static int test_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num,
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int test_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
+static int test_io_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
 static int test_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int test_io_shutdown(struct s3backer_store *s3b);
 static void test_io_destroy(struct s3backer_store *s3b);
@@ -84,6 +85,7 @@ test_io_create(struct test_io_conf *config)
     s3b->read_block = test_io_read_block;
     s3b->write_block = test_io_write_block;
     s3b->bulk_zero = generic_bulk_zero;
+    s3b->flush_blocks = test_io_flush_blocks;
     s3b->survey_non_zero = test_io_survey_non_zero;
     s3b->shutdown = test_io_shutdown;
     s3b->destroy = test_io_destroy;
@@ -142,6 +144,46 @@ test_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
 {
     if (old_valuep != NULL)
         *old_valuep = 0;
+    return 0;
+}
+
+static int
+test_io_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout)
+{
+    struct test_io_private *const priv = s3b->data;
+    struct test_io_conf *const config = priv->config;
+    char block_hash_buf[S3B_BLOCK_NUM_DIGITS + 2];
+    char path[PATH_MAX];
+    int r;
+
+    // Anything to do?
+    if (config->discard_data || num_blocks == 0)
+        return 0;
+
+    // Sync each block
+    while (num_blocks-- > 0) {
+        const s3b_block_t block_num = *block_nums++;
+
+        // Generate path
+        http_io_format_block_hash(config->blockHashPrefix, block_hash_buf, sizeof(block_hash_buf), block_num);
+        snvprintf(path, sizeof(path), "%s/%s%s%0*jx",
+          config->bucket, config->prefix, block_hash_buf, S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+
+        // Sync file
+        if ((r = fsync_path(path, 0)) != 0) {
+            (*config->log)(LOG_ERR, "can't fsync %s: %s", path, strerror(r));
+            return r;
+        }
+    }
+
+    // Sync the containing directory
+    *strrchr(path, '/') = '\0';
+    if ((r = fsync_path(path, 1)) != 0) {
+        (*config->log)(LOG_ERR, "can't fsync %s: %s", path, strerror(r));
+        return r;
+    }
+
+    // Done
     return 0;
 }
 

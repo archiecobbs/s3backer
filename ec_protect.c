@@ -142,6 +142,7 @@ static int ec_protect_read_block(struct s3backer_store *s3b, s3b_block_t block_n
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int ec_protect_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
+static int ec_protect_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
 static int ec_protect_shutdown(struct s3backer_store *s3b);
 static void ec_protect_destroy(struct s3backer_store *s3b);
 
@@ -193,6 +194,7 @@ ec_protect_create(struct ec_protect_conf *config, struct s3backer_store *inner)
     s3b->read_block = ec_protect_read_block;
     s3b->write_block = ec_protect_write_block;
     s3b->bulk_zero = generic_bulk_zero;
+    s3b->flush_blocks = ec_protect_flush_blocks;
     s3b->survey_non_zero = ec_protect_survey_non_zero;
     s3b->shutdown = ec_protect_shutdown;
     s3b->destroy = ec_protect_destroy;
@@ -261,6 +263,14 @@ ec_protect_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int3
     struct ec_protect_private *const priv = s3b->data;
 
     return (*priv->inner->set_mount_token)(priv->inner, old_valuep, new_value);
+}
+
+static int
+ec_protect_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout)
+{
+    struct ec_protect_private *const priv = s3b->data;
+
+    return (*priv->inner->flush_blocks)(priv->inner, block_nums, num_blocks, timeout);
 }
 
 static int

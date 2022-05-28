@@ -255,6 +255,20 @@ struct s3backer_store {
     int         (*bulk_zero)(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);
 
     /*
+     * Flush any outstanding changes for the specific blocks to persistent storge.
+     *
+     * This function will block until all of the specified blocks are persisted.
+     *
+     * If "timeout" is greater than zero, impose a maximum time in milliseconds to wait for the flush to succeed;
+     * if it takes any longer, return ETIMEDOUT.
+     *
+     * If any attempts are made by other threads to write to any of the specified blocks while this function is waiting
+     * (this includes the scenario in which a write is in progress in another thread when this function is invoked), then
+     * it is not defined whether those other writes will also be flushed.
+     */
+    int         (*flush_blocks)(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
+
+    /*
      * Identify all blocks that are, or could possibly be, non-zero.
      *
      * The callback must be invoked for all blocks which could possibly be non-zero. Note: the same block

@@ -195,6 +195,7 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
   check_cancel_t *check_cancel, void *check_cancel_arg);
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
+static int block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
 static int block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int block_cache_shutdown(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
@@ -258,6 +259,7 @@ block_cache_create(struct block_cache_conf *config, struct s3backer_store *inner
     s3b->write_block = block_cache_write_block;
     s3b->read_block_part = block_cache_read_block_part;
     s3b->write_block_part = block_cache_write_block_part;
+    s3b->flush_blocks = block_cache_flush_blocks;
     s3b->bulk_zero = generic_bulk_zero;
     s3b->survey_non_zero = block_cache_survey_non_zero;
     s3b->shutdown = block_cache_shutdown;
@@ -460,6 +462,107 @@ block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int
 
     // Done
     return 0;
+}
+
+static int
+block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *const block_nums, const u_int num_blocks, long timeout)
+{
+    struct block_cache_private *const priv = s3b->data;
+    const uint32_t now = block_cache_get_time(priv);
+    struct cache_entry *entry;
+    uint64_t absolute_timeout;
+    int need_signal = 0;
+    int r = 0;
+    u_int i;
+
+    // Calculate absolute timeout
+    absolute_timeout = timeout > 0 ? block_cache_get_time_millis() + timeout : 0;
+
+    // Grab lock and sanity check
+    pthread_mutex_lock(&priv->mutex);
+    S3BCACHE_CHECK_INVARIANTS(priv, 0);
+
+    // Move all DIRTY blocks to the front of the queue (in the order given to us) so they will be written first
+    for (i = num_blocks; i > 0; i--) {
+        const s3b_block_t block_num = block_nums[i - 1];
+
+        // Check if block exists and is DIRTY
+        if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL)
+            continue;
+        if (ENTRY_GET_STATE(entry) != DIRTY)
+            continue;
+
+        // Move it to the front of the queue if not there already
+        if (entry != TAILQ_FIRST(&priv->dirties)) {
+            TAILQ_REMOVE(&priv->dirties, entry, link);
+            TAILQ_INSERT_HEAD(&priv->dirties, entry, link);
+        }
+
+        // Set for immediate write timeout
+        entry->timeout = now;
+        need_signal = 1;
+    }
+    if (need_signal)
+        pthread_cond_signal(&priv->worker_work);
+
+    // Wait for each block in our list to become clean
+    for (i = 0; i < num_blocks; ) {
+        const s3b_block_t block_num = block_nums[i];
+
+        // Check for stopping condition; this shouldn't ever happen but if it does we don't want to hang
+        if (priv->stopping != 0) {
+            r = EINTR;
+            break;
+        }
+
+        // Is this block in the cache?
+        if ((entry = s3b_hash_get(priv->hashtable, block_num)) == NULL) {
+            i++;                                // this block is not in the cache - advance to the next block
+            continue;
+        }
+
+        // Check its state
+        switch (ENTRY_GET_STATE(entry)) {
+        case CLEAN:
+        case CLEAN2:
+        case READING:
+        case READING2:                          // this block is clean - advance to the next block
+            i++;
+            continue;
+        case DIRTY:                             // this block is waiting for a worker thread to get to it
+            break;
+        case WRITING:
+        case WRITING2:                          // a worker thread is currently writing out this block
+            break;
+        default:
+            assert(0);
+            break;
+        }
+
+        // Wait for ANY block to finish being written, then reevaluate
+        if (timeout > 0) {
+            if ((r = block_cache_cond_timedwait(priv, &priv->write_complete, absolute_timeout)) != 0)
+                break;
+        } else
+            pthread_cond_wait(&priv->write_complete, &priv->mutex);
+    }
+
+    // Release lock
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+
+    // Now flush them in the next layer down
+    if (r == 0) {
+
+        // Adjust timeout (if any) for the time we spent, but don't go zero/negative
+        if (timeout > 0) {
+            if ((timeout = absolute_timeout - block_cache_get_time_millis()) <= 0)
+                timeout = 1;
+        }
+        r = (*priv->inner->flush_blocks)(priv->inner, block_nums, num_blocks, timeout);
+    }
+
+    // Done
+    return r;
 }
 
 static int

@@ -291,6 +291,7 @@ static int http_io_read_block(struct s3backer_store *s3b, s3b_block_t block_num,
   u_char *actual_etag, const u_char *expect_etag, int strict);
 static int http_io_write_block(struct s3backer_store *s3b, s3b_block_t block_num, const void *src, u_char *etag,
   check_cancel_t *check_cancel, void *check_cancel_arg);
+static int http_io_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
 static int http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_nums, u_int num_blocks);
 static int http_io_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int http_io_shutdown(struct s3backer_store *s3b);
@@ -410,6 +411,7 @@ http_io_create(struct http_io_conf *config)
     s3b->read_block = http_io_read_block;
     s3b->write_block = http_io_write_block;
     s3b->bulk_zero = http_io_bulk_zero;
+    s3b->flush_blocks = http_io_flush_blocks;
     s3b->survey_non_zero = http_io_survey_non_zero;
     s3b->shutdown = http_io_shutdown;
     s3b->destroy = http_io_destroy;
@@ -644,6 +646,12 @@ http_io_clear_stats(struct s3backer_store *s3b)
     pthread_mutex_lock(&priv->mutex);
     memset(&priv->stats, 0, sizeof(priv->stats));
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+}
+
+static int
+http_io_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout)
+{
+    return 0;                           // we are stateless, so there's nothing to flush
 }
 
 static int
