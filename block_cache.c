@@ -213,6 +213,7 @@ static s3b_hash_visit_t block_cache_free_one;
 static struct cache_entry *block_cache_verified(struct block_cache_private *priv, struct cache_entry *entry);
 static double block_cache_dirty_ratio(struct block_cache_private *priv);
 static void block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry);
+static int block_cache_cond_timedwait(struct block_cache_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis);
 static struct list_head *block_cache_cleans_list(struct block_cache_private *priv, s3b_block_t block_num);
 static int block_cache_high_prio(struct block_cache_conf *conf, s3b_block_t block_num);
 static uint32_t block_cache_get_time(struct block_cache_private *priv);
@@ -1358,16 +1359,28 @@ static void
 block_cache_worker_wait(struct block_cache_private *priv, struct cache_entry *entry)
 {
     uint64_t wake_time_millis;
-    struct timespec wake_time;
 
     if (entry == NULL) {
         pthread_cond_wait(&priv->worker_work, &priv->mutex);
         return;
     }
     wake_time_millis = priv->start_time + ((uint64_t)entry->timeout * TIME_UNIT_MILLIS);
+    block_cache_cond_timedwait(priv, &priv->worker_work, wake_time_millis);
+}
+
+/*
+ * Sleep until the specified condition becomes true, or the specified wakeup time is reached.
+ *
+ * Returns ETIMEDOUT if we timed out.
+ */
+static int
+block_cache_cond_timedwait(struct block_cache_private *priv, pthread_cond_t *cond, uint64_t wake_time_millis)
+{
+    struct timespec wake_time;
+
     wake_time.tv_sec = wake_time_millis / 1000;
     wake_time.tv_nsec = (wake_time_millis % 1000) * 1000000;
-    pthread_cond_timedwait(&priv->worker_work, &priv->mutex, &wake_time);
+    return pthread_cond_timedwait(cond, &priv->mutex, &wake_time);
 }
 
 /*
