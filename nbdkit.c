@@ -66,6 +66,7 @@ static struct fuse_ops_private *fuse_priv;
 static int pre_fork_pid;
 
 // Internal functions
+static int s3b_nbd_flush_blocks(const struct boundary_info *info);
 static void s3b_nbd_logger(int level, const char *fmt, ...);
 static int handle_unknown_option(void *data, const char *arg, int key, struct fuse_args *outargs);
 
@@ -81,6 +82,7 @@ static int s3b_nbd_plugin_pread(void *handle, void *bufp, uint32_t size, uint64_
 static int s3b_nbd_plugin_pwrite(void *handle, const void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
 static int s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags);
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
+static int s3b_nbd_plugin_can_fua(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
 static void s3b_nbd_plugin_unload(void);
 
@@ -109,7 +111,7 @@ static struct nbdkit_plugin plugin = {
     .can_zero=              NULL,
     .can_fast_zero=         NULL,
     .can_extents=           NULL,
-    .can_fua=               NULL,
+    .can_fua=               s3b_nbd_plugin_can_fua,
     .can_cache=             s3b_nbd_plugin_can_cache,
     .is_rotational=         NULL,
 
@@ -384,6 +386,10 @@ s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t off
         goto fail;
     }
 
+    // Flush those blocks if required
+    if ((flags & NBDKIT_FLAG_FUA) != 0 && (r = s3b_nbd_flush_blocks(&info)) != 0)
+        goto fail;
+
     // Done
     return 0;
 
@@ -430,6 +436,10 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
         goto fail;
     }
 
+    // Flush those blocks if required
+    if ((flags & NBDKIT_FLAG_FUA) != 0 && (r = s3b_nbd_flush_blocks(&info)) != 0)
+        goto fail;
+
     // Done
     return 0;
 
@@ -437,6 +447,12 @@ fail:
     // Fail
     nbdkit_set_error(r);
     return -1;
+}
+
+static int
+s3b_nbd_plugin_can_fua(void *handle)
+{
+    return NBDKIT_FUA_NATIVE;
 }
 
 // Pre-loading the cache is supported when the block cache is enabled
@@ -454,6 +470,36 @@ s3b_nbd_plugin_can_multi_conn(void *handle)
 }
 
 ////////////// Internal functions
+
+static int
+s3b_nbd_flush_blocks(const struct boundary_info *const info)
+{
+    s3b_block_t *blocks;
+    u_int num_blocks;
+    size_t i;
+    int r;
+
+    // Build block list
+    if ((blocks = malloc((2 + info->mid_block_count) * sizeof(*blocks))) == NULL) {
+        nbdkit_error("malloc: %m");
+        return errno;
+    }
+    num_blocks = 0;
+    if (info->header.length > 0)
+        blocks[num_blocks++] = info->header.block;
+    for (i = 0; i < info->mid_block_count; i++)
+        blocks[num_blocks++] = info->mid_block_start + i;
+    if (info->footer.length > 0)
+        blocks[num_blocks++] = info->footer.block;
+
+    // Flush blocks
+    if ((r = (*fuse_priv->s3b->flush_blocks)(fuse_priv->s3b, blocks, num_blocks, 0)) != 0)      // TODO: timeout?
+        nbdkit_error("error flushing %u block(s): %s", num_blocks, strerror(r));
+
+    // Done
+    free(blocks);
+    return r;
+}
 
 static void
 s3b_nbd_logger(int level, const char *fmt, ...)
