@@ -1,7 +1,7 @@
-Version 2.0.0
+Version 2.0.0 released June 4, 2022
 
-    - Fix slow write performance with large block sizes since 1.6.0 (issue ##185)
     - Support running as a Network Block Device (NBD) server (issue #178)
+    - Fix slow write performance with large block sizes since 1.6.0 (issue ##185)
     - Disable MD5 cache by default now that Amazon S3 is consistent (issue #183)
     - Fix bug where "(null)" was appearing in usage message (issue #161)
     - Give more meaningful usage error when size limits are exceeded (issue #162)
