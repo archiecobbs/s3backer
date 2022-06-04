@@ -440,6 +440,7 @@ zero_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_
     struct zero_cache_conf *const config = priv->config;
 
     // Sanity check
+    (void)config;
     assert(len > 0);
     assert(len < config->block_size);
     assert(off + len <= config->block_size);
@@ -466,6 +467,7 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     int data_is_zeros;
 
     // Sanity check
+    (void)config;
     assert(len > 0);
     assert(len < config->block_size);
     assert(off + len <= config->block_size);
