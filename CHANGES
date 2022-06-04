@@ -1,3 +1,7 @@
+Version Next
+
+    - Fix null pointer dereference bug in zero cache.
+
 Version 2.0.0 released June 4, 2022
 
     - Support running as a Network Block Device (NBD) server (issue #178)

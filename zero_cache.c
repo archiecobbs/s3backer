@@ -473,7 +473,7 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     assert(off + len <= config->block_size);
 
     // Check whether data is all zeros
-    data_is_zeros = memcmp(src, zero_block, len) == 0;
+    data_is_zeros = src == NULL || memcmp(src, zero_block, len) == 0;
 
     // Handle the case where we know this block is zero
     pthread_mutex_lock(&priv->mutex);
