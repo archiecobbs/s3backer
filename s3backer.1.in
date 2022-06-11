@@ -748,6 +748,8 @@ causes
 to proceed without user confirmation.
 .It Fl h Fl \-help
 Print a help message and exit.
+.It Fl \-http11
+Restrict to HTTP version 1.1.
 .It Fl \-initialRetryPause=MILLIS
 Specify the initial pause time in milliseconds before the first retry attempt after failed HTTP operations.
 Failures include network failures and timeouts, HTTP errors, and reads of stale data
