@@ -88,6 +88,8 @@ main(int argc, char **argv)
     if ((store = s3backer_create_store(config)) == NULL)
         err(1, "s3backer_create_store");
 
+    store->create_threads(store);
+
     // Allocate block states
     if ((blocks = calloc(config->num_blocks, sizeof(*blocks))) == NULL)
         err(1, "calloc");
