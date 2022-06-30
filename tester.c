@@ -94,6 +94,11 @@ main(int argc, char **argv)
     if ((store = s3backer_create_store(config)) == NULL)
         err(1, "s3backer_create_store");
 
+    // Startup background threads
+    logit(-1, "starting background threads");
+    if ((r = (*store->create_threads)(store)) != 0)
+        err(1, "create_threads");
+
     // Allocate block states
     if ((blocks = calloc(config->num_blocks, sizeof(*blocks))) == NULL)
         err(1, "calloc");
