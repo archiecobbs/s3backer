@@ -599,8 +599,10 @@ This should result in less network traffic (in both directions) and lower storag
 .Pp
 The
 .Ar ALGORITHM
-is optional; currently, the default value (and the only supported algorithm) is
+is optional; currently, the default value is
 .Ar deflate .
+Also supported is
+.Ar zstd .
 .Pp
 This flag only enables compression of newly written blocks; decompression is always enabled and applied when appropriate.
 Therefore, it is safe to switch this flag on or off between different invocations of

@@ -37,6 +37,10 @@
 #include "s3backer.h"
 #include "compress.h"
 
+#if ZSTD
+#include <zstd.h>
+#endif
+
 // Internal helpers
 static int  *parse_integer_level(const char *string);
 static void free_integer_level(void *levelp);
@@ -45,6 +49,14 @@ static void free_integer_level(void *levelp);
 static comp_cfunc_t    deflate_compress;
 static comp_dfunc_t    deflate_decompress;
 static comp_lparse_t   deflate_lparse;
+
+#if ZSTD
+
+// Compression hooks - Zstd
+static comp_cfunc_t    zstd_compress;
+static comp_dfunc_t    zstd_decompress;
+static comp_lparse_t   zstd_lparse;
+#endif
 
 // Compression algorithms
 const struct comp_alg comp_algs[] = {
@@ -60,6 +72,17 @@ const struct comp_alg comp_algs[] = {
         .lparse=    deflate_lparse,
         .lfree=     free_integer_level
     },
+
+#if ZSTD
+    // Zstandard
+    {
+        .name=      "zstd",
+        .cfunc=     zstd_compress,
+        .dfunc=     zstd_decompress,
+        .lparse=    zstd_lparse,
+        .lfree=     free_integer_level
+    },
+#endif
 };
 const size_t num_comp_algs = sizeof(comp_algs) / sizeof(*comp_algs);
 
@@ -180,6 +203,86 @@ invalid:
     warnx("invalid deflate compression level `%s'", string);
     return NULL;
 }
+
+#if ZSTD
+
+/****************************************************************************
+ *                                   ZSTD                                   *
+ ****************************************************************************/
+
+static int
+zstd_compress(log_func_t *log, const void *input, size_t inlen, void **outputp, size_t *outlenp, void *levelp)
+{
+    u_long clen;
+    void *cbuf;
+    int level;
+    int r;
+
+    // Allocate buffer
+    clen = ZSTD_compressBound(inlen);
+    if ((cbuf = malloc(clen)) == NULL) {
+        r = errno;
+        (*log)(LOG_ERR, "malloc: %s", strerror(r));
+        return r;
+    }
+
+    // Extract compression level
+    level = levelp != NULL ? *(int *)levelp : ZSTD_CLEVEL_DEFAULT;
+
+    // Compress data
+    clen = ZSTD_compress(cbuf, clen, input, inlen, level);
+    if (ZSTD_isError(clen)) {
+        (*log)(LOG_ERR, "zstd compress: error, %s", ZSTD_getErrorName(clen));
+        free(cbuf);
+        return EIO;
+    }
+
+    // Done
+    *outputp = cbuf;
+    *outlenp = clen;
+    return 0;
+}
+
+static int
+zstd_decompress(log_func_t *log, const void *input, size_t inlen, void *output, size_t *outlenp)
+{
+    size_t code;
+
+    // Decompress
+    code = ZSTD_decompress(output, *outlenp, input, inlen);
+    if (ZSTD_isError(code)) {
+        (*log)(LOG_ERR, "zstd uncompress: %s", ZSTD_getErrorName(code));
+        return EIO;
+    }
+
+    // Done
+    *outlenp = code;
+    return 0;
+}
+
+static void *
+zstd_lparse(const char *string)
+{
+    int *levelp;
+
+    // Parse level
+    if ((levelp = parse_integer_level(string)) == NULL)
+        goto invalid;
+
+    // Check level
+    if (*levelp < ZSTD_minCLevel() || *levelp > ZSTD_maxCLevel()) {
+        free(levelp);
+        goto invalid;
+    }
+
+    // Done
+    return levelp;
+
+invalid:
+    warnx("invalid zstd compression level `%s'", string);
+    return NULL;
+}
+#endif
 
 /****************************************************************************
  *                          INTERNAL HELPERS                                *

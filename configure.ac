@@ -70,6 +70,13 @@ PKG_CHECK_MODULES(FUSE, fuse,
     LDFLAGS="${LDFLAGS} ${FUSE_LIBS}"],
     [AC_MSG_ERROR(["fuse" not found in pkg-config])])
 
+# Check for zstd (optional)
+PKG_CHECK_MODULES([ZSTD], libzstd,
+    [AC_DEFINE([ZSTD], [1], [Whether zstd is available])
+    CFLAGS="${CFLAGS} ${ZSTD_CFLAGS}"
+    LDFLAGS="${LDFLAGS} ${ZSTD_LIBS}"],
+    [true])
+
 # Check for NBDKit
 PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.24.1],
     [AC_DEFINE([NBDKIT], [1], [Whether NBDKit is available])
