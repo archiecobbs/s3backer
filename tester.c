@@ -59,7 +59,7 @@ struct block_state {
 };
 
 // Internal functions
-static void *thread_main(void *arg);
+static void *test_thread_main(void *arg);
 static void logit(int id, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 static uint64_t get_time(void);
 
@@ -107,7 +107,7 @@ main(int argc, char **argv)
 
     // Create threads
     for (i = 0; i < NUM_THREADS; i++)
-        pthread_create(&thread, NULL, thread_main, (void *)(intptr_t)i);
+        pthread_create(&thread, NULL, test_thread_main, (void *)(intptr_t)i);
 
     // Run for a day
     sleep(24 * 60 * 60);
@@ -115,7 +115,7 @@ main(int argc, char **argv)
 }
 
 static void *
-thread_main(void *arg)
+test_thread_main(void *arg)
 {
     const int id = (int)(intptr_t)arg;
     u_char data[config->block_size];
