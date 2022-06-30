@@ -65,6 +65,7 @@ static uint64_t get_time(void);
 
 // Internal variables
 static pthread_mutex_t mutex;
+static pthread_mutex_t log_mutex;
 static struct s3b_config *config;
 static struct s3backer_store *store;
 static struct block_state *blocks;
@@ -95,6 +96,8 @@ main(int argc, char **argv)
     // Random initialization
     srandom((u_int)time(NULL));
     if (pthread_mutex_init(&mutex, NULL) != 0)
+        err(1, "mutex init");
+    if (pthread_mutex_init(&log_mutex, NULL) != 0)
         err(1, "mutex init");
     start_time = get_time();
 
@@ -145,7 +148,7 @@ test_thread_main(void *arg)
             CHECK_RETURN(pthread_mutex_unlock(&mutex));
 
             // Do the read
-            logit(id, "rd %0*jx START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            logit(id, "rd %0*jx START", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
             if ((r = (*store->read_block)(store, block_num, data, NULL, NULL, 0)) != 0) {
                 logit(id, "****** READ ERROR: %s", strerror(r));
                 continue;
@@ -163,7 +166,7 @@ test_thread_main(void *arg)
                     exit(1);
                 }
             }
-            logit(id, "rd %0*jx content=0x%02x%02x%02x%02x COMPLETE\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+            logit(id, "rd %0*jx content=0x%02x%02x%02x%02x COMPLETE", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
               data[0], data[1], data[2], data[3]);
         } else {
             struct block_state *const state = &blocks[block_num];
@@ -182,11 +185,11 @@ test_thread_main(void *arg)
             content = (random() % ZERO_FACTOR) != 0 ? 0 : (u_int)random();
             memcpy(data, &content, sizeof(content));
             memset(data + sizeof(content), 0, config->block_size - sizeof(content));
-            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x START\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x START", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
               data[0], data[1], data[2], data[3]);
             if ((r = (*store->write_block)(store, block_num, data, NULL, NULL, NULL)) != 0)
                 logit(id, "****** WRITE ERROR: %s", strerror(r));
-            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x %s%s\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
+            logit(id, "wr %0*jx content=0x%02x%02x%02x%02x %s%s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num,
               data[0], data[1], data[2], data[3], r != 0 ? "FAILED: " : "COMPLETE", r != 0 ? strerror(r) : "");
 
             // Update block state
@@ -207,12 +210,18 @@ logit(int id, const char *fmt, ...)
     uint64_t timestamp = get_time() - start_time;
     va_list args;
 
-    printf("%u.%03u [%02d] ", (u_int)(timestamp / 1000), (u_int)(timestamp % 1000), id);
+    pthread_mutex_lock(&log_mutex);
+    if (id == -1)
+        printf("%u.%03u [--] ", (u_int)(timestamp / 1000), (u_int)(timestamp % 1000));
+    else
+        printf("%u.%03u [%02d] ", (u_int)(timestamp / 1000), (u_int)(timestamp % 1000), id);
     va_start(args, fmt);
     vfprintf(stdout, fmt, args);
+    printf("\n");
+    fflush(stdout);
     va_end(args);
+    CHECK_RETURN(pthread_mutex_unlock(&log_mutex));
 }
-
 
 static uint64_t
 get_time(void)
