@@ -61,6 +61,7 @@ struct block_state {
 // Internal functions
 static void *test_thread_main(void *arg);
 static void logit(int id, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
+static void catch_signal(int sig);
 static uint64_t get_time(void);
 
 // Internal variables
@@ -70,12 +71,15 @@ static struct s3b_config *config;
 static struct s3backer_store *store;
 static struct block_state *blocks;
 static uint64_t start_time;
+static volatile int stop_threads;
 
 int
 main(int argc, char **argv)
 {
     s3b_block_t block_num;
-    pthread_t thread;
+    pthread_t threads[NUM_THREADS];
+    sigset_t sigs;
+    int sig;
     int i;
     int r;
 
@@ -86,6 +90,7 @@ main(int argc, char **argv)
         err(1, "block size too small");
 
     // Open store
+    logit(-1, "creating s3backer store");
     if ((store = s3backer_create_store(config)) == NULL)
         err(1, "s3backer_create_store");
 
@@ -102,18 +107,43 @@ main(int argc, char **argv)
     start_time = get_time();
 
     // Zero all blocks
+    logit(-1, "started zeroing all blocks");
     for (block_num = 0; block_num < config->num_blocks; block_num++) {
-        printf("zeroing block %0*jx\n", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
         if ((r = (*store->write_block)(store, block_num, zero_block, NULL, NULL, NULL)) != 0)
             err(1, "write error");
+        if (block_num % 1000 == 999)
+            logit(-1, "zeroed %jd blocks", (uintmax_t)block_num);
     }
+    logit(-1, "finished zeroing all blocks");
 
-    // Create threads
+    // Create my threads
+    logit(-1, "starting tester threads");
     for (i = 0; i < NUM_THREADS; i++)
-        pthread_create(&thread, NULL, test_thread_main, (void *)(intptr_t)i);
+        pthread_create(&threads[i], NULL, test_thread_main, (void *)(intptr_t)i);
 
-    // Run for a day
-    sleep(24 * 60 * 60);
+    // Wait for signal
+    logit(-1, "waiting for termination signal");
+    signal(SIGHUP, catch_signal);
+    signal(SIGINT, catch_signal);
+    signal(SIGTERM, catch_signal);
+    signal(SIGQUIT, catch_signal);
+    sigemptyset(&sigs);
+    sigaddset(&sigs, SIGHUP);
+    sigaddset(&sigs, SIGINT);
+    sigaddset(&sigs, SIGTERM);
+    sigaddset(&sigs, SIGQUIT);
+    if ((r = sigwait(&sigs, &sig)) != 0)
+        err(1, "sigwait");
+    logit(-1, "got termination signal");
+
+    // Stop threads and wait for them to exit
+    logit(-1, "stopping tester threads");
+    stop_threads = 1;
+    for (i = 0; i < NUM_THREADS; i++)
+        pthread_join(threads[i], NULL);
+
+    // Done
+    logit(-1, "done");
     return 0;
 }
 
@@ -127,7 +157,7 @@ test_thread_main(void *arg)
     int r;
 
     // Loop
-    while (1) {
+    while (!stop_threads) {
 
         // Sleep
         millis = DELAY_BASE + (random() % DELAY_RANGE);
@@ -202,6 +232,9 @@ test_thread_main(void *arg)
             CHECK_RETURN(pthread_mutex_unlock(&mutex));
         }
     }
+
+    // Done
+    return NULL;
 }
 
 static void
@@ -232,3 +265,8 @@ get_time(void)
     return (uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000;
 }
 
+static void
+catch_signal(int sig)
+{
+    // do nothing
+}
