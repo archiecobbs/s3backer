@@ -37,24 +37,29 @@
 #include "s3backer.h"
 #include "compress.h"
 
-// Deflate
+// Internal helpers
+static int  *parse_integer_level(const char *string);
+static void free_integer_level(void *levelp);
+
+// Compression hooks - Deflate
 static comp_cfunc_t    deflate_compress;
 static comp_dfunc_t    deflate_decompress;
 static comp_lparse_t   deflate_lparse;
-static comp_lfree_t    deflate_lfree;
 
 // Compression algorithms
 const struct comp_alg comp_algs[] = {
 #if COMP_ALG_ZLIB != 0
 #error incorrect COMP_ALG_ZLIB
 #endif
+
+    // Deflate
     {
         .name=      "deflate",
         .cfunc=     deflate_compress,
         .dfunc=     deflate_decompress,
         .lparse=    deflate_lparse,
-        .lfree=     deflate_lfree
-    }
+        .lfree=     free_integer_level
+    },
 };
 const size_t num_comp_algs = sizeof(comp_algs) / sizeof(*comp_algs);
 
@@ -149,6 +154,40 @@ deflate_decompress(log_func_t *log, const void *input, size_t inlen, void *outpu
 static void *
 deflate_lparse(const char *string)
 {
+    int *levelp;
+
+    // Parse level
+    if ((levelp = parse_integer_level(string)) == NULL)
+        goto invalid;
+
+    // Check level
+    switch (*levelp) {
+    case Z_DEFAULT_COMPRESSION:
+    case Z_NO_COMPRESSION:
+        break;
+    default:
+        if (*levelp < Z_BEST_SPEED || *levelp > Z_BEST_COMPRESSION) {
+            free(levelp);
+            goto invalid;
+        }
+        break;
+    }
+
+    // Done
+    return levelp;
+
+invalid:
+    warnx("invalid deflate compression level `%s'", string);
+    return NULL;
+}
+
+/****************************************************************************
+ *                          INTERNAL HELPERS                                *
+ ****************************************************************************/
+
+static int *
+parse_integer_level(const char *string)
+{
     char *endptr;
     long level;
     int *levelp;
@@ -160,33 +199,19 @@ deflate_lparse(const char *string)
       || (errno != 0 && level == 0)
       || *endptr != '\0'
       || (int)level != level)
-        goto invalid;
-
-    // Check level
-    switch ((int)level) {
-    case Z_DEFAULT_COMPRESSION:
-    case Z_NO_COMPRESSION:
-        break;
-    default:
-        if (level < Z_BEST_SPEED || level > Z_BEST_COMPRESSION)
-            goto invalid;
-        break;
-    }
+        return NULL;
 
     // Store in buffer
-    if ((levelp = malloc(sizeof(*levelp))) == NULL)
+    if ((levelp = malloc(sizeof(*levelp))) == NULL) {
         warn("malloc");
-    else
-        *levelp = (int)level;
+        return NULL;
+    }
+    *levelp = (int)level;
     return levelp;
-
-invalid:
-    warnx("invalid deflate compression level `%s'", string);
-    return NULL;
 }
 
 static void
-deflate_lfree(void *level)
+free_integer_level(void *levelp)
 {
-    free(level);
+    free(levelp);
 }
