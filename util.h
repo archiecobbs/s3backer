@@ -34,6 +34,10 @@
  * also delete it here.
  */
 
+// Forward decl's
+struct s3b_config;
+
+// Bitmap type
 typedef uintptr_t bitmap_t;
 
 // A list of block numbers
@@ -91,6 +95,16 @@ extern int fsync_path(const char *path, int must_exist);
 extern int add_string(struct string_array *array, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void free_strings(struct string_array *array);
 extern int init_zero_block(u_int block_size);
+
+// daemonized versions of <err.h>
+extern void daemon_warn(const struct s3b_config *config, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 2, 3)));
+extern void daemon_warnx(const struct s3b_config *config, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 2, 3)));
+extern void daemon_err(const struct s3b_config *config, int value, const char *fmt, ...)
+    __attribute__ ((__noreturn__, __format__ (__printf__, 3, 4)));
+extern void daemon_errx(const struct s3b_config *config, int value, const char *fmt, ...)
+    __attribute__ ((__noreturn__, __format__ (__printf__, 3, 4)));
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);

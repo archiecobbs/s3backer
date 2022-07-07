@@ -35,6 +35,13 @@
  */
 
 #include "s3backer.h"
+#include "block_cache.h"
+#include "zero_cache.h"
+#include "ec_protect.h"
+#include "fuse_ops.h"
+#include "http_io.h"
+#include "test_io.h"
+#include "s3b_config.h"
 #include "util.h"
 
 // Size suffixes
@@ -421,6 +428,74 @@ snvprintf(char *buf, int size, const char *format, ...)
 
     // Done
     return len;
+}
+
+void
+daemon_warn(const struct s3b_config *config, const char *fmt, ...)
+{
+    const int errval = errno;
+    char buf[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (config->foreground)
+        vwarn(fmt, ap);
+    else {
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        (*config->log)(LOG_WARNING, "%s: %s: %s", PACKAGE, buf, strerror(errval));
+    }
+    va_end(ap);
+}
+
+void
+daemon_warnx(const struct s3b_config *config, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (config->foreground)
+        vwarnx(fmt, ap);
+    else {
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        (*config->log)(LOG_WARNING, "%s: %s", PACKAGE, buf);
+    }
+    va_end(ap);
+}
+
+void
+daemon_err(const struct s3b_config *config, int exval, const char *fmt, ...)
+{
+    const int errval = errno;
+    char buf[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (config->foreground)
+        verr(exval, fmt, ap);
+    else {
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        (*config->log)(LOG_ERR, "%s: %s: %s", PACKAGE, buf, strerror(errval));
+        exit(exval);
+    }
+    va_end(ap);
+}
+
+void
+daemon_errx(const struct s3b_config *config, int exval, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (config->foreground)
+        verrx(exval, fmt, ap);
+    else {
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        (*config->log)(LOG_ERR, "%s: %s", PACKAGE, buf);
+        exit(exval);
+    }
+    va_end(ap);
 }
 
 // Calculate the partial initial, partial trailing, and complete central blocks associated with a range of bytes
