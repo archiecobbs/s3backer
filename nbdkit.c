@@ -147,7 +147,7 @@ NBDKIT_REGISTER_PLUGIN(plugin)
 static void
 s3b_nbd_plugin_load(void)
 {
-    if (add_string(&params, "%s", PACKAGE_NAME) == -1)
+    if (add_string(&params, "%s", PACKAGE) == -1)
         err(1, "add_string");
 }
 
