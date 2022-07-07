@@ -397,13 +397,11 @@ trampoline_to_nbd(int argc, char **argv)
 }
 
 // Somebody killed us, so we need to kill our child processes as well.
-// Thanks to SA_RESTART, the wait() system call will return with EAGAIN.
 static void
 handle_signal(int signal)
 {
     if (config->debug)
         warnx("got signal %d", signal);
-    kill_remaining_children();
 }
 
 static pid_t
