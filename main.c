@@ -66,7 +66,7 @@ static int trampoline_to_nbd(int argc, char **argv);
 static void handle_signal(int signal);
 static pid_t start_child_process(const char *executable, struct string_array *params);
 static void record_child_exited(pid_t pid);
-static void kill_remaining_children(void);
+static void kill_remaining_children(pid_t except);
 static pid_t wait_for_child_to_exit(void);
 #endif
 
@@ -377,13 +377,13 @@ trampoline_to_nbd(int argc, char **argv)
       || add_string(&command_line, "-d") == -1
       || add_string(&command_line, "%s", device_param) == -1)
         err(1, "add_string");
-    start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
+    client_pid = start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
     // Kill all other child processes
-    kill_remaining_children();
+    kill_remaining_children(client_pid);
 
-    // Wait for them to exit
+    // Wait for all processes to exit
     while (1) {
         if (wait_for_child_to_exit() == 0)
             break;
@@ -475,11 +475,13 @@ wait_for_child_to_exit(void)
 }
 
 static void
-kill_remaining_children(void)
+kill_remaining_children(pid_t except)
 {
     int i;
 
     for (i = 0; i < num_child_pids; i++) {
+        if (child_pids[i] == except)
+            continue;
         if (config->debug)
             warnx("killing child %d", (int)child_pids[i]);
         if (kill(child_pids[i], SIGTERM) == -1 && config->debug)
