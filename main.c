@@ -60,23 +60,24 @@ static const int forward_signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM };
 static const int num_forward_signals = sizeof(forward_signals) / sizeof(*forward_signals);
 static pid_t child_pids[MAX_CHILD_PROCESSES];
 static int num_child_pids;
-static int debug_signals;
 
 // Internal functions
 static int trampoline_to_nbd(int argc, char **argv);
 static void handle_signal(int signal);
-static pid_t start_child_process(int debug, const char *executable, struct string_array *params);
-static void record_child_exited(int debug, pid_t pid);
-static void kill_remaining_children(int debug);
-static pid_t wait_for_child_to_exit(int debug);
+static pid_t start_child_process(const char *executable, struct string_array *params);
+static void record_child_exited(pid_t pid);
+static void kill_remaining_children(void);
+static pid_t wait_for_child_to_exit(void);
 #endif
+
+// Global pointer to config
+static struct s3b_config *config;
 
 int
 main(int argc, char **argv)
 {
     const struct fuse_operations *fuse_ops;
     struct s3backer_store *s3b;
-    struct s3b_config *config;
     int nbd = 0;
     int i;
 
@@ -158,7 +159,6 @@ trampoline_to_nbd(int argc, char **argv)
     struct string_array command_line;
     struct string_array nbd_flags;
     struct string_array nbd_params;
-    struct s3b_config *config;
     struct sigaction act;
     struct timespec pause;
     char *bucket_param;
@@ -321,7 +321,7 @@ trampoline_to_nbd(int argc, char **argv)
     free_strings(&nbd_params);
 
     // Fire up nbdkit
-    start_child_process(config->debug, NBDKIT_EXECUTABLE, &command_line);
+    start_child_process(NBDKIT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
     // Wait for socket file to come into existence
@@ -352,11 +352,10 @@ trampoline_to_nbd(int argc, char **argv)
         err(1, "add_string");
 
     // Fire up nbd-client
-    client_pid = start_child_process(config->debug, NBD_CLIENT_EXECUTABLE, &command_line);
+    client_pid = start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
     // Setup so if we get a death signal, we terminate our child processes (via SIGTERM)
-    debug_signals = config->debug;
     memset(&act, 0, sizeof(act));
     act.sa_handler = &handle_signal;
     for (i = 0; i < num_forward_signals; i++) {
@@ -366,8 +365,8 @@ trampoline_to_nbd(int argc, char **argv)
 
     // Wait for the first child process to exit or a signal to be recieved, but ignore exit of nbd-client
     while (1) {
-        if ((exit_pid = wait_for_child_to_exit(config->debug)) == client_pid) {             // nbd-client exited
-            client_pid = (pid_t)-2;                                                         // don't match this pid again
+        if ((exit_pid = wait_for_child_to_exit()) == client_pid) {              // nbd-client exited
+            client_pid = (pid_t)-2;                                             // don't match this pid again
             continue;
         }
         break;
@@ -378,15 +377,15 @@ trampoline_to_nbd(int argc, char **argv)
       || add_string(&command_line, "-d") == -1
       || add_string(&command_line, "%s", device_param) == -1)
         err(1, "add_string");
-    start_child_process(config->debug, NBD_CLIENT_EXECUTABLE, &command_line);
+    start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
     // Kill all other child processes
-    kill_remaining_children(config->debug);
+    kill_remaining_children();
 
     // Wait for them to exit
     while (1) {
-        if (wait_for_child_to_exit(config->debug) == 0)
+        if (wait_for_child_to_exit() == 0)
             break;
     }
 
@@ -402,19 +401,19 @@ trampoline_to_nbd(int argc, char **argv)
 static void
 handle_signal(int signal)
 {
-    if (debug_signals)
+    if (config->debug)
         warnx("got signal %d", signal);
-    kill_remaining_children(debug_signals);
+    kill_remaining_children();
 }
 
 static pid_t
-start_child_process(int debug, const char *executable, struct string_array *params)
+start_child_process(const char *executable, struct string_array *params)
 {
     pid_t pid;
     int i;
 
     // Debug
-    if (debug) {
+    if (config->debug) {
         warnx("executing %s with these parameters:", executable);
         for (i = 0; params->strings[i] != NULL; i++)
             warnx("  [%02d] \"%s\"", i, params->strings[i]);
@@ -427,7 +426,7 @@ start_child_process(int debug, const char *executable, struct string_array *para
     child_pids[num_child_pids++] = pid;
 
     // Debug
-    if (debug)
+    if (config->debug)
         warnx("started %s as process %d", executable, (int)pid);
 
     // Done
@@ -435,13 +434,13 @@ start_child_process(int debug, const char *executable, struct string_array *para
 }
 
 static void
-record_child_exited(int debug, pid_t pid)
+record_child_exited(pid_t pid)
 {
     int i;
 
     for (i = 0; i < num_child_pids; i++) {
         if (child_pids[i] == pid) {
-            if (debug)
+            if (config->debug)
                 warnx("reaped child %d", (int)pid);
             memmove(child_pids + i, child_pids + i + 1, (--num_child_pids - i) * sizeof(*child_pids));
             break;
@@ -449,14 +448,13 @@ record_child_exited(int debug, pid_t pid)
     }
 }
 
-
 // Wait for any child process to exit.
 // Returns:
 // pid  Child process that exited
 //  -1  Got interrupted by signal
 //   0  No more child processes left
 static pid_t
-wait_for_child_to_exit(int debug)
+wait_for_child_to_exit(void)
 {
     int wstatus;
     pid_t pid;
@@ -465,26 +463,26 @@ wait_for_child_to_exit(int debug)
         return 0;
     if ((pid = wait(&wstatus)) == -1) {
         if (errno == EINTR) {           // interrupted by signal
-            if (debug)
+            if (config->debug)
                 warnx("rec'd signal during wait(2)");
             return (pid_t)-1;
         }
         err(1, "waitpid");
     }
     assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
-    record_child_exited(debug, pid);
+    record_child_exited(pid);
     return pid;
 }
 
 static void
-kill_remaining_children(int debug)
+kill_remaining_children(void)
 {
     int i;
 
     for (i = 0; i < num_child_pids; i++) {
-        if (debug)
+        if (config->debug)
             warnx("killing child %d", (int)child_pids[i]);
-        if (kill(child_pids[i], SIGTERM) == -1 && debug)
+        if (kill(child_pids[i], SIGTERM) == -1 && config->debug)
             warn("kill(%d, %d)", (int)child_pids[i], SIGTERM);
     }
 }
