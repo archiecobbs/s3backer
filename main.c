@@ -249,7 +249,6 @@ trampoline_to_nbd(int argc, char **argv)
       || (config->debug && add_string(&command_line, "--verbose") == -1)
       || (config->foreground && add_string(&command_line, "--foreground") == -1)
       || (config->fuse_ops.read_only && add_string(&command_line, "--read-only") == -1)
-//      || (!config->foreground && add_string(&command_line, "--log=syslog") == -1)     // see nbdkit issue #18
       || add_string(&command_line, "--filter=exitlast") == -1                           // exit when nbd-client disconnects
       || add_string(&command_line, "--unix") == -1
       || add_string(&command_line, "%s", unix_socket) == -1)

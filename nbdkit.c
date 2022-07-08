@@ -511,13 +511,15 @@ s3b_nbd_logger(int level, const char *fmt, ...)
     if ((config == NULL || !config->debug) && level == LOG_DEBUG)
         return;
 
-    // Prefix format string
-    if ((fmt2 = prefix_log_format(level, fmt)) == NULL)
+    // Prefix format string with package name
+    if (asprintf(&fmt2, "%s: %s", PACKAGE, fmt) == -1)
         return;
 
-    // Print log message
+    // Send message to syslog
     va_start(args, fmt);
-    nbdkit_vdebug(fmt2, args);
+    vsyslog(level, fmt2, args);
     va_end(args);
+
+    // Done
     free(fmt2);
 }
