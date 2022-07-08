@@ -316,25 +316,21 @@ is also installed as an
 .Xr nbdkit 1
 plugin.
 .Pp
+When using the NBD plugin, command line flags like
+.Fl \-blockSize=SIZE
+should instead be specified as plugin parameters like
+.Ar blockSize=SIZE ;
+for boolean flags, specify a value of
+.Ar true .
+The bucket name (with optional subdirectory) must also be specified with the
+.Ar bucket
+parameter.
+.Pp
 The
 .Fl \-nbd
 flag causes
 .Nm
-to start up instances of
-.Xr nbdkit 1
-and
-.Xr nbd-client 1 ,
-thereby attaching the S3 volume to the specified device.
-.Pp
-To use the plugin directly, command line flags like
-.Fl \-blockSize=SIZE
-should instead as specified parameters like
-.Ar blockSize=SIZE ;
-boolean flags should be specified with the value
-.Ar true .
-The bucket name (with optional subdirectory) must be specified with the
-.Ar bucket
-parameter.
+to function as a wrapper process for managing an NBD session; see below.
 .Ss Logging
 In normal operation
 .Nm
@@ -871,25 +867,28 @@ milliseconds between stopping and restarting
 Create a Network Block Device (NBD) instead of a FUSE filesystem.
 This is probably a more logical and direct way to do things on systems that support NBD.
 .Pp
-This flag causes
 .Nm
-to start
+will start up appropriate instances of
 .Xr nbdkit 1
 and
 .Xr nbd-client 1
-commands that serve data on the specified NBD device.
-Only
+in order to attach the S3 volume to the specified device.
+.Pp
+When invoked in this mode, only
 .Fl \-doubleDash
 style flags are supported, with the exception of
 .Fl f
 and
 .Fl d ;
-any other flags (including any FUSE-specific flags) are disallowed.
-The
+any other flags (including any FUSE-specific flags) are disallowed, and the
 .Fl \-nbd
 flag may not appear in a
 .Fl \-configFile
 file.
+.Pp
+To detach the S3 volume, just kill the
+.Nm
+process and it will automatically disconnect the NBD client and shut down the NBD server.
 .It Fl \-nbd-flag=string
 .It Fl \-nbd-param=string
 Add

@@ -67,7 +67,7 @@ static void handle_signal(int signal);
 static pid_t start_child_process(const char *executable, struct string_array *params);
 static void record_child_exited(pid_t pid);
 static void kill_remaining_children(pid_t except);
-static pid_t wait_for_child_to_exit(void);
+static pid_t wait_for_child_to_exit(int sleep_if_none);
 #endif
 
 // Global pointer to config
@@ -161,11 +161,12 @@ trampoline_to_nbd(int argc, char **argv)
     struct string_array nbd_params;
     struct sigaction act;
     struct timespec pause;
-    char *bucket_param;
-    char *device_param;
+    const char *bucket_param;
+    const char *device_param;
     char *unix_socket;
     long elapsed_millis;
     int file_created;
+    pid_t server_pid;
     pid_t client_pid;
     pid_t exit_pid;
     struct stat sb;
@@ -248,6 +249,8 @@ trampoline_to_nbd(int argc, char **argv)
       || (config->debug && add_string(&command_line, "--verbose") == -1)
       || (config->foreground && add_string(&command_line, "--foreground") == -1)
       || (config->fuse_ops.read_only && add_string(&command_line, "--read-only") == -1)
+//      || (!config->foreground && add_string(&command_line, "--log=syslog") == -1)     // see nbdkit issue #18
+      || add_string(&command_line, "--filter=exitlast") == -1                           // exit when nbd-client disconnects
       || add_string(&command_line, "--unix") == -1
       || add_string(&command_line, "%s", unix_socket) == -1)
         err(1, "add_string");
@@ -321,8 +324,25 @@ trampoline_to_nbd(int argc, char **argv)
     free_strings(&nbd_params);
 
     // Fire up nbdkit
-    start_child_process(NBDKIT_EXECUTABLE, &command_line);
+    server_pid = start_child_process(NBDKIT_EXECUTABLE, &command_line);
     free_strings(&command_line);
+
+    // If we're not running in the foreground, nbdkit is going to fork off so go ahead and wait for it to exit
+    if (!config->foreground) {
+        if ((exit_pid = wait_for_child_to_exit(0)) != server_pid) {
+            if (exit_pid == (pid_t)-1)
+                err(1, "got signal during setup");
+            err(1, "wait() returned %d", (int)exit_pid);
+        }
+    }
+
+    // If we're not running in the foreground, spit out a message and daemonize
+    if (!config->foreground) {
+        warnx("connecting %s to %s", bucket_param, device_param);
+        if (daemon(0, 0) == -1)
+            err(1, "daemon");
+        config->log = syslog_logger;
+    }
 
     // Wait for socket file to come into existence
     file_created = 0;
@@ -332,13 +352,13 @@ trampoline_to_nbd(int argc, char **argv)
             break;
         }
         if (errno != ENOENT)
-            err(1, "%s", unix_socket);
+            daemon_err(config, 1, "%s", unix_socket);
         pause.tv_sec = 0;
         pause.tv_nsec = NBDKIT_STARTUP_WAIT_PAUSE * (long)1000000;
         (void)nanosleep(&pause, NULL);
     }
     if (!file_created)
-        errx(1, "%s failed to start within %lums", NBDKIT_EXECUTABLE, MAX_NBDKIT_STARTUP_WAIT_MILLIS);
+        daemon_errx(config, 1, "%s failed to start within %lums", NBDKIT_EXECUTABLE, MAX_NBDKIT_STARTUP_WAIT_MILLIS);
 
     // Build nbd-client command line
     if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
@@ -346,10 +366,10 @@ trampoline_to_nbd(int argc, char **argv)
       || add_string(&command_line, "%s", unix_socket) == -1
       || add_string(&command_line, "-block-size") == -1
       || add_string(&command_line, "%u", NBD_CLIENT_BLOCK_SIZE) == -1
+      || add_string(&command_line, "-nofork") == -1
       || (config->fuse_ops.read_only && add_string(&command_line, "-readonly") == -1)
-      || (config->foreground && add_string(&command_line, "-nofork") == -1)
       || add_string(&command_line, "%s", device_param) == -1)
-        err(1, "add_string");
+        daemon_err(config, 1, "add_string");
 
     // Fire up nbd-client
     client_pid = start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
@@ -360,13 +380,13 @@ trampoline_to_nbd(int argc, char **argv)
     act.sa_handler = &handle_signal;
     for (i = 0; i < num_forward_signals; i++) {
         if (sigaction(forward_signals[i], &act, NULL) == -1)
-            err(1, "sigaction");
+            daemon_err(config, 1, "sigaction");
     }
 
     // Wait for the first child process to exit or a signal to be recieved, but ignore exit of nbd-client
     while (1) {
-        if ((exit_pid = wait_for_child_to_exit()) == client_pid) {              // nbd-client exited
-            client_pid = (pid_t)-2;                                             // don't match this pid again
+        if ((exit_pid = wait_for_child_to_exit(!config->foreground)) == client_pid) {       // nbd-client exited
+            client_pid = (pid_t)-2;                                                         // don't match this pid again
             continue;
         }
         break;
@@ -376,7 +396,7 @@ trampoline_to_nbd(int argc, char **argv)
     if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
       || add_string(&command_line, "-d") == -1
       || add_string(&command_line, "%s", device_param) == -1)
-        err(1, "add_string");
+        daemon_err(config, 1, "add_string");
     client_pid = start_child_process(NBD_CLIENT_EXECUTABLE, &command_line);
     free_strings(&command_line);
 
@@ -385,7 +405,7 @@ trampoline_to_nbd(int argc, char **argv)
 
     // Wait for all processes to exit
     while (1) {
-        if (wait_for_child_to_exit() == 0)
+        if (wait_for_child_to_exit(0) == 0)
             break;
     }
 
@@ -401,7 +421,7 @@ static void
 handle_signal(int signal)
 {
     if (config->debug)
-        warnx("got signal %d", signal);
+        daemon_warnx(config, "got signal %d", signal);
 }
 
 static pid_t
@@ -412,20 +432,20 @@ start_child_process(const char *executable, struct string_array *params)
 
     // Debug
     if (config->debug) {
-        warnx("executing %s with these parameters:", executable);
+        daemon_warnx(config, "executing %s with these parameters:", executable);
         for (i = 0; params->strings[i] != NULL; i++)
-            warnx("  [%02d] \"%s\"", i, params->strings[i]);
+            daemon_warnx(config, "  [%02d] \"%s\"", i, params->strings[i]);
     }
 
     // Fork & exec
     assert(num_child_pids < MAX_CHILD_PROCESSES);
     if ((pid = fork_off(executable, params->strings)) == -1)
-        err(1, "%s", executable);
+        daemon_err(config, 1, "%s", executable);
     child_pids[num_child_pids++] = pid;
 
     // Debug
     if (config->debug)
-        warnx("started %s as process %d", executable, (int)pid);
+        daemon_warnx(config, "started %s as process %d", executable, (int)pid);
 
     // Done
     return pid;
@@ -439,7 +459,7 @@ record_child_exited(pid_t pid)
     for (i = 0; i < num_child_pids; i++) {
         if (child_pids[i] == pid) {
             if (config->debug)
-                warnx("reaped child %d", (int)pid);
+                daemon_warnx(config, "reaped child %d", (int)pid);
             memmove(child_pids + i, child_pids + i + 1, (--num_child_pids - i) * sizeof(*child_pids));
             break;
         }
@@ -452,23 +472,39 @@ record_child_exited(pid_t pid)
 //  -1  Got interrupted by signal
 //   0  No more child processes left
 static pid_t
-wait_for_child_to_exit(void)
+wait_for_child_to_exit(int sleep_if_none)
 {
     int wstatus;
     pid_t pid;
 
-    if (num_child_pids == 0)
-        return 0;
+    // What to do if there are no children left?
+    if (num_child_pids == 0) {
+        if (!sleep_if_none)
+            return 0;
+        while (1) {
+            if (usleep(1) == -1) {      // interrupted by signal
+                if (config->debug)
+                    daemon_warnx(config, "rec'd signal during sleep");
+                return (pid_t)-1;
+            }
+        }
+    }
+
+    // Wait for some child to exit or a signal
     if ((pid = wait(&wstatus)) == -1) {
         if (errno == EINTR) {           // interrupted by signal
             if (config->debug)
-                warnx("rec'd signal during wait(2)");
+                daemon_warnx(config, "rec'd signal during wait");
             return (pid_t)-1;
         }
-        err(1, "waitpid");
+        daemon_err(config, 1, "waitpid");
     }
     assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+
+    // Remove this child from the list
     record_child_exited(pid);
+
+    // Done
     return pid;
 }
 
@@ -481,9 +517,9 @@ kill_remaining_children(pid_t except)
         if (child_pids[i] == except)
             continue;
         if (config->debug)
-            warnx("killing child %d", (int)child_pids[i]);
+            daemon_warnx(config, "killing child %d", (int)child_pids[i]);
         if (kill(child_pids[i], SIGTERM) == -1 && config->debug)
-            warn("kill(%d, %d)", (int)child_pids[i], SIGTERM);
+            daemon_warn(config, "kill(%d, %d)", (int)child_pids[i], SIGTERM);
     }
 }
 #endif
