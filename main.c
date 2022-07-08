@@ -131,7 +131,7 @@ main(int argc, char **argv)
 
     // Start logging to syslog now
     if (!config->foreground)
-        config->log = syslog_logger;
+        set_config_log(config, syslog_logger);
 
     // Setup FUSE operation hooks
     if ((fuse_ops = fuse_ops_create(&config->fuse_ops, s3b)) == NULL) {
@@ -341,7 +341,7 @@ trampoline_to_nbd(int argc, char **argv)
         warnx("connecting %s to %s", bucket_param, device_param);
         if (daemon(0, 0) == -1)
             err(1, "daemon");
-        config->log = syslog_logger;
+        set_config_log(config, syslog_logger);
     }
 
     // Wait for socket file to come into existence

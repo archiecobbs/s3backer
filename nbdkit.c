@@ -297,7 +297,7 @@ s3b_nbd_plugin_after_fork(void)
 {
     // If we have forked, start logging to syslog instead of stderr
     if (getpid() != pre_fork_pid)
-        config->log = s3b_nbd_logger;
+        set_config_log(config, s3b_nbd_logger);
 
     // Startup threads etc.
     fuse_priv = (*fuse_ops->init)(NULL);

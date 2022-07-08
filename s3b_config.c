@@ -1781,8 +1781,8 @@ validate_config(int parse_only)
 #endif  // __APPLE__
 
     // Copy common stuff into sub-module configs
+    set_config_log(&config, config.log);
     config.block_cache.block_size = config.block_size;
-    config.block_cache.log = config.log;
     config.http_io.prefix = config.prefix;
     config.http_io.bucket = config.bucket;
     config.http_io.blockHashPrefix = config.blockHashPrefix;
@@ -1790,18 +1790,13 @@ validate_config(int parse_only)
     config.http_io.quiet = config.quiet;
     config.http_io.block_size = config.block_size;
     config.http_io.num_blocks = config.num_blocks;
-    config.http_io.log = config.log;
     config.zero_cache.block_size = config.block_size;
     config.zero_cache.num_blocks = config.num_blocks;
     config.zero_cache.list_blocks = config.list_blocks;
-    config.zero_cache.log = config.log;
     config.ec_protect.block_size = config.block_size;
-    config.ec_protect.log = config.log;
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
-    config.fuse_ops.log = config.log;
     config.test_io.debug = config.debug;
-    config.test_io.log = config.log;
     config.test_io.block_size = config.block_size;
     config.test_io.num_blocks = config.num_blocks;
     config.test_io.prefix = config.prefix;

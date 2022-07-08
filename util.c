@@ -628,3 +628,15 @@ free_strings(struct string_array *array)
     free(array->strings);
     memset(array, 0, sizeof(*array));
 }
+
+void
+set_config_log(struct s3b_config *config, log_func_t *log)
+{
+    config->log = log;
+    config->block_cache.log = log;
+    config->http_io.log = log;
+    config->zero_cache.log = log;
+    config->ec_protect.log = log;
+    config->fuse_ops.log = log;
+    config->test_io.log = log;
+}
