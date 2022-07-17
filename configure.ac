@@ -86,19 +86,29 @@ AC_SUBST([NBDKIT_FOUND])
 AM_CONDITIONAL([NBDKIT_FOUND], [test "x$NBDKIT_FOUND" = xtrue])
 
 # If NBDKit was found, find the plugin directory and executable
-AC_SUBST([S3B_NBD_DIR], ["/var/run/s3backer-nbd"])
 AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
+
+    # Find nbdkit plugins directory
     AC_MSG_CHECKING([NBDKit plugins directory])
     PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
     AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
         [AC_MSG_FAILURE([Unable to identify the NBDKit plugin directory.])],
         [AC_MSG_RESULT([$NBDKIT_PLUGINDIR])])
+
+    # Find nbdkit(1)
     AC_PATH_PROGS([NBDKIT_EXECUTABLE], [nbdkit])
-    AC_PATH_PROGS([NBD_CLIENT_EXECUTABLE], [nbd-client])
+    AS_IF([test "x$NBDKIT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbdkit not found])])
     AC_DEFINE_UNQUOTED([NBDKIT_EXECUTABLE], ["$NBDKIT_EXECUTABLE"], [path to nbdkit(1) executable])
-    AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(1) executable])
-    AC_DEFINE_UNQUOTED([S3B_NBD_DIR], ["$S3B_NBD_DIR"], [nbdkit UNIX socket file directory])
+
+    # Find nbd-client(8)
+    AC_PATH_PROGS([NBD_CLIENT_EXECUTABLE], [nbd-client])
+    AS_IF([test "x$NBD_CLIENT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbd-client not found])])
+    AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(8) executable])
 ])
+
+# Define our directory for nbdkit(1) UNIX socket files
+AC_SUBST([S3B_NBD_DIR], ["/var/run/s3backer-nbd"])
+AC_DEFINE_UNQUOTED([S3B_NBD_DIR], ["$S3B_NBD_DIR"], [nbdkit UNIX socket file directory])
 
 # Check for required libraries
 AC_CHECK_LIB(curl, curl_version,,
