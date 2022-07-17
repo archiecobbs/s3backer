@@ -337,11 +337,13 @@ trampoline_to_nbd(int argc, char **argv)
 
     // If we're not running in the foreground, spit out a message and daemonize
     if (!config->foreground) {
-        warnx("connecting %s to %s", bucket_param, device_param);
+        warnx("connecting %s to %s and daemonizing", bucket_param, device_param);
         if (daemon(0, 0) == -1)
             err(1, "daemon");
         set_config_log(config, syslog_logger);
         daemonized = 1;
+        if (config->debug)
+            daemon_debug(config, "successfully daemonized as process %d", (int)getpid());
     }
 
     // Wait for socket file to come into existence
@@ -392,6 +394,9 @@ trampoline_to_nbd(int argc, char **argv)
         break;
     }
 
+    // Logging
+    daemon_debug(config, "shutting down %s NDB server", PACKAGE);
+
     // Run "nbd-client -d" to help clean up
     if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
       || add_string(&command_line, "-d") == -1
@@ -421,7 +426,7 @@ static void
 handle_signal(int signal)
 {
     if (config->debug)
-        daemon_warnx(config, "got signal %d", signal);
+        daemon_debug(config, "got signal %d", signal);
 }
 
 static pid_t

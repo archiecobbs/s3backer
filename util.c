@@ -432,6 +432,22 @@ snvprintf(char *buf, int size, const char *format, ...)
 }
 
 void
+daemon_debug(const struct s3b_config *config, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (!daemonized)
+        vwarnx(fmt, ap);
+    else {
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        (*config->log)(LOG_DEBUG, "%s: %s", PACKAGE, buf);
+    }
+    va_end(ap);
+}
+
+void
 daemon_warn(const struct s3b_config *config, const char *fmt, ...)
 {
     const int errval = errno;
@@ -459,7 +475,7 @@ daemon_warnx(const struct s3b_config *config, const char *fmt, ...)
         vwarnx(fmt, ap);
     else {
         vsnprintf(buf, sizeof(buf), fmt, ap);
-        (*config->log)(LOG_INFO, "%s: %s", PACKAGE, buf);
+        (*config->log)(LOG_WARNING, "%s: %s", PACKAGE, buf);
     }
     va_end(ap);
 }

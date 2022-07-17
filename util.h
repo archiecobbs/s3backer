@@ -99,6 +99,8 @@ extern int init_zero_block(u_int block_size);
 extern void set_config_log(struct s3b_config *config, log_func_t *log);
 
 // Versions of <err.h> that work properly even when daemonized
+extern void daemon_debug(const struct s3b_config *config, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void daemon_warn(const struct s3b_config *config, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void daemon_warnx(const struct s3b_config *config, const char *fmt, ...)
