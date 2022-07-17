@@ -44,6 +44,9 @@
 #include "s3b_config.h"
 #include "util.h"
 
+// Definitions
+#define MAX_CHILD_PROCESSES     10
+
 // Size suffixes
 struct size_suffix {
     const char  *suffix;
@@ -94,6 +97,13 @@ static size_t zero_block_size;
 
 // stderr logging mutex
 static pthread_mutex_t stderr_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Internal state
+static struct child_proc child_procs[MAX_CHILD_PROCESSES];
+static int num_child_procs;
+
+// Internal functions
+static pid_t fork_off(const char *executable, char **argv);
 
 /****************************************************************************
  *                      PUBLIC FUNCTION DEFINITIONS                         *
@@ -566,6 +576,132 @@ calculate_boundary_info(struct boundary_info *info, u_int block_size, const void
 }
 
 pid_t
+start_child_process(const struct s3b_config *config, const char *executable, struct string_array *params)
+{
+    struct child_proc *proc;
+    pid_t pid;
+    int i;
+
+    // Debug
+    if (config->debug) {
+        daemon_debug(config, "executing %s with these parameters:", executable);
+        for (i = 0; params->strings[i] != NULL; i++)
+            daemon_debug(config, "  [%02d] \"%s\"", i, params->strings[i]);
+    }
+
+    // Sanity check
+    if (num_child_procs >= MAX_CHILD_PROCESSES)
+        daemon_errx(config, 1, "%s: %s", executable, "child process table is full");
+
+    // Fork & exec
+    if ((pid = fork_off(executable, params->strings)) == -1)
+        daemon_err(config, 1, "%s", executable);
+
+    // Add to list
+    proc = &child_procs[num_child_procs++];
+    memset(proc, 0, sizeof(*proc));
+    proc->name = executable;
+    proc->pid = pid;
+
+    // Debug
+    if (config->debug)
+        daemon_debug(config, "started %s as process %d", proc->name, (int)proc->pid);
+
+    // Done
+    return pid;
+}
+
+// Wait for any child process to exit.
+// Returns:
+//  -1  Got interrupted by signal
+//   0  No more child processes left
+//  >0  Child process ID (also populates *child)
+pid_t
+wait_for_child_to_exit(const struct s3b_config *config, struct child_proc *child, int sleep_if_none, int expect_signal)
+{
+    struct child_proc *proc = NULL;
+    int child_index;
+    int wstatus;
+    pid_t pid;
+
+    // What to do if there are no children left?
+    if (num_child_procs == 0) {
+        if (!sleep_if_none)
+            return (pid_t)0;
+        while (1) {
+            if (usleep(999999) == -1) {         // interrupted by signal
+                if (config->debug)
+                    daemon_debug(config, "rec'd signal during sleep");
+                return (pid_t)-1;
+            }
+        }
+    }
+
+    // Wait for some child to exit or a signal
+    if ((pid = wait(&wstatus)) == -1) {
+        if (errno == EINTR) {           // interrupted by signal
+            if (config->debug)
+                daemon_debug(config, "rec'd signal during wait");
+            return (pid_t)-1;
+        }
+        daemon_err(config, 1, "waitpid");
+    }
+
+    // Find the child that we just reaped
+    for (child_index = 0; child_index < num_child_procs; child_index++) {
+        if (pid == child_procs[child_index].pid) {
+            proc = &child_procs[child_index];
+            proc->wstatus = wstatus;
+            break;
+        }
+    }
+    if (proc == NULL)
+        daemon_err(config, 1, "reaped unknown child process %d", (int)pid);     // this should never happen
+
+    // Log what happened
+    if (WIFEXITED(wstatus)) {
+        if (WEXITSTATUS(wstatus) != 0) {
+            daemon_warnx(config, "child process %s (%d) terminated with exit value %d",
+              proc->name, (int)proc->pid, (int)WEXITSTATUS(wstatus));
+        } else if (config->debug)
+            daemon_debug(config, "child process %s (%d) terminated normally", proc->name, (int)proc->pid);
+    } else if (WIFSIGNALED(wstatus)) {
+        if (WTERMSIG(wstatus) != expect_signal)
+            daemon_warnx(config, "child process %s (%d) terminated on signal %d", proc->name, (int)pid, (int)WTERMSIG(wstatus));
+        else if (config->debug)
+            daemon_debug(config, "child process %s (%d) terminated on signal %d", proc->name, (int)pid, (int)WTERMSIG(wstatus));
+    } else
+        daemon_warnx(config, "weird status from wait(2): %d", wstatus);
+
+    // Populate return info
+    if (child != NULL)
+        memcpy(child, proc, sizeof(*proc));
+
+    // Remove this child from the list
+    memcpy(child_procs + child_index, child_procs + child_index + 1, (--num_child_procs - child_index) * sizeof(*child_procs));
+
+    // Done
+    return pid;
+}
+
+void
+kill_remaining_children(const struct s3b_config *config, pid_t except, int signal)
+{
+    int child_index;
+
+    for (child_index = 0; child_index < num_child_procs; child_index++) {
+        struct child_proc *const proc = &child_procs[child_index];
+
+        if (proc->pid == except)
+            continue;
+        if (config->debug)
+            daemon_debug(config, "killing child %s (%d)", proc->name, (int)proc->pid);
+        if (kill(proc->pid, signal) == -1 && config->debug)
+            daemon_warn(config, "kill(%s (%d), %d)", proc->name, (int)proc->pid, signal);
+    }
+}
+
+static pid_t
 fork_off(const char *executable, char **argv)
 {
     pid_t child;

@@ -75,6 +75,13 @@ struct string_array {
     size_t          num_strings;
 };
 
+// A child process
+struct child_proc {
+    const char  *name;
+    pid_t       pid;
+    int         wstatus;
+};
+
 // Globals
 extern int log_enable_debug;
 extern int daemonized;
@@ -91,7 +98,6 @@ extern int block_is_zeros(const void *data);
 extern int snvprintf(char *buf, int bufsize, const char *format, ...) __attribute__ ((__format__ (__printf__, 3, 4)));
 extern char *prefix_log_format(int level, const char *fmt);
 extern void calculate_boundary_info(struct boundary_info *info, u_int block_size, const void *buf, size_t size, off_t offset);
-extern pid_t fork_off(const char *executable, char **argv);
 extern int fsync_path(const char *path, int must_exist);
 extern int add_string(struct string_array *array, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void free_strings(struct string_array *array);
@@ -109,6 +115,11 @@ extern void daemon_err(const struct s3b_config *config, int value, const char *f
     __attribute__ ((__noreturn__, __format__ (__printf__, 3, 4)));
 extern void daemon_errx(const struct s3b_config *config, int value, const char *fmt, ...)
     __attribute__ ((__noreturn__, __format__ (__printf__, 3, 4)));
+
+// Forking and child process management
+extern pid_t start_child_process(const struct s3b_config *config, const char *executable, struct string_array *params);
+extern void kill_remaining_children(const struct s3b_config *config, pid_t except, int signal);
+extern pid_t wait_for_child_to_exit(const struct s3b_config *config, struct child_proc *proc, int sleep_if_none, int expect_signal);
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
