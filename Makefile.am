@@ -105,7 +105,7 @@ docdir=			$(datadir)/doc/packages/$(PACKAGE)
 
 doc_DATA=		CHANGES COPYING README INSTALL TODO
 
-EXTRA_DIST=		CHANGES s3backer.1 s3backer.spec
+EXTRA_DIST=		CHANGES s3backer.1
 
 s3backer_SOURCES=	main.c \
 			block_cache.c \
