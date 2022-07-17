@@ -1,4 +1,4 @@
-Version Next
+Version 2.0.2 released July 17, 2022
 
     - Fixed bugs with the --nbd flag when not also using -f flag (issue #188)
     - Fixed free() of invalid pointer bug in zero_cache.c (issue #191)
