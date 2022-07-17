@@ -12,7 +12,7 @@ Tag release and release tarball
     edit configure.ac and update with VERSION
     git commit
     git tag -a -m 'Tagging release VERSION' VERSION
-    sh autogen.sh && ./configure && make distcheck
+    sh rebuild.sh && ./configure && make distcheck
     upload tarball to Amazon S3
 
 s3backer project
@@ -21,6 +21,5 @@ s3backer project
     send email to s3backer-devel google group
 
 OBS
-    update s3backer.spec
     update OBS project
 
