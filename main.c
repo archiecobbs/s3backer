@@ -498,7 +498,16 @@ wait_for_child_to_exit(int sleep_if_none)
         }
         daemon_err(config, 1, "waitpid");
     }
-    assert(WIFEXITED(wstatus) || WIFSIGNALED(wstatus));
+
+    // Log anything unexpected
+    if (WIFEXITED(wstatus)) {
+        if (WEXITSTATUS(wstatus) != 0)
+            daemon_warnx(config, "child process %d terminated with exit value %d", (int)pid, (int)WEXITSTATUS(wstatus));
+    } else if (WIFSIGNALED(wstatus)) {
+        if (WTERMSIG(wstatus) != SIGTERM)               // it was not from us
+            daemon_warnx(config, "child process %d terminated on signal %d", (int)pid, (int)WTERMSIG(wstatus));
+    } else
+        daemon_warnx(config, "weird status from wait(2): %d", wstatus);
 
     // Remove this child from the list
     record_child_exited(pid);
