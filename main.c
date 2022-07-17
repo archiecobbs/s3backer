@@ -487,7 +487,7 @@ wait_for_child_to_exit(int sleep_if_none)
         if (!sleep_if_none)
             return 0;
         while (1) {
-            if (usleep(1) == -1) {      // interrupted by signal
+            if (usleep(999999) == -1) {         // interrupted by signal
                 if (config->debug)
                     daemon_warnx(config, "rec'd signal during sleep");
                 return (pid_t)-1;
