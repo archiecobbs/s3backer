@@ -1,6 +1,7 @@
 Version Next
 
-    - Fixed bugs with the --nbd flag when not also using -f flag (issue #188).
+    - Fixed bugs with the --nbd flag when not also using -f flag (issue #188)
+    - Fixed free() of invalid pointer bug in zero_cache.c (issue #191)
     - Added support for zstd compression (pr #187)
 
 Version 2.0.1 released June 4, 2022

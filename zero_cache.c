@@ -498,6 +498,7 @@ zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_
     struct zero_cache_conf *const config = priv->config;
     s3b_block_t *edited_block_nums;
     u_int edited_num_blocks = 0;
+    int i;
     int r;
 
     // Create array we can modify
@@ -531,8 +532,8 @@ zero_cache_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_
 
     // Update cache to mark all those blocks zero now
     pthread_mutex_lock(&priv->mutex);
-    while (edited_num_blocks-- > 0)
-        zero_cache_update_block(priv, *edited_block_nums++, 1);
+    for (i = 0; i < edited_num_blocks; i++)
+        zero_cache_update_block(priv, edited_block_nums[i], 1);
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
 fail:
