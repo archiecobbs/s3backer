@@ -77,6 +77,7 @@ struct string_array {
 
 // Globals
 extern int log_enable_debug;
+extern int daemonized;
 extern const void *zero_block;
 
 // Misc
@@ -97,7 +98,7 @@ extern void free_strings(struct string_array *array);
 extern int init_zero_block(u_int block_size);
 extern void set_config_log(struct s3b_config *config, log_func_t *log);
 
-// daemonized versions of <err.h>
+// Versions of <err.h> that work properly even when daemonized
 extern void daemon_warn(const struct s3b_config *config, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void daemon_warnx(const struct s3b_config *config, const char *fmt, ...)

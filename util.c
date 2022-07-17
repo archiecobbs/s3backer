@@ -84,8 +84,9 @@ static const struct size_suffix size_suffixes[] = {
     },
 };
 
-// Debug logging flag
+// Logging flags
 int log_enable_debug;
+int daemonized;
 
 // A block's worth of data containing only zero bytes
 const void *zero_block;
@@ -438,7 +439,7 @@ daemon_warn(const struct s3b_config *config, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    if (config->foreground)
+    if (!daemonized)
         vwarn(fmt, ap);
     else {
         vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -454,7 +455,7 @@ daemon_warnx(const struct s3b_config *config, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    if (config->foreground)
+    if (!daemonized)
         vwarnx(fmt, ap);
     else {
         vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -471,7 +472,7 @@ daemon_err(const struct s3b_config *config, int exval, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    if (config->foreground)
+    if (!daemonized)
         verr(exval, fmt, ap);
     else {
         vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -488,7 +489,7 @@ daemon_errx(const struct s3b_config *config, int exval, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    if (config->foreground)
+    if (!daemonized)
         verrx(exval, fmt, ap);
     else {
         vsnprintf(buf, sizeof(buf), fmt, ap);

@@ -341,6 +341,7 @@ trampoline_to_nbd(int argc, char **argv)
         if (daemon(0, 0) == -1)
             err(1, "daemon");
         set_config_log(config, syslog_logger);
+        daemonized = 1;
     }
 
     // Wait for socket file to come into existence
