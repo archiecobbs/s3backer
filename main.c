@@ -101,7 +101,7 @@ main(int argc, char **argv)
         }
         return i;
 #else
-        errx(1, "invalid flag \"--nbd\": NBDKit not installed");
+        errx(1, "invalid flag \"--nbd\": %s was not built with NBD support", PACKAGE);
 #endif
     }
 
