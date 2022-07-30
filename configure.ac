@@ -106,8 +106,10 @@ AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
     AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(8) executable])
 ])
 
-# Define our directory for nbdkit(1) UNIX socket files
-AC_SUBST([S3B_NBD_DIR], ["/var/run/s3backer-nbd"])
+# Define our directory for nbdkit(1) UNIX socket files, defaulting to /run/s3backer-nbd
+AC_ARG_VAR([S3B_NBD_DIR], [directory containing UNIX socket files used by nbd-client])
+AS_IF([test "x$S3B_NBD_DIR" = x], [S3B_NBD_DIR="/run/s3backer-nbd"])
+#AC_SUBST([S3B_NBD_DIR])
 AC_DEFINE_UNQUOTED([S3B_NBD_DIR], ["$S3B_NBD_DIR"], [nbdkit UNIX socket file directory])
 
 # Check for required libraries
