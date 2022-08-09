@@ -327,11 +327,22 @@ should instead be specified as plugin parameters like
 .Ar blockSize=SIZE ;
 for boolean flags, specify a value of
 .Ar true .
-The bucket name (with optional subdirectory) must also be specified with the
+The bucket name (with optional subdirectory) must be specified with the
 .Ar bucket
 parameter.
 .Pp
-The
+To avoid conflicts with other
+.Xr nbdkit 1
+flags, any
+.Nm
+flag can be specified with a
+.Ar s3b_
+prefix, for example
+.Ar s3b_force=true .
+.Pp
+As an alternative to launching
+.Xr nbdkit 1
+directly, the
 .Fl \-nbd
 flag causes
 .Nm
@@ -885,7 +896,8 @@ style flags are supported, with the exception of
 .Fl f
 and
 .Fl d ;
-any other flags (including any FUSE-specific flags) are disallowed, and the
+any other flags (including any FUSE-specific flags) are disallowed.
+The
 .Fl \-nbd
 flag may not appear in a
 .Fl \-configFile
