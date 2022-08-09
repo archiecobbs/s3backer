@@ -198,6 +198,11 @@ Because the kernel typically writes blocks through FUSE filesystems one at a tim
 .Nm
 to take advantage of the parallelism inherent in the network, vastly improving write performance.
 .Pp
+When the cache is full, least recently accessed blocks are evicted first
+(but see also the
+.Fl \-blockCacheNumProtected
+flag).
+.Pp
 The block cache can be configured to store the cached data in a local file instead of in memory.
 This permits larger cache sizes and allows
 .Nm
