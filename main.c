@@ -295,6 +295,8 @@ trampoline_to_nbd(int argc, char **argv)
                 return 2;
             }
             break;
+        case 3:                         // flag works either with or without a value
+            break;
         default:
             warnx("invalid flag \"--%s\"", param);
             return 2;
