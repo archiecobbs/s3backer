@@ -179,8 +179,8 @@ s3b_nbd_plugin_config(const char *key, const char *value)
 
     // Convert "name=value" plugin parameter into "--foo=bar" s3backer command line flag or "--foo=true" into "--foo" if boolean
     flagtype = is_valid_s3b_flag(key);
-    if (flagtype == 3 && (strcasecmp(value, "true") == 0 || strcasecmp(value, "false") == 0))
-        flagtype = 1;
+    if (flagtype == 3)
+        flagtype = strcasecmp(value, "true") == 0 || strcasecmp(value, "false") == 0 ? 1 : 2;
     switch (flagtype) {
     case 1:                                                     // boolean flag
         if (strcasecmp(value, "true") == 0) {
