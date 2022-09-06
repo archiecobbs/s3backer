@@ -90,6 +90,10 @@
 #include <zlib.h>
 #include <fuse.h>
 
+#ifdef __APPLE__
+extern char **environ;
+#endif
+
 #ifndef FUSE_OPT_KEY_DISCARD
 #define FUSE_OPT_KEY_DISCARD -4
 #endif
