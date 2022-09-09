@@ -504,6 +504,18 @@ fuse_op_truncate(const char *path, off_t size)
 static int
 fuse_op_flush(const char *path, struct fuse_file_info *fi)
 {
+    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
+    int r;
+
+    // Ignore if stats file
+    if (fi->fh != 0)
+        return 0;
+
+    // Flush ALL dirty blocks
+    if ((r = (*priv->s3b->flush_blocks)(priv->s3b, NULL, 0, 0)) != 0)
+        return -r;
+
+    // Done
     return 0;
 }
 

@@ -261,10 +261,12 @@ struct s3backer_store {
     /*
      * Flush any outstanding changes for the specific blocks to persistent storge.
      *
-     * This function will block until all of the specified blocks are persisted.
+     * This function will block until (at least) all of the specified blocks are persisted.
      *
      * If "timeout" is greater than zero, impose a maximum time in milliseconds to wait for the flush to succeed;
      * if it takes any longer, return ETIMEDOUT.
+     *
+     * If "block_nums" is zero, then "num_blocks" is ignored and this means all "dirty" blocks should be flushed.
      *
      * If any attempts are made by other threads to write to any of the specified blocks while this function is waiting
      * (this includes the scenario in which a write is in progress in another thread when this function is invoked), then

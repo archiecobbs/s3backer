@@ -81,6 +81,7 @@ static int64_t s3b_nbd_plugin_get_size(void *handle);
 static int s3b_nbd_plugin_pread(void *handle, void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
 static int s3b_nbd_plugin_pwrite(void *handle, const void *bufp, uint32_t size, uint64_t offset, uint32_t flags);
 static int s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags);
+static int s3b_nbd_plugin_flush(void *handle, uint32_t flags);
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_fua(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
@@ -132,6 +133,7 @@ static struct nbdkit_plugin plugin = {
     .pread=                 s3b_nbd_plugin_pread,
     .pwrite=                s3b_nbd_plugin_pwrite,
     .trim=                  s3b_nbd_plugin_trim,
+    .flush=                 s3b_nbd_plugin_flush,
     .cache=                 NULL,
     .extents=               NULL,
     .zero=                  s3b_nbd_plugin_trim,    // for us, "trim" and "zero" are the same thing
@@ -443,6 +445,26 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
     // Flush those blocks if required
     if ((flags & NBDKIT_FLAG_FUA) != 0 && (r = s3b_nbd_flush_blocks(&info)) != 0)
         goto fail;
+
+    // Done
+    return 0;
+
+fail:
+    // Fail
+    nbdkit_set_error(r);
+    return -1;
+}
+
+static int
+s3b_nbd_plugin_flush(void *handle, uint32_t flags)
+{
+    int r;
+
+    // Flush all dirty blocks
+    if ((r = (*fuse_priv->s3b->flush_blocks)(fuse_priv->s3b, NULL, 0, 0)) != 0) {
+        nbdkit_error("error flushing dirty block(s): %s", strerror(r));
+        goto fail;
+    }
 
     // Done
     return 0;

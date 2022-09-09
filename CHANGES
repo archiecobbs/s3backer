@@ -1,5 +1,6 @@
 Version Next
 
+    - Made sync(1) work on s3backer file to flush cached data (issue #197)
     - Fix bug where s3b_compress=deflate NDB flag would fail (issue #195)
 
 Version 2.0.2 released July 17, 2022

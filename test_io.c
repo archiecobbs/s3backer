@@ -160,6 +160,10 @@ test_io_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, 
     if (config->discard_data || num_blocks == 0)
         return 0;
 
+    // We don't handle the "all dirty blocks case"
+    if (block_nums == NULL)
+        return 0;
+
     // Sync each block
     while (num_blocks-- > 0) {
         const s3b_block_t block_num = *block_nums++;

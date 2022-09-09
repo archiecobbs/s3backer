@@ -196,6 +196,7 @@ static int block_cache_write_block(struct s3backer_store *s3b, s3b_block_t block
 static int block_cache_read_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, void *dest);
 static int block_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u_int off, u_int len, const void *src);
 static int block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
+static int block_cache_flush_blocks2(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout);
 static int block_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg);
 static int block_cache_shutdown(struct s3backer_store *s3b);
 static void block_cache_destroy(struct s3backer_store *s3b);
@@ -465,7 +466,53 @@ block_cache_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int
 }
 
 static int
-block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *const block_nums, const u_int num_blocks, long timeout)
+block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks, long timeout)
+{
+    struct block_cache_private *const priv = s3b->data;
+    struct block_list block_list;
+    struct cache_entry *entry;
+    int r = 0;
+
+    // Initialize block list
+    block_list_init(&block_list);
+
+    // If "block_nums" is NULL that means we should flush all dirty blocks
+    if (block_nums == NULL) {
+
+        // Grab lock and sanity check
+        pthread_mutex_lock(&priv->mutex);
+        S3BCACHE_CHECK_INVARIANTS(priv, 0);
+
+        // Add all DIRTYs to the block list
+        for (entry = TAILQ_FIRST(&priv->dirties); entry != NULL; entry = TAILQ_NEXT(entry, link)) {
+            assert(ENTRY_GET_STATE(entry) == DIRTY);
+            if ((r = block_list_append(&block_list, entry->block_num)) != 0)
+                break;
+        }
+
+        // Release lock
+        CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+
+        // Check for error
+        if (r != 0)
+            goto fail;
+
+        // Now use the list we built
+        block_nums = block_list.blocks;
+        num_blocks = block_list.num_blocks;
+    }
+
+    // Proceed
+    r = block_cache_flush_blocks2(s3b, block_nums, num_blocks, timeout);
+
+fail:
+    // Done
+    block_list_free(&block_list);
+    return r;
+}
+
+static int
+block_cache_flush_blocks2(struct s3backer_store *s3b, const s3b_block_t *const block_nums, const u_int num_blocks, long timeout)
 {
     struct block_cache_private *const priv = s3b->data;
     const uint32_t now = block_cache_get_time(priv);
@@ -474,6 +521,9 @@ block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *const bl
     int need_signal = 0;
     int r = 0;
     u_int i;
+
+    // Sanity check
+    assert(block_nums != NULL);
 
     // Calculate absolute timeout
     absolute_timeout = timeout > 0 ? block_cache_get_time_millis() + timeout : 0;
