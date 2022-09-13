@@ -16,4 +16,4 @@ autoreconf -iv
 ./configure --enable-Werror --enable-assertions
 
 # Build
-make -j
+make -j 8
