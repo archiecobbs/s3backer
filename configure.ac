@@ -151,6 +151,7 @@ esac
 # Check for some O/S specific functions
 AC_CHECK_DECLS(fdatasync)
 AC_CHECK_DECLS([posix_fadvise], [], [], [[#include <fcntl.h>]])
+AC_CHECK_DECLS([prctl, PR_SET_IO_FLUSHER], [], [], [[#include <sys/prctl.h>]])
 
 # Check for required header files
 AC_CHECK_HEADERS(assert.h ctype.h curl/curl.h err.h errno.h expat.h pthread.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h syslog.h time.h unistd.h sys/queue.h sys/statvfs.h openssl/bio.h openssl/buffer.h openssl/evp.h openssl/hmac.h openssl/md5.h zlib.h, [],

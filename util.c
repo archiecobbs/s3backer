@@ -717,6 +717,14 @@ fork_off(const char *executable, char **argv)
     err(1, "%s", executable);
 }
 
+void
+apply_process_tweaks(void)
+{
+#if HAVE_DECL_PR_SET_IO_FLUSHER
+    (void)prctl(PR_SET_IO_FLUSHER, (unsigned long)1, (unsigned long)0, (unsigned long)0, (unsigned long)0);
+#endif
+}
+
 // Sync (i.e., persist) the specified file or directory
 int
 fsync_path(const char *path, int must_exist)

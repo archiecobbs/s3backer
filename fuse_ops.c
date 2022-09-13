@@ -191,6 +191,9 @@ fuse_op_init(struct fuse_conn_info *conn)
     priv->stats_atime = priv->start_time;
     priv->file_size = (off_t)config->num_blocks * config->block_size;
 
+    // Apply process tweaks
+    apply_process_tweaks();
+
     // Startup background threads now that we have fork()'d
     if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
         (*config->log)(LOG_ERR, "fuse_op_init(): can't create threads: %s", strerror(errno));

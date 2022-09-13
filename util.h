@@ -120,6 +120,7 @@ extern void daemon_errx(const struct s3b_config *config, int value, const char *
 extern pid_t start_child_process(const struct s3b_config *config, const char *executable, struct string_array *params);
 extern void kill_remaining_children(const struct s3b_config *config, pid_t except, int signal);
 extern pid_t wait_for_child_to_exit(const struct s3b_config *config, struct child_proc *proc, int sleep_if_none, int expect_signal);
+extern void apply_process_tweaks(void);
 
 // Bitmaps
 extern bitmap_t *bitmap_init(s3b_block_t num_blocks, int value);
