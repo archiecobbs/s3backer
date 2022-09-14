@@ -43,6 +43,9 @@
 #endif
 #include <sys/queue.h>
 #include <sys/wait.h>
+#if HAVE_DECL_PRCTL
+#include <sys/prctl.h>
+#endif
 
 // Add some queue.h definitions missing on Linux
 #ifndef LIST_FIRST
