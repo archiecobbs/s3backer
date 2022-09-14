@@ -41,6 +41,9 @@
 #if HAVE_SYS_STATVFS_H
 #include <sys/statvfs.h>
 #endif
+#if HAVE_DECL_PR_SET_IO_FLUSHER
+#include <sys/prctl.h>
+#endif
 #include <sys/queue.h>
 #include <sys/wait.h>
 
