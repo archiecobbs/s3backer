@@ -493,8 +493,8 @@ block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nu
         // Release lock
         CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-        // Check for error
-        if (r != 0)
+        // If we got an error, or the list is empty, bail out
+        if (r != 0 || block_list.num_blocks == 0)
             goto fail;
 
         // Now use the list we built
