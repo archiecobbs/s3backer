@@ -347,6 +347,7 @@ static struct curl_slist *http_io_add_header(struct http_io_private *priv, struc
     __attribute__ ((__format__ (__printf__, 3, 4)));
 static void http_io_add_date(struct http_io_private *priv, struct http_io *const io, time_t now);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
+static int http_io_safe_to_cache_curl_handle(CURLcode curl_code, long http_code);
 static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
 static int http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len);
 static void http_io_free_error_payload(struct http_io *const io);
@@ -2263,6 +2264,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     u_int retry_pause = 0;
     u_int total_pause;
     long http_code;
+    int may_cache;
     double clen;
     int attempt;
     CURL *curl;
@@ -2363,8 +2365,11 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             return r;
         }
 
-        // Free the curl handle (and ensure we don't try to re-use it)
-        http_io_release_curl(priv, &curl, 0);
+        // Determine whether we think it's safe to re-use the curl handle after an error
+        may_cache = http_io_safe_to_cache_curl_handle(curl_code, http_code);
+
+        // Free the curl handle (and don't cache it if connection might be broken)
+        http_io_release_curl(priv, &curl, may_cache);
 
         // Handle errors
         switch (curl_code) {
@@ -3204,6 +3209,18 @@ http_io_sockopt_callback(void *cookie, curl_socket_t fd, curlsocktype purpose)
 {
     (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
     return CURL_SOCKOPT_OK;
+}
+
+// Re-use curl handles unless there's a worry that the connection might be broken
+static int
+http_io_safe_to_cache_curl_handle(CURLcode curl_code, long http_code)
+{
+    switch (curl_code) {
+    case CURLE_HTTP_RETURNED_ERROR:         // we got a normal HTTP error back
+        return http_code < 500;             // don't cache after server errors, just to be safe
+    default:                                // something weird happened, definitely don't cache
+        return 0;
+    }
 }
 
 static void
