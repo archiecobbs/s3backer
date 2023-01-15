@@ -292,7 +292,7 @@ block_is_zeros(const void *data)
 {
     assert(zero_block != NULL);
     assert(zero_block_size > 0);
-    return memcmp(data, zero_block, zero_block_size) == 0;
+    return data == zero_block || memcmp(data, zero_block, zero_block_size) == 0;
 }
 
 void
