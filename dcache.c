@@ -154,6 +154,7 @@ static int s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filena
 
 // Internal variables
 static const struct dir_entry zero_entry;
+static int fallocate_disabled;
 
 // Public functions
 
@@ -549,6 +550,17 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
     assert(off <= priv->block_size);
     assert(len <= priv->block_size);
     assert(off + len <= priv->block_size);
+
+    // If writing an entire block of zeroes, and kernel supports FALLOC_FL_PUNCH_HOLE, then use that
+#if HAVE_DECL_FALLOCATE && HAVE_DECL_FALLOC_FL_PUNCH_HOLE && HAVE_DECL_FALLOC_FL_KEEP_SIZE
+    if (!fallocate_disabled && off == 0 && len == priv->block_size && (src == NULL || block_is_zeros(src))) {
+        if (fallocate(priv->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, DATA_OFFSET(priv, dslot), (off_t)len) == 0)
+            return 0;
+        (*priv->log)(LOG_WARNING, "fallocate(\"%s\"): %s", priv->filename, strerror(errno));
+        (*priv->log)(LOG_WARNING, "disabling use of FALLOC_FL_PUNCH_HOLE from now on");
+        fallocate_disabled = 1;
+    }
+#endif
 
     // Write data
     if ((r = s3b_dcache_write(priv, DATA_OFFSET(priv, dslot) + off, src != NULL ? src : zero_block, len)) != 0)
