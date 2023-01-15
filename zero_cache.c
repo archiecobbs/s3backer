@@ -465,6 +465,7 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     struct zero_cache_private *const priv = s3b->data;
     struct zero_cache_conf *const config = priv->config;
     int data_is_zeros;
+    int block_was_zeros;
 
     // Sanity check
     (void)config;
@@ -477,7 +478,8 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
 
     // Handle the case where we know this block is zero
     pthread_mutex_lock(&priv->mutex);
-    if (bitmap_test(priv->zeros, block_num)) {
+    block_was_zeros = bitmap_test(priv->zeros, block_num);
+    if (block_was_zeros) {
         if (data_is_zeros) {                                    // ok, it's still zero -> return immediately
             priv->stats.write_hits++;
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -487,8 +489,26 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
+
     // Perform the partial write
-    return (*priv->inner->write_block_part)(priv->inner, block_num, off, len, src);
+    if (block_was_zeros) {
+        // optimization - we write the whole block and thus the block cache does not need to read the block
+
+        // no lock needed here - if two threads try to write to the same block, one of them flags the block
+        // as non-zero, so other thread(s) do not enter here. Note that block cannot change from non-zero to
+        // zero in this function. If it could, we may need locking.
+
+        void *src2 = malloc(config->block_size);
+        memset(src2, 0 , off);
+        memcpy((char*)src2 + off, src, len);
+        memset((char*)src2 + off + len, 0 , config->block_size - off - len);
+
+        int r = (*priv->inner->write_block)(priv->inner, block_num, src2, 0, 0, 0);
+        free(src2);
+        return r;
+    }
+    else
+        return (*priv->inner->write_block_part)(priv->inner, block_num, off, len, src);
 }
 
 static int
