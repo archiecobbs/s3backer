@@ -1018,15 +1018,15 @@ s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t o
     ssize_t r;
 
     for (sofar = 0; sofar < len; sofar += r) {
-        const off_t posn = offset + sofar;
+        const off_t chunk_off = offset + sofar;
+        const size_t chunk_len = len - sofar;
 
-        if ((r = pwrite(fd, (const char *)data + sofar, len - sofar, offset + sofar)) == -1) {
+        if ((r = pwrite(fd, (const char *)data + sofar, chunk_len, chunk_off)) == -1) {
             r = errno;
             (*priv->log)(LOG_ERR, "error writing cache file `%s' at offset %ju: %s",
-              filename, (uintmax_t)posn, strerror(r));
+              filename, (uintmax_t)chunk_off, strerror(r));
             return r;
         }
     }
     return 0;
 }
-
