@@ -553,7 +553,10 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
 
     // If writing an entire block of zeroes, and kernel supports FALLOC_FL_PUNCH_HOLE, then use that
 #if HAVE_DECL_FALLOCATE && HAVE_DECL_FALLOC_FL_PUNCH_HOLE && HAVE_DECL_FALLOC_FL_KEEP_SIZE
-    if (!fallocate_disabled && off == 0 && len == priv->block_size && (src == NULL || block_is_zeros(src))) {
+    if (!fallocate_disabled
+      && off == 0
+      && (len % priv->block_size) == 0
+      && (src == NULL || block_is_zeros(src))) {
         if (fallocate(priv->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, DATA_OFFSET(priv, dslot), (off_t)len) == 0)
             return 0;
         (*priv->log)(LOG_WARNING, "fallocate(\"%s\"): %s", priv->filename, strerror(errno));
