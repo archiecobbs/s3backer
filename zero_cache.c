@@ -464,10 +464,11 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
 {
     struct zero_cache_private *const priv = s3b->data;
     struct zero_cache_conf *const config = priv->config;
+    int block_is_zeros;
     int data_is_zeros;
+    int r;
 
     // Sanity check
-    (void)config;
     assert(len > 0);
     assert(len < config->block_size);
     assert(off + len <= config->block_size);
@@ -477,7 +478,8 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
 
     // Handle the case where we know this block is zero
     pthread_mutex_lock(&priv->mutex);
-    if (bitmap_test(priv->zeros, block_num)) {
+    block_is_zeros = bitmap_test(priv->zeros, block_num);
+    if (block_is_zeros) {
         if (data_is_zeros) {                                    // ok, it's still zero -> return immediately
             priv->stats.write_hits++;
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -487,7 +489,22 @@ zero_cache_write_block_part(struct s3backer_store *s3b, s3b_block_t block_num, u
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
-    // Perform the partial write
+    // If block was all zeros, write a complete block - this is more efficient than a partial write, which does read-modify-write
+    if (block_is_zeros) {
+        char *synthetic_block;
+
+        if ((synthetic_block = calloc(config->block_size, 1)) == NULL) {
+            r = errno;
+            (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
+            return r;
+        }
+        memcpy(synthetic_block + off, src, len);
+        r = (*priv->inner->write_block)(priv->inner, block_num, synthetic_block, NULL, NULL, NULL);
+        free(synthetic_block);
+        return r;
+    }
+
+    // Perform a partial write
     return (*priv->inner->write_block_part)(priv->inner, block_num, off, len, src);
 }
 
