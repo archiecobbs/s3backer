@@ -130,6 +130,7 @@ struct s3b_dcache {
     u_int                           fadvise;
     uint32_t                        flags;              // copy of file_header.flags
     off_t                           data;
+    off_t                           file_size;
     u_int                           free_list_len;
     u_int                           free_list_alloc;
     s3b_block_t                     *free_list;
@@ -212,6 +213,7 @@ retry:
         r = errno;
         goto fail3;
     }
+    priv->file_size = sb.st_size;
 
     // Read in header with backward compatible support for older header format
     if (sb.st_size < sizeof(oheader)) {
@@ -556,6 +558,7 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
     if (!fallocate_disabled
       && off == 0
       && (len % priv->block_size) == 0
+      && (off + len) <= priv->file_size
       && (src == NULL || block_is_zeros(src))) {
         if (fallocate(priv->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, DATA_OFFSET(priv, dslot), (off_t)len) == 0)
             return 0;
@@ -1027,6 +1030,8 @@ s3b_dcache_write2(struct s3b_dcache *priv, int fd, const char *filename, off_t o
               filename, (uintmax_t)chunk_off, strerror(r));
             return r;
         }
+        if (chunk_off + chunk_len > priv->file_size)
+            priv->file_size = chunk_off + chunk_len;
     }
     return 0;
 }
