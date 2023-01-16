@@ -168,7 +168,7 @@ done:
 /*
  * Write a partial block by reading the whole block, patching it, and writing it back.
  *
- * If edge->data is NULL then write zeroes.
+ * If edge->data is NULL then write zeros.
  *
  * For any given block, we can only do this if there are no other simultaneous readers or writers.
  */

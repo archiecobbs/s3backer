@@ -674,7 +674,7 @@ s3b_dcache_count_zero_fs_blocks(struct s3b_dcache *priv, const char *src, u_int 
     const size_t num_words_per_block = priv->file_block_size / sizeof(uintptr_t);
     u_int num_blocks;
 
-    // Handle NULL src, which means "all zeroes"
+    // Handle NULL src, which means "all zeros"
     if (src == NULL)
         return len / priv->file_block_size;
 
