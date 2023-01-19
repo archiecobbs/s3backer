@@ -217,7 +217,7 @@ trampoline_to_nbd(int argc, char **argv)
 
     // Get info about /dev/nbd0 block device
     if (stat(device_param, &sb) == -1)
-        errx(1, "%s", device_param);
+        err(1, "%s", device_param);
 
     // Determine the UNIX socket file uniquely corresponding to the block device
     if (asprintf(&unix_socket, "%s/%0*jx_%0*jx", S3B_NBD_DIR,
