@@ -334,7 +334,7 @@ trampoline_to_nbd(int argc, char **argv)
 
         // Verify normal exit
         if (!WIFEXITED(exit_proc.wstatus) || WEXITSTATUS(exit_proc.wstatus) != 0)
-            errx(1, "child process %s (%d) terminated abnormally", exit_proc.name, (int)exit_proc.pid);
+            exit(1);
     }
 
     // If we're not running in the foreground, spit out a message and daemonize
