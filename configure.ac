@@ -104,6 +104,10 @@ AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
     AC_PATH_PROGS([NBD_CLIENT_EXECUTABLE], [nbd-client])
     AS_IF([test "x$NBD_CLIENT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbd-client not found])])
     AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(8) executable])
+
+    # Find modprobe(8) (optional)
+    AC_PATH_PROGS([MODPROBE_EXECUTABLE], [modprobe])
+    AC_DEFINE_UNQUOTED([MODPROBE_EXECUTABLE], ["$MODPROBE_EXECUTABLE"], [path to modprobe(8) executable])
 ])
 
 # Define our directory for nbdkit(1) UNIX socket files, defaulting to /run/s3backer-nbd

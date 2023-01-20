@@ -53,6 +53,7 @@
 #define NBD_CLIENT_BLOCK_SIZE                   4096
 #define NBDKIT_STARTUP_WAIT_PAUSE               (long)50
 #define MAX_NBDKIT_STARTUP_WAIT_MILLIS          (long)1000
+#define NBD_MODULE_NAME                         "nbd"
 
 // Internal state
 static const int forward_signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM };
@@ -61,6 +62,7 @@ static const int num_forward_signals = sizeof(forward_signals) / sizeof(*forward
 // Internal functions
 static int trampoline_to_nbd(int argc, char **argv);
 static void handle_signal(int signal);
+static void try_to_load_nbd_module(void);
 #endif
 
 // Global pointer to config
@@ -215,9 +217,20 @@ trampoline_to_nbd(int argc, char **argv)
         return 2;
     }
 
-    // Get info about /dev/nbd0 block device
-    if (stat(device_param, &sb) == -1)
+    // Get configuration (parse only)
+    if ((config = s3backer_get_config(argc, argv, 1, 1)) == NULL)
+        return 1;
+
+    // Auto-load the nbd kernel module if needed
+    if (stat(device_param, &sb) == -1 && errno == ENOENT)
+        try_to_load_nbd_module();
+
+    // Get info about /dev/nbdX block device
+    if (stat(device_param, &sb) == -1) {
+        if (errno == EPERM || errno == EACCES)
+            errx(1, "must be run as root when the \"--nbd\" flag is used");
         err(1, "%s", device_param);
+    }
 
     // Determine the UNIX socket file uniquely corresponding to the block device
     if (asprintf(&unix_socket, "%s/%0*jx_%0*jx", S3B_NBD_DIR,
@@ -233,10 +246,6 @@ trampoline_to_nbd(int argc, char **argv)
             errx(1, "must be run as root when the \"--nbd\" flag is used");
         err(1, "%s", unix_socket);
     }
-
-    // Get configuration (parse only)
-    if ((config = s3backer_get_config(argc, argv, 1, 1)) == NULL)
-        return 1;
 
     // Initialize nbdkit(1) command line
     if (add_string(&command_line, "%s", NBDKIT_EXECUTABLE) == -1
@@ -439,5 +448,44 @@ handle_signal(int signal)
 {
     if (config->debug)
         daemon_debug(config, "got signal %d", signal);
+}
+
+// Run "modprobe nbd"
+static void
+try_to_load_nbd_module()
+{
+    struct string_array modprobe_params;
+    struct child_proc exit_proc;
+    const char *modprobe_name;
+    const char *slash;
+    pid_t modprobe_pid;
+    pid_t exit_pid;
+
+    // See if modprobe(8) was found
+    if (*MODPROBE_EXECUTABLE == '\0')
+        return;
+
+    // Get executable base name
+    slash = strrchr(MODPROBE_EXECUTABLE, '/');
+    modprobe_name = slash != NULL ? slash + 1 : MODPROBE_EXECUTABLE;
+
+    // Set up process invocation
+    memset(&modprobe_params, 0, sizeof(modprobe_params));
+    if (add_string(&modprobe_params, "%s", modprobe_name) == -1
+      || add_string(&modprobe_params, "%s", NBD_MODULE_NAME) == -1)
+        err(1, "add_string");
+
+    // Execute process and wait for it to finish
+    modprobe_pid = start_child_process(config, MODPROBE_EXECUTABLE, &modprobe_params);
+    free_strings(&modprobe_params);
+    if ((exit_pid = wait_for_child_to_exit(config, &exit_proc, 0, 0)) != modprobe_pid) {
+        if (exit_pid == (pid_t)-1)
+            err(1, "got signal waiting for modprobe(8)");
+        err(1, "wait() returned %d", (int)exit_pid);
+    }
+
+    // Verify normal exit
+    if (!WIFEXITED(exit_proc.wstatus) || WEXITSTATUS(exit_proc.wstatus) != 0)
+        exit(1);
 }
 #endif
