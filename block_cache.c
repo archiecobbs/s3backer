@@ -495,7 +495,7 @@ block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nu
 
         // If we got an error, or the list is empty, bail out
         if (r != 0 || block_list.num_blocks == 0)
-            goto fail;
+            goto done;
 
         // Now use the list we built
         block_nums = block_list.blocks;
@@ -505,7 +505,7 @@ block_cache_flush_blocks(struct s3backer_store *s3b, const s3b_block_t *block_nu
     // Proceed
     r = block_cache_flush_blocks2(s3b, block_nums, num_blocks, timeout);
 
-fail:
+done:
     // Done
     block_list_free(&block_list);
     return r;
