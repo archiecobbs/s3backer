@@ -242,7 +242,7 @@ zero_cache_survey_main(void *arg)
     // Apply results (only if we completed the survey with no error)
     pthread_mutex_lock(&priv->survey_mutex);
     if (r == 0)
-        bitmap_or(priv->zeros, priv->survey_zeros, config->num_blocks);
+        priv->stats.current_cache_size = bitmap_or2(priv->zeros, priv->survey_zeros, config->num_blocks);
     survey_count = priv->survey_count;
     CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
 

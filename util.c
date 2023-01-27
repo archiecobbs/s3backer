@@ -267,6 +267,19 @@ bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks)
         dst[i] |= src[i];
 }
 
+size_t
+bitmap_or2(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks)
+{
+    const size_t nwords = bitmap_size(num_blocks);
+    size_t count = 0;
+    size_t i;
+
+    assert(sizeof(bitmap_t) == 4);
+    for (i = 0; i < nwords; i++)
+        count += popcount32(dst[i] |= src[i]);
+    return count;
+}
+
 void
 bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks)
 {
@@ -275,6 +288,16 @@ bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks)
 
     for (i = 0; i < nwords; i++)
         bitmap[i] = ~bitmap[i];
+}
+
+// https://stackoverflow.com/q/109023/263801
+int
+popcount32(uint32_t value)
+{
+     value = value - ((value >> 1) & 0x55555555);
+     value = (value & 0x33333333) + ((value >> 2) & 0x33333333);
+     value = (value + (value >> 4)) & 0x0F0F0F0F;
+     return (int)((value * 0x01010101) >> 24);
 }
 
 int

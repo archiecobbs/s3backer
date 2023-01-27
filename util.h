@@ -37,9 +37,6 @@
 // Forward decl's
 struct s3b_config;
 
-// Bitmap type
-typedef uintptr_t bitmap_t;
-
 // A list of block numbers
 struct block_list {
     s3b_block_t     *blocks;
@@ -103,6 +100,7 @@ extern int add_string(struct string_array *array, const char *fmt, ...) __attrib
 extern void free_strings(struct string_array *array);
 extern int init_zero_block(u_int block_size);
 extern void set_config_log(struct s3b_config *config, log_func_t *log);
+extern int popcount32(uint32_t value);
 
 // Versions of <err.h> that work properly even when daemonized
 extern void daemon_debug(const struct s3b_config *config, const char *fmt, ...)
@@ -130,6 +128,7 @@ extern int bitmap_test(const bitmap_t *bitmap, s3b_block_t block_num);
 extern void bitmap_set(bitmap_t *bitmap, s3b_block_t block_num, int value);
 extern void bitmap_and(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
 extern void bitmap_or(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
+extern size_t bitmap_or2(bitmap_t *dst, const bitmap_t *src, s3b_block_t num_blocks);
 extern void bitmap_not(bitmap_t *bitmap, s3b_block_t num_blocks);
 
 // Block lists

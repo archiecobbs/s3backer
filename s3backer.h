@@ -120,7 +120,7 @@ extern char **environ;
 typedef uint32_t    s3b_block_t;
 
 // Integral type used for bitmaps
-typedef uintptr_t   bitmap_t;
+typedef uint32_t    bitmap_t;
 
 /*
  * How many hex digits we will use to print a block number.
