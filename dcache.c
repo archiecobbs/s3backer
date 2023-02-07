@@ -589,9 +589,9 @@ s3b_dcache_write_block_falloc(struct s3b_dcache *priv, u_int dslot, const char *
 
     // Sanity check
     assert(dslot < priv->max_blocks);
-    assert(off <= priv->block_size);
+    assert(doff <= priv->block_size);
     assert(len <= priv->block_size);
-    assert(off + len <= priv->block_size);
+    assert(doff + len <= priv->block_size);
 
     // Write unaligned leading bit, if any
     roundup_off = ROUNDUP2(off, (off_t)priv->file_block_size);
