@@ -2147,7 +2147,7 @@ static int
 http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, const char *method, char *url)
 {
     struct http_io_conf *const config = priv->config;
-    int r;
+    int r = 0;
 
     // Initialize I/O info
     http_io_init_io(priv, io, method, url);
@@ -2163,10 +2163,12 @@ http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, cons
     // Allocate buffers for XML path and tag text content
     if ((io->xml_text = calloc(1, 1)) == NULL) {
         (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        r = ENOMEM;
         goto fail;
     }
     if ((io->xml_path = calloc(1, 1)) == NULL) {
         (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        r = ENOMEM;
         goto fail;
     }
 
