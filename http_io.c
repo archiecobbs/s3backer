@@ -2162,11 +2162,13 @@ http_io_xml_io_init(struct http_io_private *const priv, struct http_io *io, cons
 
     // Allocate buffers for XML path and tag text content
     if ((io->xml_text = calloc(1, 1)) == NULL) {
-        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        r = errno;
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(r));
         goto fail;
     }
     if ((io->xml_path = calloc(1, 1)) == NULL) {
-        (*config->log)(LOG_ERR, "calloc: %s", strerror(errno));
+        r = errno;
+        (*config->log)(LOG_ERR, "calloc: %s", strerror(r));
         goto fail;
     }
 
