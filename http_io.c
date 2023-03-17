@@ -2561,7 +2561,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 
     // Initialize HMAC
     hmac_ctx = HMAC_CTX_new();
-    assert(NULL != hmac_ctx);
+    assert(hmac_ctx != NULL);
     HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
 
 #if DEBUG_AUTHENTICATION
@@ -2612,7 +2612,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 
     // Finish up
     HMAC_Final(hmac_ctx, hmac, &hmac_len);
-    assert(hmac_len == SHA_DIGEST_LENGTH);
+    assert(hmac_len == sizeof(hmac));
 
     // Base64-encode result
     http_io_base64_encode(authbuf, sizeof(authbuf), hmac, hmac_len);
@@ -2682,6 +2682,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
     // Initialize
     hash_ctx = EVP_MD_CTX_new();
+    assert(hash_ctx != NULL);
 
     // Snapshot current credentials
     pthread_mutex_lock(&priv->mutex);
@@ -2852,7 +2853,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
     // Do nested HMAC's
     hmac_ctx = HMAC_CTX_new();
-    assert(NULL != hmac_ctx);
+    assert(hash_ctx != NULL);
     HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
 #if DEBUG_AUTHENTICATION
     (*config->log)(LOG_DEBUG, "auth: access_key = \"%s\"", access_key);
@@ -3325,7 +3326,9 @@ http_io_base64_encode(char *buf, size_t bufsiz, const void *data, size_t len)
     BIO* b64;
 
     b64 = BIO_new(BIO_f_base64());
+    assert(b64 != NULL);
     bmem = BIO_new(BIO_s_mem());
+    assert(bmem != NULL);
     b64 = BIO_push(b64, bmem);
     BIO_write(b64, data, len);
     (void)BIO_flush(b64);
@@ -3366,6 +3369,7 @@ http_io_crypt(struct http_io_private *priv, s3b_block_t block_num, int enc, cons
 
     // Initialize cipher context
     ctx = EVP_CIPHER_CTX_new();
+    assert(ctx != NULL);
     EVP_CIPHER_CTX_init(ctx);
 
     // Generate initialization vector by encrypting the block number using previously generated IV
@@ -3429,7 +3433,7 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
     // Sign the block number, the name of the encryption algorithm, and the block data
     snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
     ctx = HMAC_CTX_new();
-    assert(NULL != ctx);
+    assert(ctx != NULL);
     HMAC_Init_ex(ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
     HMAC_Update(ctx, (const u_char *)blockbuf, strlen(blockbuf));
     HMAC_Update(ctx, (const u_char *)ciphername, strlen(ciphername));
