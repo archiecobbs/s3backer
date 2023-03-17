@@ -224,7 +224,6 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     int read_overlap;
     int write_overlap;
     int is_zero_block;
-    MD5_CTX ctx;
     int fd;
     int r;
 
@@ -310,11 +309,8 @@ test_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     // Compute MD5
     if (is_zero_block)
         memset(md5, 0, MD5_DIGEST_LENGTH);
-    else {
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, dest, config->block_size);
-        MD5_Final(md5, &ctx);
-    }
+    else
+        md5_quick(dest, config->block_size, md5);
     if (actual_etag != NULL)
         memcpy(actual_etag, md5, MD5_DIGEST_LENGTH);
 
@@ -379,7 +375,6 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     char path[PATH_MAX];
     int read_overlap;
     int write_overlap;
-    MD5_CTX ctx;
     int total;
     int fd;
     int r;
@@ -389,11 +384,9 @@ test_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         src = NULL;
 
     // Compute MD5
-    if (src != NULL) {
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, src, config->block_size);
-        MD5_Final(md5, &ctx);
-    } else
+    if (src != NULL)
+        md5_quick(src, config->block_size, md5);
+    else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 
     // Return MD5 to caller

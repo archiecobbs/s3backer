@@ -1259,7 +1259,6 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         char content[_POSIX_HOST_NAME_MAX + DATE_BUF_SIZE + 32];
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
-        MD5_CTX ctx;
 
         // Reset I/O info
         curl_slist_free_all(io.headers);
@@ -1278,14 +1277,12 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
             strftime(content + strlen(content), sizeof(content) - strlen(content), "\n" AWS_DATE_BUF_FMT "\n", gmtime_r(&now, &tm));
             io.src = content;
             io.buf_size = strlen(content);
-            MD5_Init(&ctx);
-            MD5_Update(&ctx, content, strlen(content));
-            MD5_Final(md5, &ctx);
 
             // Add Content-Type header
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, MOUNT_TOKEN_FILE_MIME_TYPE);
 
             // Add Content-MD5 header
+            md5_quick(content, strlen(content), md5);
             http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
             io.headers = http_io_add_header(priv, io.headers, "%s: %s", MD5_HEADER, md5buf);
 
@@ -1901,7 +1898,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
 
     // Compute MD5 checksum
     if (src != NULL)
-        MD5(io.src, io.buf_size, md5);
+        md5_quick(io.src, io.buf_size, md5);
     else
         memset(md5, 0, MD5_DIGEST_LENGTH);
 

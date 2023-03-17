@@ -824,3 +824,22 @@ set_config_log(struct s3b_config *config, log_func_t *log)
     config->fuse_ops.log = log;
     config->test_io.log = log;
 }
+
+void
+md5_quick(const void *data, size_t len, u_char *result)
+{
+    EVP_MD_CTX *ctx;
+    u_int md5_len;
+    int r;
+
+    ctx = EVP_MD_CTX_new();
+    assert(ctx != NULL);
+    r = EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+    assert(r == 0);
+    r = EVP_DigestUpdate(ctx, data, len);
+    assert(r == 0);
+    r = EVP_DigestFinal_ex(ctx, result, &md5_len);
+    assert(r == 0);
+    assert(md5_len == MD5_DIGEST_LENGTH);
+    EVP_MD_CTX_free(ctx);
+}

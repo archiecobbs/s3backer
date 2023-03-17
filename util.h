@@ -138,3 +138,6 @@ extern void block_list_free(struct block_list *list);
 
 // Generic s3backer_store functions
 extern int generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);
+
+// Hashing
+extern void md5_quick(const void *data, size_t len, u_char *result);
