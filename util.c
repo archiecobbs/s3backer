@@ -825,6 +825,128 @@ set_config_log(struct s3b_config *config, log_func_t *log)
     config->test_io.log = log;
 }
 
+// Hashing stuff
+
+struct hmac_engine {
+    const EVP_MD    *mac_sha1;
+    const EVP_MD    *mac_sha256;
+};
+
+struct hmac_ctx {
+    HMAC_CTX        *ctx;
+    const EVP_MD    *md;
+    int             reslen;
+    int             active;
+};
+
+static struct hmac_ctx *hmac_new(const EVP_MD *md, size_t reslen, const void *key, size_t keylen);
+
+struct hmac_engine *
+hmac_engine_create(void)
+{
+    struct hmac_engine *engine;
+
+    // Allocate structure
+    if ((engine = malloc(sizeof(*engine))) == NULL)
+        goto fail0;
+
+    // Get SHA1
+    if ((engine->mac_sha1 = EVP_sha1()) == NULL) {
+        errno = ENOTSUP;
+        goto fail1;
+    }
+
+    // Get SHA256
+    if ((engine->mac_sha256 = EVP_sha256()) == NULL) {
+        errno = ENOTSUP;
+        goto fail1;
+    }
+
+    // Done
+    return engine;
+
+fail1:
+    free(engine);
+fail0:
+    return NULL;
+}
+
+void
+hmac_engine_free(struct hmac_engine *engine)
+{
+    free(engine);
+}
+
+struct hmac_ctx *
+hmac_new_sha1(struct hmac_engine *engine, const void *key, size_t keylen)
+{
+    return hmac_new(engine->mac_sha1, SHA_DIGEST_LENGTH, key, keylen);
+}
+
+struct hmac_ctx *
+hmac_new_sha256(struct hmac_engine *engine, const void *key, size_t keylen)
+{
+    return hmac_new(engine->mac_sha256, SHA256_DIGEST_LENGTH, key, keylen);
+}
+
+static struct hmac_ctx *
+hmac_new(const EVP_MD *md, size_t reslen, const void *key, size_t keylen)
+{
+    struct hmac_ctx *ctx;
+
+    if ((ctx = malloc(sizeof(*ctx))) == NULL)
+        return NULL;
+    if ((ctx->ctx = HMAC_CTX_new()) == NULL) {
+        free(ctx);
+        return NULL;
+    }
+    ctx->md = md;
+    ctx->reslen = reslen;
+    ctx->active = 0;
+    hmac_reset(ctx, key, keylen);
+    return ctx;
+}
+
+void
+hmac_reset(struct hmac_ctx *ctx, const void *key, size_t keylen)
+{
+    HMAC_Init_ex(ctx->ctx, key, keylen, ctx->md, NULL);
+    ctx->active = 1;
+}
+
+void
+hmac_update(struct hmac_ctx *ctx, const void *data, size_t len)
+{
+    assert(ctx->active);
+    HMAC_Update(ctx->ctx, data, len);
+}
+
+void
+hmac_final(struct hmac_ctx *ctx, u_char *result)
+{
+    u_int len;
+
+    assert(ctx->active);
+    HMAC_Final(ctx->ctx, result, &len);
+    assert(ctx->reslen == len);
+    ctx->active = 0;
+}
+
+int
+hmac_result_length(struct hmac_ctx *ctx)
+{
+    return ctx->reslen;
+}
+
+void
+hmac_free(struct hmac_ctx *ctx)
+{
+    if (ctx == NULL)
+        return;
+    HMAC_CTX_free(ctx->ctx);
+    free(ctx);
+}
+
 void
 md5_quick(const void *data, size_t len, u_char *result)
 {
@@ -835,11 +957,11 @@ md5_quick(const void *data, size_t len, u_char *result)
     ctx = EVP_MD_CTX_new();
     assert(ctx != NULL);
     r = EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
-    assert(r == 0);
+    assert(r != 0);
     r = EVP_DigestUpdate(ctx, data, len);
-    assert(r == 0);
+    assert(r != 0);
     r = EVP_DigestFinal_ex(ctx, result, &md5_len);
-    assert(r == 0);
+    assert(r != 0);
     assert(md5_len == MD5_DIGEST_LENGTH);
     EVP_MD_CTX_free(ctx);
 }

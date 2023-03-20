@@ -140,4 +140,17 @@ extern void block_list_free(struct block_list *list);
 extern int generic_bulk_zero(struct s3backer_store *s3b, const s3b_block_t *block_nums, u_int num_blocks);
 
 // Hashing
+struct hmac_engine;
+struct hmac_ctx;
+
+extern struct hmac_engine *hmac_engine_create(void);
+extern void hmac_engine_free(struct hmac_engine *engine);
+extern struct hmac_ctx *hmac_new_sha1(struct hmac_engine *engine, const void *key, size_t keylen);
+extern struct hmac_ctx *hmac_new_sha256(struct hmac_engine *engine, const void *key, size_t keylen);
+extern void hmac_reset(struct hmac_ctx *ctx, const void *key, size_t keylen);
+extern void hmac_update(struct hmac_ctx *ctx, const void *data, size_t len);
+extern void hmac_final(struct hmac_ctx *ctx, u_char *result);
+extern int hmac_result_length(struct hmac_ctx *ctx);
+extern void hmac_free(struct hmac_ctx *ctx);
+
 extern void md5_quick(const void *data, size_t len, u_char *result);

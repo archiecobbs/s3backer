@@ -212,6 +212,7 @@ struct http_io_private {
     u_int                       keylen;                         // length of key and ivkey
     u_char                      key[EVP_MAX_KEY_LENGTH];        // key used to encrypt data
     u_char                      ivkey[EVP_MAX_KEY_LENGTH];      // key used to encrypt block number to get IV for data
+    struct hmac_engine          *hmac;
 };
 
 // I/O buffers
@@ -361,7 +362,7 @@ static void http_io_base64_encode(char *buf, size_t bufsiz, const void *data, si
 static u_int http_io_crypt(struct http_io_private *priv,
     s3b_block_t block_num, int enc, const u_char *src, u_int len, u_char *dst, u_int dmax);
 static void http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_char *src, u_int len, u_char *hmac);
-static void update_hmac_from_header(HMAC_CTX *ctx, struct http_io *io,
+static void update_hmac_from_header(struct hmac_ctx *ctx, struct http_io *io,
   const char *name, int value_only, char *sigbuf, size_t sigbuflen);
 static s3b_block_t http_io_block_hash_prefix(s3b_block_t block_num);
 static int http_io_parse_hex(const char *str, u_char *buf, u_int nbytes);
@@ -441,6 +442,10 @@ http_io_create(struct http_io_conf *config)
     }
     CRYPTO_set_locking_callback(http_io_openssl_locker);
     CRYPTO_set_id_callback(http_io_openssl_ider);
+    if ((priv->hmac = hmac_engine_create()) == NULL) {
+        r = errno;
+        goto fail5;
+    }
 
     // Avoid GCC unused-function warnings
     (void)http_io_openssl_locker;
@@ -462,14 +467,14 @@ http_io_create(struct http_io_conf *config)
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
             (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
             r = EINVAL;
-            goto fail5;
+            goto fail6;
         }
         cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
             (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
             r = EINVAL;
-            goto fail5;
+            goto fail6;
         }
 
         // Sanity check cipher is a block cipher
@@ -479,7 +484,7 @@ http_io_create(struct http_io_conf *config)
             (*config->log)(LOG_ERR, "invalid cipher `%s' (block size %u, IV length %u); only block ciphers are supported",
               config->encryption, cipher_block_size, cipher_iv_length);
             r = EINVAL;
-            goto fail5;
+            goto fail6;
         }
 
         // Hash password to get bulk data encryption key
@@ -488,7 +493,7 @@ http_io_create(struct http_io_conf *config)
           (u_char *)saltbuf, strlen(saltbuf), PBKDF2_ITERATIONS, priv->keylen, priv->key)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
-            goto fail5;
+            goto fail6;
         }
 
         // Hash the bulk encryption key to get the IV encryption key
@@ -496,7 +501,7 @@ http_io_create(struct http_io_conf *config)
           priv->key, priv->keylen, PBKDF2_ITERATIONS, priv->keylen, priv->ivkey)) != 1) {
             (*config->log)(LOG_ERR, "failed to create encryption key");
             r = EINVAL;
-            goto fail5;
+            goto fail6;
         }
 
         // Encryption debug
@@ -516,7 +521,7 @@ http_io_create(struct http_io_conf *config)
 
     // Initialize IAM credentials
     if (config->ec2iam_role != NULL && (r = update_iam_credentials(priv)) != 0)
-        goto fail6;
+        goto fail7;
 
     // Take ownership of non-zero block bitmap
     priv->non_zero = config->nonzero_bitmap;
@@ -525,13 +530,15 @@ http_io_create(struct http_io_conf *config)
     // Done
     return s3b;
 
-fail6:
+fail7:
     while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
         LIST_REMOVE(holder, link);
         free(holder);
     }
     curl_global_cleanup();
+fail6:
+    hmac_engine_free(priv->hmac);
 fail5:
     CRYPTO_set_locking_callback(NULL);
     CRYPTO_set_id_callback(NULL);
@@ -572,6 +579,7 @@ http_io_destroy(struct s3backer_store *const s3b)
     CRYPTO_set_id_callback(NULL);
 
     // Clean up cURL
+    hmac_engine_free(priv->hmac);
     while ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl_easy_cleanup(holder->curl);
         LIST_REMOVE(holder, link);
@@ -2533,7 +2541,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 {
     const struct http_io_conf *const config = priv->config;
     const struct curl_slist *header;
-    u_char hmac[SHA_DIGEST_LENGTH];
+    u_char hmac_result[SHA_DIGEST_LENGTH];
     const char *resource;
     char **amz_hdrs = NULL;
     char access_id[128];
@@ -2541,15 +2549,14 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     char authbuf[200];
 #if DEBUG_AUTHENTICATION
     char sigbuf[1024];
-    char hmac_buf[EVP_MAX_MD_SIZE * 2 + 1];
+    char hmac_buf[SHA_DIGEST_LENGTH * 2 + 1];
 #else
     char sigbuf[1];
 #endif
     int num_amz_hdrs;
     const char *qmark;
     size_t resource_len;
-    u_int hmac_len;
-    HMAC_CTX* hmac_ctx = NULL;
+    struct hmac_ctx* hmac_ctx = NULL;
     int i;
     int r;
 
@@ -2560,17 +2567,18 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     // Initialize HMAC
-    hmac_ctx = HMAC_CTX_new();
-    assert(hmac_ctx != NULL);
-    HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha1(), NULL);
+    if ((hmac_ctx = hmac_new_sha1(priv->hmac, (const u_char *)access_key, strlen(access_key))) == NULL) {
+        r = errno;
+        goto fail;
+    }
 
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
 #endif
 
     // Sign initial stuff
-    HMAC_Update(hmac_ctx, (const u_char *)io->method, strlen(io->method));
-    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
+    hmac_update(hmac_ctx, (const u_char *)io->method, strlen(io->method));
+    hmac_update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", io->method);
 #endif
@@ -2603,23 +2611,22 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
     resource_len = (qmark = strchr(resource, '?')) != NULL ? qmark - resource : strlen(resource);
 
     // Sign final stuff
-    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
-    HMAC_Update(hmac_ctx, (const u_char *)resource, resource_len);
+    hmac_update(hmac_ctx, (const u_char *)"/", 1);
+    hmac_update(hmac_ctx, (const u_char *)config->bucket, strlen(config->bucket));
+    hmac_update(hmac_ctx, (const u_char *)resource, resource_len);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "/%s%.*s", config->bucket, (int)resource_len, resource);
 #endif
 
     // Finish up
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
-    assert(hmac_len == sizeof(hmac));
+    hmac_final(hmac_ctx, hmac_result);
 
     // Base64-encode result
-    http_io_base64_encode(authbuf, sizeof(authbuf), hmac, hmac_len);
+    http_io_base64_encode(authbuf, sizeof(authbuf), hmac_result, sizeof(hmac_result));
 
 #if DEBUG_AUTHENTICATION
     (*config->log)(LOG_DEBUG, "auth: string to sign:\n%s", sigbuf);
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
     (*config->log)(LOG_DEBUG, "auth: signature hmac = %s", hmac_buf);
     (*config->log)(LOG_DEBUG, "auth: signature hmac base64 = %s", authbuf);
 #endif
@@ -2634,7 +2641,7 @@ fail:
     // Clean up
     if (amz_hdrs != NULL)
         free(amz_hdrs);
-    HMAC_CTX_free(hmac_ctx);
+    hmac_free(hmac_ctx);
     return r;
 }
 
@@ -2645,15 +2652,14 @@ static int
 http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t now, const void *payload, size_t plen)
 {
     const struct http_io_conf *const config = priv->config;
-    u_char payload_hash[EVP_MAX_MD_SIZE];
-    u_char creq_hash[EVP_MAX_MD_SIZE];
-    u_char hmac[EVP_MAX_MD_SIZE];
+    u_char payload_hash[SHA256_DIGEST_LENGTH];
+    u_char creq_hash[SHA256_DIGEST_LENGTH];
+    u_char hmac_result[SHA256_DIGEST_LENGTH];
     u_int payload_hash_len;
     u_int creq_hash_len;
-    u_int hmac_len;
-    char payload_hash_buf[EVP_MAX_MD_SIZE * 2 + 1];
-    char creq_hash_buf[EVP_MAX_MD_SIZE * 2 + 1];
-    char hmac_buf[EVP_MAX_MD_SIZE * 2 + 1];
+    char payload_hash_buf[SHA256_DIGEST_LENGTH * 2 + 1];
+    char creq_hash_buf[SHA256_DIGEST_LENGTH * 2 + 1];
+    char hmac_buf[SHA256_DIGEST_LENGTH * 2 + 1];
     const struct curl_slist *hdr;
     char **sorted_hdrs = NULL;
     char *header_names = NULL;
@@ -2666,7 +2672,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     u_int header_names_length;
     u_int num_sorted_hdrs;
     EVP_MD_CTX* hash_ctx;
-    HMAC_CTX* hmac_ctx = NULL;
+    struct hmac_ctx* hmac_ctx = NULL;
 #if DEBUG_AUTHENTICATION
     char sigbuf[1024];
 #endif
@@ -2852,38 +2858,38 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 /****** Derive Signing Key ******/
 
     // Do nested HMAC's
-    hmac_ctx = HMAC_CTX_new();
-    assert(hash_ctx != NULL);
-    HMAC_Init_ex(hmac_ctx, access_key, strlen(access_key), EVP_sha256(), NULL);
+    if ((hmac_ctx = hmac_new_sha256(priv->hmac, access_key, strlen(access_key))) == NULL) {
+        r = errno;
+        goto fail;
+    }
 #if DEBUG_AUTHENTICATION
     (*config->log)(LOG_DEBUG, "auth: access_key = \"%s\"", access_key);
 #endif
-    HMAC_Update(hmac_ctx, (const u_char *)datebuf, 8);
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
-    assert(hmac_len <= sizeof(hmac));
+    hmac_update(hmac_ctx, (const u_char *)datebuf, 8);
+    hmac_final(hmac_ctx, hmac_result);
 #if DEBUG_AUTHENTICATION
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
     (*config->log)(LOG_DEBUG, "auth: HMAC[%.8s] = %s", datebuf, hmac_buf);
 #endif
-    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
+    hmac_reset(hmac_ctx, hmac_result, sizeof(hmac_result));
+    hmac_update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    hmac_final(hmac_ctx, hmac_result);
 #if DEBUG_AUTHENTICATION
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", config->region, hmac_buf);
 #endif
-    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
+    hmac_reset(hmac_ctx, hmac_result, sizeof(hmac_result));
+    hmac_update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    hmac_final(hmac_ctx, hmac_result);
 #if DEBUG_AUTHENTICATION
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %sn", S3_SERVICE_NAME, hmac_buf);
 #endif
-    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
+    hmac_reset(hmac_ctx, hmac_result, sizeof(hmac_result));
+    hmac_update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    hmac_final(hmac_ctx, hmac_result);
 #if DEBUG_AUTHENTICATION
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
     (*config->log)(LOG_DEBUG, "auth: HMAC[%s] = %s", SIGNATURE_TERMINATOR, hmac_buf);
 #endif
 
@@ -2892,35 +2898,35 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #if DEBUG_AUTHENTICATION
     *sigbuf = '\0';
 #endif
-    HMAC_Init_ex(hmac_ctx, hmac, hmac_len, EVP_sha256(), NULL);
-    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
-    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
+    hmac_reset(hmac_ctx, hmac_result, sizeof(hmac_result));
+    hmac_update(hmac_ctx, (const u_char *)SIGNATURE_ALGORITHM, strlen(SIGNATURE_ALGORITHM));
+    hmac_update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", SIGNATURE_ALGORITHM);
 #endif
-    HMAC_Update(hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
-    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
+    hmac_update(hmac_ctx, (const u_char *)datebuf, strlen(datebuf));
+    hmac_update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", datebuf);
 #endif
-    HMAC_Update(hmac_ctx, (const u_char *)datebuf, 8);
-    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
-    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
-    HMAC_Update(hmac_ctx, (const u_char *)"/", 1);
-    HMAC_Update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
-    HMAC_Update(hmac_ctx, (const u_char *)"\n", 1);
+    hmac_update(hmac_ctx, (const u_char *)datebuf, 8);
+    hmac_update(hmac_ctx, (const u_char *)"/", 1);
+    hmac_update(hmac_ctx, (const u_char *)config->region, strlen(config->region));
+    hmac_update(hmac_ctx, (const u_char *)"/", 1);
+    hmac_update(hmac_ctx, (const u_char *)S3_SERVICE_NAME, strlen(S3_SERVICE_NAME));
+    hmac_update(hmac_ctx, (const u_char *)"/", 1);
+    hmac_update(hmac_ctx, (const u_char *)SIGNATURE_TERMINATOR, strlen(SIGNATURE_TERMINATOR));
+    hmac_update(hmac_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.8s/%s/%s/%s\n",
       datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR);
 #endif
-    HMAC_Update(hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
+    hmac_update(hmac_ctx, (const u_char *)creq_hash_buf, strlen(creq_hash_buf));
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s", creq_hash_buf);
 #endif
-    HMAC_Final(hmac_ctx, hmac, &hmac_len);
-    http_io_prhex(hmac_buf, hmac, hmac_len);
+    hmac_final(hmac_ctx, hmac_result);
+    http_io_prhex(hmac_buf, hmac_result, sizeof(hmac_result));
 
 #if DEBUG_AUTHENTICATION
     (*config->log)(LOG_DEBUG, "auth: key to sign:\n%s", sigbuf);
@@ -2942,7 +2948,7 @@ fail:
         free(sorted_hdrs);
     free(header_names);
     EVP_MD_CTX_free(hash_ctx);
-    HMAC_CTX_free(hmac_ctx);
+    hmac_free(hmac_ctx);
     return r;
 }
 
@@ -3427,24 +3433,21 @@ http_io_authsig(struct http_io_private *priv, s3b_block_t block_num, const u_cha
 {
     const char *const ciphername = EVP_CIPHER_name(priv->cipher);
     char blockbuf[64];
-    u_int hmac_len;
-    HMAC_CTX* ctx;
+    struct hmac_ctx* ctx;
 
     // Sign the block number, the name of the encryption algorithm, and the block data
     snvprintf(blockbuf, sizeof(blockbuf), "%0*jx", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
-    ctx = HMAC_CTX_new();
+    ctx = hmac_new_sha1(priv->hmac, priv->key, priv->keylen);
     assert(ctx != NULL);
-    HMAC_Init_ex(ctx, (const u_char *)priv->key, priv->keylen, EVP_sha1(), NULL);
-    HMAC_Update(ctx, (const u_char *)blockbuf, strlen(blockbuf));
-    HMAC_Update(ctx, (const u_char *)ciphername, strlen(ciphername));
-    HMAC_Update(ctx, (const u_char *)src, len);
-    HMAC_Final(ctx, (u_char *)hmac, &hmac_len);
-    assert(hmac_len == SHA_DIGEST_LENGTH);
-    HMAC_CTX_free(ctx);
+    hmac_update(ctx, (const u_char *)blockbuf, strlen(blockbuf));
+    hmac_update(ctx, (const u_char *)ciphername, strlen(ciphername));
+    hmac_update(ctx, (const u_char *)src, len);
+    hmac_final(ctx, (u_char *)hmac);
+    hmac_free(ctx);
 }
 
 static void
-update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
+update_hmac_from_header(struct hmac_ctx *const ctx, struct http_io *const io,
   const char *name, int value_only, char *sigbuf, size_t sigbuflen)
 {
     const struct curl_slist *header;
@@ -3457,14 +3460,14 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
     for (header = io->headers; header != NULL; header = header->next) {
         if (strncasecmp(header->data, name, name_len) == 0 && header->data[name_len] == ':') {
             if (!value_only) {
-                HMAC_Update(ctx, (const u_char *)header->data, name_len + 1);
+                hmac_update(ctx, (const u_char *)header->data, name_len + 1);
 #if DEBUG_AUTHENTICATION
                 snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%.*s", (int)name_len + 1, header->data);
 #endif
             }
             for (value = header->data + name_len + 1; isspace(*value); value++)
                 ;
-            HMAC_Update(ctx, (const u_char *)value, strlen(value));
+            hmac_update(ctx, (const u_char *)value, strlen(value));
 #if DEBUG_AUTHENTICATION
             snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "%s", value);
 #endif
@@ -3473,7 +3476,7 @@ update_hmac_from_header(HMAC_CTX *const ctx, struct http_io *const io,
     }
 
     // Add newline whether or not header was found
-    HMAC_Update(ctx, (const u_char *)"\n", 1);
+    hmac_update(ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
     snvprintf(sigbuf + strlen(sigbuf), sigbuflen - strlen(sigbuf), "\n");
 #endif
