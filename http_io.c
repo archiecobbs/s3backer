@@ -1557,7 +1557,8 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
         snvprintf(accept_encoding + strlen(accept_encoding), sizeof(accept_encoding) - strlen(accept_encoding),
           "%s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
     }
-    io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
+    if (*accept_encoding != '\0')
+        io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
 
     // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)

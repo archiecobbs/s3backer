@@ -1,5 +1,6 @@
 Version Next
 
+    - Avoid sending an empty Accept-Encoding header (issue #208)
     - Use fallocate(FALLOC_FL_PUNCH_HOLE) for empty disk cache blocks (issue #200)
     - Made sync(1) work on s3backer file to flush cached data (issue #197)
     - Fixed bug where s3b_compress=deflate NDB flag would fail (issue #195)
