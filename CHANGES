@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.0 released September 23, 2023
 
     - Avoid sending an empty Accept-Encoding header (issue #208)
     - Use fallocate(FALLOC_FL_PUNCH_HOLE) for empty disk cache blocks (issue #200)
