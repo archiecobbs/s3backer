@@ -1028,4 +1028,7 @@ md5_quick(const void *data, size_t len, u_char *result)
     assert(r != 0);
     assert(md5_len == MD5_DIGEST_LENGTH);
     EVP_MD_CTX_free(ctx);
+#ifdef NDEBUG
+    (void)r;                // avoid unused variable warning
+#endif
 }
