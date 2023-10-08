@@ -342,13 +342,13 @@ s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, ui
     // Calculate what bits to read, then read them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
     if (info.header.length > 0 && (r = block_part_read_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
-        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
+        nbdkit_error("error reading block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         nbdkit_set_error(r);
         return -1;
     }
     while (info.mid_block_count-- > 0) {
         if ((r = (*fuse_priv->s3b->read_block)(fuse_priv->s3b, info.mid_block_start, info.mid_data, NULL, NULL, 0)) != 0) {
-            nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start);
+            nbdkit_error("error reading block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start, strerror(r));
             nbdkit_set_error(r);
             return -1;
         }
@@ -356,7 +356,7 @@ s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, ui
         info.mid_data += config->block_size;
     }
     if (info.footer.length > 0 && (r = block_part_read_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
-        nbdkit_error("error reading block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
+        nbdkit_error("error reading block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block, strerror(r));
         nbdkit_set_error(r);
         return -1;
     }
@@ -375,20 +375,20 @@ s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t off
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
+        nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         goto fail;
     }
     for (i = 0; i < info.mid_block_count; i++) {
         const s3b_block_t block_num = info.mid_block_start + i;
 
         if ((r = (*fuse_priv->s3b->write_block)(fuse_priv->s3b, block_num, info.mid_data, NULL, NULL, NULL)) != 0) {
-            nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num);
+            nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, strerror(r));
             goto fail;
         }
         info.mid_data += config->block_size;
     }
     if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
+        nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block, strerror(r));
         goto fail;
     }
 
@@ -414,7 +414,7 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
     // Calculate what bits to trim, then trim them
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block);
+        nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         goto fail;
     }
     if (info.mid_block_count > 0) {
@@ -432,13 +432,13 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
         r = (*fuse_priv->s3b->bulk_zero)(fuse_priv->s3b, block_nums, info.mid_block_count);
         free(block_nums);
         if (r != 0) {
-            nbdkit_error("error zeroing %jd block(s) starting at %0*jx: %m",
-              (uintmax_t)info.mid_block_count, S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start);
+            nbdkit_error("error zeroing %jd block(s) starting at %0*jx: %s",
+              (uintmax_t)info.mid_block_count, S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.mid_block_start, strerror(r));
             goto fail;
         }
     }
     if (info.footer.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.footer)) != 0) {
-        nbdkit_error("error writing block %0*jx: %m", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block);
+        nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.footer.block, strerror(r));
         goto fail;
     }
 
