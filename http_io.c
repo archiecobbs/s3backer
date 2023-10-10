@@ -313,6 +313,7 @@ static int http_io_add_auth2(struct http_io_private *priv, struct http_io *io, t
 static int http_io_add_auth4(struct http_io_private *priv, struct http_io *io, time_t now, const void *payload, size_t plen);
 static size_t url_encode(const char *src, size_t len, char *dst, int buflen, int encode_slash);
 static void digest_url_encoded(EVP_MD_CTX* hash_ctx, const char *data, size_t len, int encode_slash);
+static char *canonicalize_query_string(const char *query, size_t len);
 
 // EC2 IAM thread
 static void *update_iam_credentials_main(void *arg);
@@ -2691,6 +2692,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     char access_id[128];
     char access_key[128];
     char *iam_token = NULL;
+    char *cquery;
     struct tm tm;
     char *p;
     int r;
@@ -2788,11 +2790,16 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 #endif
 
     // Canonical query string
-    EVP_DigestUpdate(hash_ctx, (const u_char *)query_params, query_params_len);
+    if ((cquery = canonicalize_query_string(query_params, query_params_len)) == NULL) {
+        r = errno;
+        goto fail;
+    }
+    EVP_DigestUpdate(hash_ctx, (const u_char *)cquery, strlen(cquery));
     EVP_DigestUpdate(hash_ctx, (const u_char *)"\n", 1);
 #if DEBUG_AUTHENTICATION
-    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%.*s\n", (int)query_params_len, query_params);
+    snvprintf(sigbuf + strlen(sigbuf), sizeof(sigbuf) - strlen(sigbuf), "%s\n", cquery);
 #endif
+    free(cquery);
 
     // Canonical headers
     header_names_length = 0;
@@ -2960,6 +2967,46 @@ fail:
     EVP_MD_CTX_free(hash_ctx);
     hmac_free(hmac_ctx);
     return r;
+}
+
+/*
+ * Reformat a query string for digest, adding any missing equals signs.
+ * NOTE: This assumes that the query string parameters are already sorted.
+ * Caller must free the result.
+ */
+static char *
+canonicalize_query_string(const char *query, size_t qlen)
+{
+    char *buf;
+    char *bp;
+    size_t i;
+    int saweq;
+
+    if ((buf = malloc(qlen * 2 + 1)) == NULL)
+        return NULL;
+    bp = buf;
+    saweq = 0;
+    for (i = 0; i < qlen; i++) {
+        char c = query[i];
+        switch (c) {
+        case '&':
+            if (!saweq)
+                *bp++ = '=';
+            saweq = 0;
+            break;
+        case '=':
+            if (!saweq)
+                saweq = 1;
+            break;
+        default:
+            break;
+        }
+        *bp++ = c;
+    }
+    if (qlen > 0 && !saweq)
+        *bp++ = '=';
+    *bp++ = '\0';
+    return buf;
 }
 
 /*
