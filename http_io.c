@@ -876,12 +876,16 @@ http_io_xml_prepper(CURL *curl, struct http_io *io)
     if (io->bufs.wrdata != NULL) {
         curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
         curl_easy_setopt(curl, CURLOPT_READDATA, io);
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
+        curl_easy_setopt(curl, CURLOPT_POST, (long)1);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)io->bufs.wrremain);
     }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
+    http_io_curl_header_reset(io);
 }
 
 static size_t
@@ -2208,11 +2212,25 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
     XML_SetElementHandler(io->xml, http_io_xml_elem_start, end_handler);
     XML_SetCharacterDataHandler(io->xml, http_io_xml_text);
 
+    // Add headers for payload (if needed)
+    if (io->bufs.wrdata != NULL) {
+        u_char md5[MD5_DIGEST_LENGTH];
+        char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
+
+        // Add Content-MD5 header
+        md5_quick(io->bufs.wrdata, io->bufs.wrremain, md5);
+        http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
+        io->headers = http_io_add_header(priv, io->headers, "%s: %s", MD5_HEADER, md5buf);
+
+        // Add Content-Type header
+        io->headers = http_io_add_header(priv, io->headers, "%s: %s", CTYPE_HEADER, "application/xml");
+    }
+
     // Add Date header
     http_io_add_date(priv, io, now);
 
     // Add Authorization header
-    if ((r = http_io_add_auth(priv, io, now, NULL, 0)) != 0)
+    if ((r = http_io_add_auth(priv, io, now, io->bufs.wrdata, io->bufs.wrremain)) != 0)
         return r;
 
     // Perform operation
@@ -3165,6 +3183,8 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
     if (config->http_11)
         curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    if (strcmp(io->method, HTTP_POST) != 0)
+        curl_easy_setopt(curl, CURLOPT_POST, (long)0);
     return curl;
 }
 
