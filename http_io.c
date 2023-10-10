@@ -217,10 +217,10 @@ struct http_io_private {
 
 // I/O buffers
 struct http_io_bufs {
-    size_t      rdremain;
-    size_t      wrremain;
-    char        *rddata;
-    const char  *wrdata;
+    size_t      rdremain;       // number of bytes left in download buffer
+    size_t      wrremain;       // number of bytes left in upload buffer
+    char        *rddata;        // download buffer
+    const char  *wrdata;        // upload buffer
 };
 
 // I/O state when reading/writing a block
