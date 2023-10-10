@@ -125,8 +125,8 @@
 #define LIST_BLOCKS_CHUNK           1000
 #define DELETE_BLOCKS_CHUNK         1000
 
-// Maximum error payload size in bytes
-#define MAX_ERROR_PAYLOAD_SIZE      0x100000
+// Maximum payload size in bytes to capture for debug
+#define MAX_DEBUG_PAYLOAD_SIZE      100000
 
 // PBKDF2 key generation iterations
 #define PBKDF2_ITERATIONS           5000
@@ -2278,8 +2278,17 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     CURL *curl;
 
     // Debug
-    if (config->debug)
+    if (config->debug) {
         (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
+        if (io->bufs.wrremain > 0) {
+            size_t chars_to_print = io->bufs.wrremain;
+
+            if (chars_to_print > MAX_DEBUG_PAYLOAD_SIZE)
+                chars_to_print = MAX_DEBUG_PAYLOAD_SIZE;
+            (*config->log)(LOG_DEBUG, "HTTP %s request payload:\n%.*s",
+              io->method, (int)chars_to_print, io->bufs.wrdata);
+        }
+    }
 
     // Make attempts
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
@@ -3275,8 +3284,8 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
         return 1;
 
     // Impose limit on how much error payload we'll remember
-    if (io->error_payload_len + len > MAX_ERROR_PAYLOAD_SIZE)
-        len = MAX_ERROR_PAYLOAD_SIZE - io->error_payload_len;
+    if (io->error_payload_len + len > MAX_DEBUG_PAYLOAD_SIZE)
+        len = MAX_DEBUG_PAYLOAD_SIZE - io->error_payload_len;
 
     // Capture the error payload in the error buffer
     if ((new_error_payload = realloc(io->error_payload, io->error_payload_len + len)) == NULL)
