@@ -879,7 +879,7 @@ http_io_xml_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
-    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
 }
 
@@ -1469,7 +1469,7 @@ http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
-    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
 }
 
@@ -1781,7 +1781,7 @@ http_io_read_prepper(CURL *curl, struct http_io *io)
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
-    curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
     http_io_curl_header_reset(io);
 }
