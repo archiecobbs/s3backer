@@ -2288,6 +2288,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     struct http_io_conf *const config = priv->config;
     struct timespec delay;
     CURLcode curl_code;
+    int last_error = EIO;
     u_int retry_pause = 0;
     u_int total_pause;
     long http_code;
@@ -2422,6 +2423,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             pthread_mutex_lock(&priv->mutex);
             priv->stats.curl_timeouts++;
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+            last_error = ETIMEDOUT;
             break;
         case CURLE_HTTP_RETURNED_ERROR:                 // special handling for some specific HTTP codes
             switch (http_code) {
@@ -2451,6 +2453,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_stale++;
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+                last_error = ESTALE;
                 break;
             case HTTP_MOVED_PERMANENTLY:
             case HTTP_FOUND:
@@ -2461,6 +2464,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_redirect++;
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+                last_error = ELOOP;
                 break;
             case HTTP_NOT_MODIFIED:
                 if (io->expect_304) {
@@ -2488,6 +2492,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 }
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
+                last_error = EIO;
                 break;
             }
             break;
@@ -2498,15 +2503,19 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
             switch (curl_code) {
             case CURLE_OUT_OF_MEMORY:
                 priv->stats.curl_out_of_memory++;
+                last_error = ENOMEM;
                 break;
             case CURLE_COULDNT_CONNECT:
                 priv->stats.curl_connect_failed++;
+                last_error = ENXIO;
                 break;
             case CURLE_COULDNT_RESOLVE_HOST:
                 priv->stats.curl_host_unknown++;
+                last_error = ENXIO;
                 break;
             default:
                 priv->stats.curl_other_error++;
+                last_error = EIO;
                 break;
             }
             CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
@@ -2535,7 +2544,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
     // Give up
     (*config->log)(LOG_ERR, "giving up on: %s %s", io->method, io->url);
-    return EIO;
+    return last_error;
 }
 
 /*
