@@ -2438,16 +2438,16 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
                 priv->stats.http_unauthorized++;
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
-                http_io_free_error_payload(io);
-                return EACCES;
+                last_error = EACCES;
+                break;
             case HTTP_FORBIDDEN:
                 (*config->log)(LOG_ERR, "rec'd %ld response: %s %s", http_code, io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
                 priv->stats.http_forbidden++;
                 CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
                 http_io_log_error_payload(io);
-                http_io_free_error_payload(io);
-                return EPERM;
+                last_error = EPERM;
+                break;
             case HTTP_PRECONDITION_FAILED:
                 (*config->log)(LOG_INFO, "rec'd stale content: %s %s", io->method, io->url);
                 pthread_mutex_lock(&priv->mutex);
