@@ -80,6 +80,7 @@ struct http_io_conf {
     int                     debug_http;
     int                     http_11;                    // restrict to HTTP 1.1
     int                     quiet;
+    int                     no_curl_cache;              // don't cache cURL handles
     const struct comp_alg   *compress_alg;              // compression algorithm, or NULL for none
     void                    *compress_level;            // compression level info
     int                     vhost;                      // use virtual host style URL

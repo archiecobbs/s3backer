@@ -1,6 +1,7 @@
 Version Next
 
     - Fixed bug with bulk delete HTTP requests (issue #211)
+    - Added --noCurlCache flag to facilitate debugging
 
 Version 2.1.0 released September 23, 2023
 

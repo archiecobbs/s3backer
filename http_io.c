@@ -3318,12 +3318,13 @@ http_io_safe_to_cache_curl_handle(CURLcode curl_code, long http_code)
 static void
 http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache)
 {
+    struct http_io_conf *const config = priv->config;
     struct curl_holder *holder;
     CURL *const curl = *curlp;
 
     *curlp = NULL;
     assert(curl != NULL);
-    if (!may_cache) {
+    if (config->no_curl_cache || !may_cache) {
         curl_easy_cleanup(curl);
         return;
     }

@@ -918,6 +918,9 @@ Disable block and file size auto-detection at startup.
 If this flag is given, then the block size defaults to 4096 and the
 .Fl \-size
 flag is required.
+.It Fl \-noCurlCache
+Disable caching of cURL handles.
+This flag will reduce performance; it exists to help in certain debugging situations.
 .It Fl \-password=PASSWORD
 Supply the password for encryption and authentication as a command-line parameter.
 .It Fl \-passwordFile=FILE
