@@ -52,7 +52,7 @@
 // Some definitions
 #define NBD_CLIENT_BLOCK_SIZE                   4096
 #define NBDKIT_STARTUP_WAIT_PAUSE               (long)50
-#define MAX_NBDKIT_STARTUP_WAIT_MILLIS          (long)1000
+#define MAX_NBDKIT_STARTUP_WAIT_MILLIS          (long)5000
 #define NBD_MODULE_NAME                         "nbd"
 
 // Internal state
