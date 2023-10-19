@@ -1,6 +1,7 @@
 Version Next
 
     - Fixed bug with bulk delete HTTP requests (issue #211)
+    - Check for errors returned by curl_easy_setopt()
     - Added --noCurlCache flag to facilitate debugging
     - Bump wait time for nbdkit to start from 1s to 5s
 

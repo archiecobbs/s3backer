@@ -281,8 +281,8 @@ struct http_io {
     size_t              error_payload_len;      // error response length
 };
 
-// CURL prepper function type
-typedef void http_io_curl_prepper_t(CURL *curl, struct http_io *io);
+// CURL prepper function type - returns 1 on succes, 0 on error
+typedef int http_io_curl_prepper_t(struct http_io_private *const priv, CURL *curl, struct http_io *io);
 
 // s3backer_store functions
 static int http_io_create_threads(struct s3backer_store *s3b);
@@ -375,6 +375,9 @@ static int http_io_parse_header(struct http_io *io, const char *input,
 static void http_io_init_io(struct http_io_private *priv, struct http_io *io, const char *method, const char *url);
 static void http_io_curl_header_reset(struct http_io *const io);
 static int http_io_verify_etag_provided(struct http_io *io);
+static int http_io_curl_setopt_long(struct http_io_private *priv, CURL *curl, CURLoption option, long value);
+static int http_io_curl_setopt_ptr(struct http_io_private *priv, CURL *curl, CURLoption option, const void *ptr);
+static int http_io_curl_setopt_off(struct http_io_private *priv, CURL *curl, CURLoption option, curl_off_t offset);
 
 // Internal variables
 static pthread_mutex_t *openssl_locks;
@@ -870,22 +873,25 @@ done:
     return r;
 }
 
-static void
-http_io_xml_prepper(CURL *curl, struct http_io *io)
+static int
+http_io_xml_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     if (io->bufs.wrdata != NULL) {
-        curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
-        curl_easy_setopt(curl, CURLOPT_READDATA, io);
-        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
-        curl_easy_setopt(curl, CURLOPT_POST, (long)1);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)io->bufs.wrremain);
+        if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_READFUNCTION, http_io_curl_writer)
+          || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_READDATA, io)
+          || !http_io_curl_setopt_long(priv, curl, CURLOPT_UPLOAD, 1)
+          || !http_io_curl_setopt_long(priv, curl, CURLOPT_POST, 1)
+          || !http_io_curl_setopt_off(priv, curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)io->bufs.wrremain))
+            return 0;
     }
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)1);
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_ACCEPT_ENCODING, "")
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_HTTP_CONTENT_DECODING, 1))
+        return 0;
     http_io_curl_header_reset(io);
+    return 1;
 }
 
 static size_t
@@ -1212,17 +1218,19 @@ done:
     return r;
 }
 
-static void
-http_io_head_prepper(CURL *curl, struct http_io *io)
+static int
+http_io_head_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
-    curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
+    if (!http_io_curl_setopt_long(priv, curl, CURLOPT_NOBODY, 1)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERFUNCTION, http_io_curl_header)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers))
+        return 0;
     http_io_curl_header_reset(io);
+    return 1;
 }
 
 static int
@@ -1465,17 +1473,19 @@ parse_json_field(struct http_io_private *priv, const char *json, const char *fie
     return value;
 }
 
-static void
-http_io_iamcreds_prepper(CURL *curl, struct http_io *io)
+static int
+http_io_iamcreds_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     io->bufs.rdremain = io->buf_size;
     io->bufs.rddata = io->dest;
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
-    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_off(priv, curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_ACCEPT_ENCODING, "")
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_HTTP_CONTENT_DECODING, 0))
+        return 0;
+    return 1;
 }
 
 static int
@@ -1774,21 +1784,23 @@ fail:
     return r;
 }
 
-static void
-http_io_read_prepper(CURL *curl, struct http_io *io)
+static int
+http_io_read_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     io->bufs.rdremain = io->buf_size;
     io->bufs.rddata = io->dest;
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
-    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, (long)0);
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_off(priv, curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERFUNCTION, http_io_curl_header)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_ACCEPT_ENCODING, "")
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_HTTP_CONTENT_DECODING, 0))
+        return 0;
     http_io_curl_header_reset(io);
+    return 1;
 }
 
 /*
@@ -2003,27 +2015,30 @@ http_io_verify_etag_provided(struct http_io *const io)
     return 0;
 }
 
-static void
-http_io_write_prepper(CURL *curl, struct http_io *io)
+static int
+http_io_write_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
     if (io->src != NULL) {
         io->bufs.wrremain = io->buf_size;
         io->bufs.wrdata = io->src;
     }
-    curl_easy_setopt(curl, CURLOPT_READFUNCTION, http_io_curl_writer);
-    curl_easy_setopt(curl, CURLOPT_READDATA, io);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, io);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, http_io_curl_header);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, io);
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_READFUNCTION, http_io_curl_writer)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_READDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERFUNCTION, http_io_curl_header)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HEADERDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_CUSTOMREQUEST, io->method)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers))
+        return 0;
     if (io->src != NULL) {
-        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1);
-        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size);
+        if (!http_io_curl_setopt_long(priv, curl, CURLOPT_UPLOAD, 1)
+          || !http_io_curl_setopt_off(priv, curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)io->buf_size))
+            return 0;
     }
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, io->method);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, io->headers);
     http_io_curl_header_reset(io);
+    return 1;
 }
 
 static int
@@ -2316,7 +2331,8 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         // Acquire and initialize CURL instance
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
             return EIO;
-        (*prepper)(curl, io);
+        if (!(*prepper)(priv, curl, io))
+            return EIO;
 
         // Reset error payload capture
         io->http_status = 0;
@@ -3148,6 +3164,7 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
     struct curl_holder *holder;
     CURL *curl;
 
+    // Get a CURL instance
     pthread_mutex_lock(&priv->mutex);
     if ((holder = LIST_FIRST(&priv->curls)) != NULL) {
         curl = holder->curl;
@@ -3168,33 +3185,47 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
             return NULL;
         }
     }
-    curl_easy_setopt(curl, CURLOPT_URL, io->url);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, (long)1);
-    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (long)1);
-    curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, (long)TCP_KEEP_ALIVE_IDLE);
-    curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, (long)TCP_KEEP_ALIVE_INTERVAL);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config->timeout);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, config->user_agent);
-    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, http_io_sockopt_callback);
-    if (config->max_speed[HTTP_UPLOAD] != 0)
-        curl_easy_setopt(curl, CURLOPT_MAX_SEND_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_UPLOAD] / 8));
-    if (config->max_speed[HTTP_DOWNLOAD] != 0)
-        curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_DOWNLOAD] / 8));
+
+    // Set various options
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_URL, io->url)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_FOLLOWLOCATION, 1)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_NOSIGNAL, 1)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_TCP_KEEPALIVE, 1)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_TCP_KEEPIDLE, TCP_KEEP_ALIVE_IDLE)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_TCP_KEEPINTVL, TCP_KEEP_ALIVE_INTERVAL)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_TIMEOUT, config->timeout)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_NOPROGRESS, 1)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_USERAGENT, config->user_agent)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_SOCKOPTFUNCTION, http_io_sockopt_callback))
+        goto optfail;
+    if (config->max_speed[HTTP_UPLOAD] != 0
+      && !http_io_curl_setopt_off(priv, curl, CURLOPT_MAX_SEND_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_UPLOAD] / 8)))
+        goto optfail;
+    if (config->max_speed[HTTP_DOWNLOAD] != 0
+      && !http_io_curl_setopt_off(priv, curl, CURLOPT_MAX_RECV_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_DOWNLOAD] / 8)))
+        goto optfail;
     if (strncmp(io->url, "https", 5) == 0) {
-        if (config->insecure)
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long)0);
-        if (config->cacert != NULL)
-            curl_easy_setopt(curl, CURLOPT_CAINFO, config->cacert);
+        if (config->insecure
+          && !http_io_curl_setopt_long(priv, curl, CURLOPT_SSL_VERIFYPEER, 0))
+            goto optfail;
+        if (config->cacert != NULL
+          && !http_io_curl_setopt_ptr(priv, curl, CURLOPT_CAINFO, config->cacert))
+            goto optfail;
     }
-    if (config->debug_http)
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
-    if (config->http_11)
-        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    if (strcmp(io->method, HTTP_POST) != 0)
-        curl_easy_setopt(curl, CURLOPT_POST, (long)0);
+    if (config->debug_http
+      && !http_io_curl_setopt_long(priv, curl, CURLOPT_VERBOSE, 1))
+        goto optfail;
+    if (config->http_11
+      && !http_io_curl_setopt_long(priv, curl, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_1_1))
+        goto optfail;
+    if (strcmp(io->method, HTTP_POST) != 0
+      && !http_io_curl_setopt_long(priv, curl, CURLOPT_POST, 0))
+        goto optfail;
     return curl;
+
+optfail:
+    http_io_release_curl(priv, &curl, 0);
+    return NULL;
 }
 
 static size_t
@@ -3294,6 +3325,46 @@ http_io_curl_header_reset(struct http_io *const io)
     memset(io->etag, 0, sizeof(io->etag));
     memset(io->hmac, 0, sizeof(io->hmac));
     memset(io->content_encoding, 0, sizeof(io->content_encoding));
+}
+
+static int
+http_io_curl_setopt_long(struct http_io_private *priv, CURL *curl, CURLoption option, long value)
+{
+    CURLcode curl_code;
+
+    assert(option / 10000 == CURLOPTTYPE_LONG / 10000);
+    if ((curl_code = curl_easy_setopt(curl, option, value)) != CURLE_OK) {
+        (*priv->config->log)(LOG_ERR, "curl_easy_setopt(%d): %s", (int)option, curl_easy_strerror(curl_code));
+        return 0;
+    }
+    return 1;
+}
+
+static int
+http_io_curl_setopt_ptr(struct http_io_private *priv, CURL *curl, CURLoption option, const void *ptr)
+{
+    CURLcode curl_code;
+
+    assert(option / 10000 == CURLOPTTYPE_OBJECTPOINT / 10000
+      || option / 10000 == CURLOPTTYPE_FUNCTIONPOINT / 10000);
+    if ((curl_code = curl_easy_setopt(curl, option, ptr)) != CURLE_OK) {
+        (*priv->config->log)(LOG_ERR, "curl_easy_setopt(%d): %s", (int)option, curl_easy_strerror(curl_code));
+        return 0;
+    }
+    return 1;
+}
+
+static int
+http_io_curl_setopt_off(struct http_io_private *priv, CURL *curl, CURLoption option, curl_off_t offset)
+{
+    CURLcode curl_code;
+
+    assert(option / 10000 == CURLOPTTYPE_OFF_T / 10000);
+    if ((curl_code = curl_easy_setopt(curl, option, offset)) != CURLE_OK) {
+        (*priv->config->log)(LOG_ERR, "curl_easy_setopt(%d): %s", (int)option, curl_easy_strerror(curl_code));
+        return 0;
+    }
+    return 1;
 }
 
 static int
