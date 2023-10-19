@@ -2301,6 +2301,7 @@ static int
 http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_curl_prepper_t *prepper)
 {
     struct http_io_conf *const config = priv->config;
+    struct http_io_bufs obufs;
     struct timespec delay;
     CURLcode curl_code;
     int last_error = EIO;
@@ -2325,8 +2326,17 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         }
     }
 
+    // If we are uploading something, snapshot it now so we can reset on retry
+    memcpy(&obufs, &io->bufs, sizeof(io->bufs));
+
     // Make attempts
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
+
+        // Reset upload payload on retry
+        if (attempt > 0) {
+            io->bufs.wrdata = obufs.wrdata;
+            io->bufs.wrremain = obufs.wrremain;
+        }
 
         // Acquire and initialize CURL instance
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
