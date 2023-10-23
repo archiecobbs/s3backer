@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.1 released October 23, 2023
 
     - Fixed bug with bulk delete HTTP requests (issue #211)
     - Fixed empty payload bug when retrying an upload (issue #212)
