@@ -2326,17 +2326,15 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         }
     }
 
-    // If we are uploading something, snapshot it now so we can reset on retry
+    // Snapshot payload buffers now so we can reset on retry
     memcpy(&obufs, &io->bufs, sizeof(io->bufs));
 
     // Make attempts
     for (attempt = 0, total_pause = 0; 1; attempt++, total_pause += retry_pause) {
 
-        // Reset upload payload on retry
-        if (attempt > 0) {
-            io->bufs.wrdata = obufs.wrdata;
-            io->bufs.wrremain = obufs.wrremain;
-        }
+        // Reset upload and download payloads on retry
+        if (attempt > 0)
+            memcpy(&io->bufs, &obufs, sizeof(io->bufs));
 
         // Acquire and initialize CURL instance
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
