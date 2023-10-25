@@ -2313,19 +2313,6 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     int attempt;
     CURL *curl;
 
-    // Debug
-    if (config->debug) {
-        (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
-        if (io->bufs.wrremain > 0) {
-            size_t chars_to_print = io->bufs.wrremain;
-
-            if (chars_to_print > MAX_DEBUG_PAYLOAD_SIZE)
-                chars_to_print = MAX_DEBUG_PAYLOAD_SIZE;
-            (*config->log)(LOG_DEBUG, "HTTP %s request payload:\n%.*s",
-              io->method, (int)chars_to_print, io->bufs.wrdata);
-        }
-    }
-
     // Snapshot payload buffers now so we can reset on retry
     memcpy(&obufs, &io->bufs, sizeof(io->bufs));
 
@@ -2335,6 +2322,19 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         // Reset upload and download payloads on retry
         if (attempt > 0)
             memcpy(&io->bufs, &obufs, sizeof(io->bufs));
+
+        // Debug
+        if (config->debug) {
+            (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
+            if (io->bufs.wrremain > 0) {
+                size_t chars_to_print = io->bufs.wrremain;
+
+                if (chars_to_print > MAX_DEBUG_PAYLOAD_SIZE)
+                    chars_to_print = MAX_DEBUG_PAYLOAD_SIZE;
+                (*config->log)(LOG_DEBUG, "HTTP %s request payload:\n%.*s",
+                  io->method, (int)chars_to_print, io->bufs.wrdata);
+            }
+        }
 
         // Acquire and initialize CURL instance
         if ((curl = http_io_acquire_curl(priv, io)) == NULL)
