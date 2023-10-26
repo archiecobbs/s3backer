@@ -2326,7 +2326,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         // Debug
         if (config->debug) {
             (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
-            if (io->bufs.wrremain > 0) {
+            if (config->debug_http && io->bufs.wrremain > 0) {
                 size_t chars_to_print = io->bufs.wrremain;
 
                 if (chars_to_print > MAX_DEBUG_PAYLOAD_SIZE)
@@ -3436,7 +3436,7 @@ http_io_reader_error_check(struct http_io *const io, const void *ptr, size_t len
         return 0;
 
     // If no debug flag was given, just discard error payloads
-    if (!config->debug)
+    if (!config->debug_http)
         return 1;
 
     // Impose limit on how much error payload we'll remember
@@ -3469,7 +3469,7 @@ http_io_log_error_payload(struct http_io *const io)
 {
     struct http_io_conf *const config = io->config;
 
-    if (config->debug && io->error_payload_len > 0) {
+    if (config->debug_http && io->error_payload_len > 0) {
         (*config->log)(LOG_DEBUG, "HTTP %d status response payload:\n%.*s",
           (int)io->http_status, (int)io->error_payload_len, io->error_payload);
     }
