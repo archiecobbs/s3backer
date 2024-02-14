@@ -237,6 +237,9 @@ trampoline_to_nbd(int argc, char **argv)
       (int)(sizeof(dev_t) * 2), (uintmax_t)sb.st_dev, (int)(sizeof(ino_t) * 2), (uintmax_t)sb.st_ino) == -1)
         err(1, "asprintf");
 
+    // (Re)create UNIX socket directory if needed
+    (void)mkdir(S3B_NBD_DIR, 0700);
+
     // Delete leftover UNIX socket file from last time, if any
     (void)unlink(unix_socket);
 

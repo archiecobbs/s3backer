@@ -1,3 +1,7 @@
+Version Next
+
+    - Automatically recreate nbdkit socket's directory if missing (issue #219)
+
 Version 2.1.1 released October 23, 2023
 
     - Fixed bug with bulk delete HTTP requests (issue #211)
