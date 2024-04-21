@@ -263,7 +263,7 @@ struct http_io {
     void                *dest;                  // Block data (when reading)
     const void          *src;                   // Block data (when writing)
     s3b_block_t         block_num;              // The block we're reading/writing
-    u_int               buf_size;               // Size of data buffer
+    u_int               buf_size;               // Size of data buffer (dest if reading, src if writing)
     u_int               *content_lengthp;       // Returned Content-Length
     uintmax_t           file_size;              // file size from "x-amz-meta-s3backer-filesize"
     u_int               block_size;             // block size from "x-amz-meta-s3backer-blocksize"
@@ -876,12 +876,15 @@ done:
 static int
 http_io_xml_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
-    if (io->bufs.wrdata != NULL) {
+    memset(&io->bufs, 0, sizeof(io->bufs));
+    if (io->src != NULL) {
+        io->bufs.wrdata = io->src;
+        io->bufs.wrremain = io->buf_size;
         if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_READFUNCTION, http_io_curl_writer)
           || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_READDATA, io)
           || !http_io_curl_setopt_long(priv, curl, CURLOPT_UPLOAD, 1)
           || !http_io_curl_setopt_long(priv, curl, CURLOPT_POST, 1)
-          || !http_io_curl_setopt_off(priv, curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)io->bufs.wrremain))
+          || !http_io_curl_setopt_off(priv, curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)io->buf_size))
             return 0;
     }
     if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_xml_reader)
@@ -2105,8 +2108,8 @@ http_io_bulk_zero(struct s3backer_store *const s3b, const s3b_block_t *block_num
         payload_len += snvprintf(buf + payload_len, max_payload - payload_len, "</%s>", DELETE_ELEM_DELETE);
 
         // Initialize buffer
-        io.bufs.wrdata = buf;
-        io.bufs.wrremain = payload_len;
+        io.src = buf;
+        io.buf_size = payload_len;
 
         // Perform operation
         if ((r = http_io_xml_io_exec(priv, &io, http_io_bulk_delete_elem_end)) != 0)
@@ -2228,12 +2231,12 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
     XML_SetCharacterDataHandler(io->xml, http_io_xml_text);
 
     // Add headers for payload (if needed)
-    if (io->bufs.wrdata != NULL) {
+    if (io->src != NULL) {
         u_char md5[MD5_DIGEST_LENGTH];
         char md5buf[MD5_DIGEST_LENGTH * 2 + 1];
 
         // Add Content-MD5 header
-        md5_quick(io->bufs.wrdata, io->bufs.wrremain, md5);
+        md5_quick(io->src, io->buf_size, md5);
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
         io->headers = http_io_add_header(priv, io->headers, "%s: %s", MD5_HEADER, md5buf);
 
@@ -2245,7 +2248,7 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
     http_io_add_date(priv, io, now);
 
     // Add Authorization header
-    if ((r = http_io_add_auth(priv, io, now, io->bufs.wrdata, io->bufs.wrremain)) != 0)
+    if ((r = http_io_add_auth(priv, io, now, io->src, io->buf_size)) != 0)
         return r;
 
     // Perform operation
