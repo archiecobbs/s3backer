@@ -345,7 +345,7 @@ static int http_io_perform_io(struct http_io_private *priv, struct http_io *io, 
 static size_t http_io_curl_reader(const void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *stream);
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
-static struct curl_slist *http_io_add_header(struct http_io_private *priv, struct curl_slist *headers, const char *fmt, ...)
+static int http_io_add_header(struct http_io_private *priv, struct http_io *io, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 3, 4)));
 static void http_io_add_date(struct http_io_private *priv, struct http_io *const io, time_t now);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
@@ -1303,30 +1303,30 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
             io.buf_size = strlen(content);
 
             // Add Content-Type header
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, MOUNT_TOKEN_FILE_MIME_TYPE);
+            http_io_add_header(priv, &io, "%s: %s", CTYPE_HEADER, MOUNT_TOKEN_FILE_MIME_TYPE);
 
             // Add Content-MD5 header
             md5_quick(content, strlen(content), md5);
             http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", MD5_HEADER, md5buf);
+            http_io_add_header(priv, &io, "%s: %s", MD5_HEADER, md5buf);
 
             // Add Mount-Token header
-            io.headers = http_io_add_header(priv, io.headers, "%s: %08x", MOUNT_TOKEN_HEADER, (int)new_value);
+            http_io_add_header(priv, &io, "%s: %08x", MOUNT_TOKEN_HEADER, (int)new_value);
 
             // Add ACL header
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACL_HEADER, config->accessType);
+            http_io_add_header(priv, &io, "%s: %s", ACL_HEADER, config->accessType);
         }
 
         // Add Server Side Encryption header(s) (if needed)
         if (config->sse != NULL && new_value != 0) {
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
+            http_io_add_header(priv, &io, "%s: %s", SSE_HEADER, config->sse);
             if (strcmp(config->sse, SSE_AWS_KMS) == 0)
-                io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
+                http_io_add_header(priv, &io, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
         }
 
         // Add storage class header (if needed)
         if (config->storage_class != NULL)
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
+            http_io_add_header(priv, &io, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
         // Add Authorization header
         if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
@@ -1557,7 +1557,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
             io.expect_304 = 1;
         }
         http_io_prhex(etagbuf, expect_etag, MD5_DIGEST_LENGTH);
-        io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", header, etagbuf);
+        http_io_add_header(priv, &io, "%s: \"%s\"", header, etagbuf);
     }
 
     // Set Accept-Encoding header
@@ -1576,7 +1576,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
           "%s-%s", CONTENT_ENCODING_ENCRYPT, config->encryption);
     }
     if (*accept_encoding != '\0')
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
+        http_io_add_header(priv, &io, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
 
     // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
@@ -1922,7 +1922,7 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
             snvprintf(ebuf + strlen(ebuf), sizeof(ebuf) - strlen(ebuf), "%s%s-%s",
               compressed ? ", " : "", CONTENT_ENCODING_ENCRYPT, config->encryption);
         }
-        io.headers = http_io_add_header(priv, io.headers, "%s", ebuf);
+        http_io_add_header(priv, &io, "%s", ebuf);
     }
 
     // Compute MD5 checksum
@@ -1942,38 +1942,37 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
         char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
 
         // Add Content-Type header
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
+        http_io_add_header(priv, &io, "%s: %s", CTYPE_HEADER, CONTENT_TYPE);
 
         // Add Content-MD5 header
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", MD5_HEADER, md5buf);
+        http_io_add_header(priv, &io, "%s: %s", MD5_HEADER, md5buf);
     }
 
     // Add ACL header (PUT only)
     if (src != NULL)
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", ACL_HEADER, config->accessType);
+        http_io_add_header(priv, &io, "%s: %s", ACL_HEADER, config->accessType);
 
     // Add file size meta-data to zero'th block
     if (src != NULL && block_num == 0) {
-        io.headers = http_io_add_header(priv, io.headers, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
-        io.headers = http_io_add_header(priv, io.headers, "%s: %ju",
-          FILE_SIZE_HEADER, (uintmax_t)config->block_size * (uintmax_t)config->num_blocks);
+        http_io_add_header(priv, &io, "%s: %u", BLOCK_SIZE_HEADER, config->block_size);
+        http_io_add_header(priv, &io, "%s: %ju", FILE_SIZE_HEADER, (uintmax_t)config->block_size * (uintmax_t)config->num_blocks);
     }
 
     // Add signature header (if encrypting)
     if (src != NULL && config->encryption != NULL)
-        io.headers = http_io_add_header(priv, io.headers, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
+        http_io_add_header(priv, &io, "%s: \"%s\"", HMAC_HEADER, hmacbuf);
 
     // Add Server Side Encryption header(s) (if needed)
     if (config->sse != NULL && src != NULL) {
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_HEADER, config->sse);
+        http_io_add_header(priv, &io, "%s: %s", SSE_HEADER, config->sse);
         if (strcmp(config->sse, SSE_AWS_KMS) == 0)
-            io.headers = http_io_add_header(priv, io.headers, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
+            http_io_add_header(priv, &io, "%s: %s", SSE_KEY_ID_HEADER, config->sse_key_id);
     }
 
     // Add storage class header (if needed)
     if (config->storage_class != NULL)
-        io.headers = http_io_add_header(priv, io.headers, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
+        http_io_add_header(priv, &io, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
 
     // Add Authorization header
     if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
@@ -2238,10 +2237,10 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
         // Add Content-MD5 header
         md5_quick(io->src, io->buf_size, md5);
         http_io_base64_encode(md5buf, sizeof(md5buf), md5, MD5_DIGEST_LENGTH);
-        io->headers = http_io_add_header(priv, io->headers, "%s: %s", MD5_HEADER, md5buf);
+        http_io_add_header(priv, io, "%s: %s", MD5_HEADER, md5buf);
 
         // Add Content-Type header
-        io->headers = http_io_add_header(priv, io->headers, "%s: %s", CTYPE_HEADER, "application/xml");
+        http_io_add_header(priv, io, "%s: %s", CTYPE_HEADER, "application/xml");
     }
 
     // Add Date header
@@ -2697,7 +2696,7 @@ http_io_add_auth2(struct http_io_private *priv, struct http_io *const io, time_t
 #endif
 
     // Add auth header
-    io->headers = http_io_add_header(priv, io->headers, "%s: AWS %s:%s", AUTH_HEADER, access_id, authbuf);
+    http_io_add_header(priv, io, "%s: AWS %s:%s", AUTH_HEADER, access_id, authbuf);
 
     // Done
     r = 0;
@@ -2797,12 +2796,12 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
     EVP_DigestFinal_ex(hash_ctx, payload_hash, &payload_hash_len);
     http_io_prhex(payload_hash_buf, payload_hash, payload_hash_len);
 
-    io->headers = http_io_add_header(priv, io->headers, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
+    http_io_add_header(priv, io, "%s: %s", CONTENT_SHA256_HEADER, payload_hash_buf);
 
 /****** Add IAM security token header (if any) ******/
 
     if (iam_token != NULL && *iam_token != '\0') {
-        io->headers = http_io_add_header(priv, io->headers, "%s: %s", SECURITY_TOKEN_HEADER, iam_token);
+        http_io_add_header(priv, io, "%s: %s", SECURITY_TOKEN_HEADER, iam_token);
         free(iam_token);
     }
 
@@ -3006,7 +3005,7 @@ http_io_add_auth4(struct http_io_private *priv, struct http_io *const io, time_t
 
 /****** Add Authorization Header ******/
 
-    io->headers = http_io_add_header(priv, io->headers, "%s: %s Credential=%s/%.8s/%s/%s/%s, SignedHeaders=%s, Signature=%s",
+    http_io_add_header(priv, io, "%s: %s Credential=%s/%.8s/%s/%s/%s, SignedHeaders=%s, Signature=%s",
       AUTH_HEADER, SIGNATURE_ALGORITHM, access_id, datebuf, config->region, S3_SERVICE_NAME, SIGNATURE_TERMINATOR,
       header_names, hmac_buf);
 
@@ -3144,28 +3143,34 @@ http_io_add_date(struct http_io_private *const priv, struct http_io *const io, t
 
     if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0) {
         strftime(buf, sizeof(buf), HTTP_DATE_BUF_FMT, gmtime_r(&now, &tm));
-        io->headers = http_io_add_header(priv, io->headers, "%s: %s", HTTP_DATE_HEADER, buf);
+        http_io_add_header(priv, io, "%s: %s", HTTP_DATE_HEADER, buf);
     } else {
         strftime(buf, sizeof(buf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
-        io->headers = http_io_add_header(priv, io->headers, "%s: %s", AWS_DATE_HEADER, buf);
+        http_io_add_header(priv, io, "%s: %s", AWS_DATE_HEADER, buf);
     }
 }
 
-static struct curl_slist *
-http_io_add_header(struct http_io_private *priv, struct curl_slist *headers, const char *fmt, ...)
+static int
+http_io_add_header(struct http_io_private *priv, struct http_io *io, const char *fmt, ...)
 {
-    char *buf;
+    struct curl_slist *new_list;
     va_list args;
+    char *buf;
+    int r = 0;
 
     va_start(args, fmt);
-    if (vasprintf(&buf, fmt, args) == -1)
-        (*priv->config->log)(LOG_ERR, "%s: vasprintf() failed: %s", "http_io_add_header", strerror(errno));
-    else {
-        headers = curl_slist_append(headers, buf);
+    if (vasprintf(&buf, fmt, args) == -1) {
+        r = errno;
+        (*priv->config->log)(LOG_ERR, "%s: vasprintf() failed: %s", "http_io_add_header", strerror(r));
+    } else {
+        if ((new_list = curl_slist_append(io->headers, buf)) != NULL)
+            io->headers = new_list;
+        else
+            r = ENOMEM;
         free(buf);
     }
     va_end(args);
-    return headers;
+    return r;
 }
 
 static CURL *
