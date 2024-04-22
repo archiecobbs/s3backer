@@ -347,7 +347,7 @@ static size_t http_io_curl_writer(void *ptr, size_t size, size_t nmemb, void *st
 static size_t http_io_curl_header(void *ptr, size_t size, size_t nmemb, void *stream);
 static int http_io_add_header(struct http_io_private *priv, struct http_io *io, const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 3, 4)));
-static void http_io_add_date(struct http_io_private *priv, struct http_io *const io, time_t now);
+static int http_io_add_data_and_auth_headers(struct http_io_private *priv, struct http_io *io);
 static CURL *http_io_acquire_curl(struct http_io_private *priv, struct http_io *io);
 static int http_io_safe_to_cache_curl_handle(CURLcode curl_code, long http_code);
 static void http_io_release_curl(struct http_io_private *priv, CURL **curlp, int may_cache);
@@ -877,6 +877,8 @@ static int
 http_io_xml_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
+    if (http_io_add_data_and_auth_headers(priv, io) != 0)
+        return 0;
     if (io->src != NULL) {
         io->bufs.wrdata = io->src;
         io->bufs.wrremain = io->buf_size;
@@ -1186,7 +1188,6 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
     struct http_io_private *const priv = s3b->data;
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
-    const time_t now = time(NULL);
     struct http_io io;
     int r;
 
@@ -1195,13 +1196,6 @@ http_io_meta_data(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_si
 
     // Construct URL for the first block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, 0);
-
-    // Add Date header
-    http_io_add_date(priv, &io, now);
-
-    // Add Authorization header
-    if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
-        goto done;
 
     // Perform operation
     if ((r = http_io_perform_io(priv, &io, http_io_head_prepper)) != 0)
@@ -1225,6 +1219,8 @@ static int
 http_io_head_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
+    if (http_io_add_data_and_auth_headers(priv, io) != 0)
+        return 0;
     if (!http_io_curl_setopt_long(priv, curl, CURLOPT_NOBODY, 1)
       || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
       || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
@@ -1255,13 +1251,6 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
     // Get old value
     if (old_valuep != NULL) {
 
-        // Add Date header
-        http_io_add_date(priv, &io, now);
-
-        // Add Authorization header
-        if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
-            goto done;
-
         // See if object exists
         switch ((r = http_io_perform_io(priv, &io, http_io_head_prepper))) {
         case ENOENT:
@@ -1287,9 +1276,6 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         // Reset I/O info
         curl_slist_free_all(io.headers);
         http_io_init_io(priv, &io, new_value != 0 ? HTTP_PUT : HTTP_DELETE, urlbuf);
-
-        // Add Date header
-        http_io_add_date(priv, &io, now);
 
         // To set the flag PUT some content containing current date
         if (new_value != 0) {
@@ -1327,10 +1313,6 @@ http_io_set_mount_token(struct s3backer_store *s3b, int32_t *old_valuep, int32_t
         // Add storage class header (if needed)
         if (config->storage_class != NULL)
             http_io_add_header(priv, &io, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
-
-        // Add Authorization header
-        if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
-            goto done;
 
         // Perform operation to set or clear mount token
         r = http_io_perform_io(priv, &io, http_io_write_prepper);
@@ -1499,7 +1481,6 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     struct http_io_conf *const config = priv->config;
     char urlbuf[URL_BUF_SIZE(config)];
     char accept_encoding[128];
-    const time_t now = time(NULL);
     int encrypted = 0;
     struct http_io io;
     u_int did_read;
@@ -1542,9 +1523,6 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     // Construct URL for this block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
-    // Add Date header
-    http_io_add_date(priv, &io, now);
-
     // Add If-Match or If-None-Match header as required
     if (expect_etag != NULL && memcmp(expect_etag, zero_etag, MD5_DIGEST_LENGTH) != 0) {
         char etagbuf[MD5_DIGEST_LENGTH * 2 + 1];
@@ -1577,10 +1555,6 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
     }
     if (*accept_encoding != '\0')
         http_io_add_header(priv, &io, "%s: %s", ACCEPT_ENCODING_HEADER, accept_encoding);
-
-    // Add Authorization header
-    if ((r = http_io_add_auth(priv, &io, now, NULL, 0)) != 0)
-        goto fail;
 
     // Perform operation
     r = http_io_perform_io(priv, &io, http_io_read_prepper);
@@ -1779,7 +1753,6 @@ bad_encoding:
     if (actual_etag != NULL)
         memcpy(actual_etag, io.etag, MD5_DIGEST_LENGTH);
 
-fail:
     //  Clean up
     if (io.dest != NULL)
         free(io.dest);
@@ -1791,6 +1764,8 @@ static int
 http_io_read_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
+    if (http_io_add_data_and_auth_headers(priv, io) != 0)
+        return 0;
     io->bufs.rdremain = io->buf_size;
     io->bufs.rddata = io->dest;
     if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
@@ -1819,7 +1794,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     char hmacbuf[SHA_DIGEST_LENGTH * 2 + 1];
     u_char hmac[SHA_DIGEST_LENGTH];
     u_char md5[MD5_DIGEST_LENGTH];
-    const time_t now = time(NULL);
     void *encoded_buf = NULL;
     struct http_io io;
     int compressed = 0;
@@ -1934,9 +1908,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     // Construct URL for this block
     http_io_get_block_url(urlbuf, sizeof(urlbuf), config, block_num);
 
-    // Add Date header
-    http_io_add_date(priv, &io, now);
-
     // Add PUT-only headers
     if (src != NULL) {
         char md5buf[(MD5_DIGEST_LENGTH * 4) / 3 + 4];
@@ -1973,10 +1944,6 @@ http_io_write_block(struct s3backer_store *const s3b, s3b_block_t block_num, con
     // Add storage class header (if needed)
     if (config->storage_class != NULL)
         http_io_add_header(priv, &io, "%s: %s", STORAGE_CLASS_HEADER, config->storage_class);
-
-    // Add Authorization header
-    if ((r = http_io_add_auth(priv, &io, now, io.src, io.buf_size)) != 0)
-        goto fail;
 
     // Perform operation
     r = http_io_perform_io(priv, &io, http_io_write_prepper);
@@ -2021,6 +1988,8 @@ static int
 http_io_write_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
 {
     memset(&io->bufs, 0, sizeof(io->bufs));
+    if (http_io_add_data_and_auth_headers(priv, io) != 0)
+        return 0;
     if (io->src != NULL) {
         io->bufs.wrremain = io->buf_size;
         io->bufs.wrdata = io->src;
@@ -2220,7 +2189,6 @@ static int
 http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void (*end_handler)(void *arg, const XML_Char *name))
 {
     struct http_io_conf *const config = priv->config;
-    const time_t now = time(NULL);
     int r;
 
     // Reset XML parser state
@@ -2242,13 +2210,6 @@ http_io_xml_io_exec(struct http_io_private *const priv, struct http_io *io, void
         // Add Content-Type header
         http_io_add_header(priv, io, "%s: %s", CTYPE_HEADER, "application/xml");
     }
-
-    // Add Date header
-    http_io_add_date(priv, io, now);
-
-    // Add Authorization header
-    if ((r = http_io_add_auth(priv, io, now, io->src, io->buf_size)) != 0)
-        return r;
 
     // Perform operation
     r = http_io_perform_io(priv, io, http_io_xml_prepper);
@@ -2328,13 +2289,13 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
         // Debug
         if (config->debug) {
             (*config->log)(LOG_DEBUG, "%s %s", io->method, io->url);
-            if (config->debug_http && io->bufs.wrremain > 0) {
-                size_t chars_to_print = io->bufs.wrremain;
+            if (config->debug_http && io->src != NULL) {
+                size_t chars_to_print = io->buf_size;
 
                 if (chars_to_print > MAX_DEBUG_PAYLOAD_SIZE)
                     chars_to_print = MAX_DEBUG_PAYLOAD_SIZE;
                 (*config->log)(LOG_DEBUG, "HTTP %s request payload:\n%.*s",
-                  io->method, (int)chars_to_print, io->bufs.wrdata);
+                  io->method, (int)chars_to_print, (const char *)io->src);
             }
         }
 
@@ -2571,6 +2532,56 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
     // Give up
     (*config->log)(LOG_ERR, "giving up on: %s %s", io->method, io->url);
     return last_error;
+}
+
+/*
+ * Add Date and Authorization headers, replacing any previous.
+ *
+ * This should be invoked for every HTTP attempt in order to keep the request timestamp current.
+ */
+static int
+http_io_add_data_and_auth_headers(struct http_io_private *priv, struct http_io *io)
+{
+    struct http_io_conf *const config = priv->config;
+    struct curl_slist **current_headerp;
+    const time_t now = time(NULL);
+    char datebuf[DATE_BUF_SIZE];
+    struct tm tm;
+    int r;
+
+    // Remove the previous date and auth headers (only happens on retries)
+    current_headerp = &io->headers;
+    while (*current_headerp != NULL) {
+        struct curl_slist *const current_header = *current_headerp;
+        struct curl_slist *const next_header = current_header->next;
+
+        if (strncasecmp(current_header->data, HTTP_DATE_HEADER ":", sizeof(HTTP_DATE_HEADER)) == 0
+          || strncasecmp(current_header->data, AWS_DATE_HEADER ":", sizeof(AWS_DATE_HEADER)) == 0
+          || strncasecmp(current_header->data, AUTH_HEADER ":", sizeof(AUTH_HEADER)) == 0) {
+            *current_headerp = next_header;             // excise element from the list and advance to the next
+            current_header->next = NULL;
+            curl_slist_free_all(current_header);        // free the removed element
+        } else
+            current_headerp = &current_header->next;    // advance to the next
+    }
+
+    // Add Date header
+    if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0) {
+        strftime(datebuf, sizeof(datebuf), HTTP_DATE_BUF_FMT, gmtime_r(&now, &tm));
+        if ((r = http_io_add_header(priv, io, "%s: %s", HTTP_DATE_HEADER, datebuf)) != 0)
+            return r;
+    } else {
+        strftime(datebuf, sizeof(datebuf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
+        if ((r = http_io_add_header(priv, io, "%s: %s", AWS_DATE_HEADER, datebuf)) != 0)
+            return r;
+    }
+
+    // Add Authorization header
+    if ((r = http_io_add_auth(priv, io, now, io->src, io->src != NULL ? io->buf_size : 0)) != 0)
+        return r;
+
+    // Done
+    return 0;
 }
 
 /*
@@ -3129,25 +3140,6 @@ http_io_get_mount_token_file_url(char *buf, size_t bufsiz, struct http_io_conf *
         snvprintf(buf, bufsiz, "%s%s%s", config->baseURL, config->prefix, MOUNT_TOKEN_FILE);
     else
         snvprintf(buf, bufsiz, "%s%s/%s%s", config->baseURL, config->bucket, config->prefix, MOUNT_TOKEN_FILE);
-}
-
-/*
- * Add date header based on supplied time.
- */
-static void
-http_io_add_date(struct http_io_private *const priv, struct http_io *const io, time_t now)
-{
-    struct http_io_conf *const config = priv->config;
-    char buf[DATE_BUF_SIZE];
-    struct tm tm;
-
-    if (strcmp(config->authVersion, AUTH_VERSION_AWS2) == 0) {
-        strftime(buf, sizeof(buf), HTTP_DATE_BUF_FMT, gmtime_r(&now, &tm));
-        http_io_add_header(priv, io, "%s: %s", HTTP_DATE_HEADER, buf);
-    } else {
-        strftime(buf, sizeof(buf), AWS_DATE_BUF_FMT, gmtime_r(&now, &tm));
-        http_io_add_header(priv, io, "%s: %s", AWS_DATE_HEADER, buf);
-    }
 }
 
 static int
