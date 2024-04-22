@@ -2542,6 +2542,14 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 static int
 http_io_add_data_and_auth_headers(struct http_io_private *priv, struct http_io *io)
 {
+    static const char *const remove_headers[] = {
+        AUTH_HEADER,
+        AWS_DATE_HEADER,
+        CONTENT_SHA256_HEADER,
+        HTTP_DATE_HEADER,
+        SECURITY_TOKEN_HEADER,
+        NULL
+    };
     struct http_io_conf *const config = priv->config;
     struct curl_slist **current_headerp;
     const time_t now = time(NULL);
@@ -2553,16 +2561,26 @@ http_io_add_data_and_auth_headers(struct http_io_private *priv, struct http_io *
     current_headerp = &io->headers;
     while (*current_headerp != NULL) {
         struct curl_slist *const current_header = *current_headerp;
-        struct curl_slist *const next_header = current_header->next;
+        const char *const header = current_header->data;
+        int i;
 
-        if (strncasecmp(current_header->data, HTTP_DATE_HEADER ":", sizeof(HTTP_DATE_HEADER)) == 0
-          || strncasecmp(current_header->data, AWS_DATE_HEADER ":", sizeof(AWS_DATE_HEADER)) == 0
-          || strncasecmp(current_header->data, AUTH_HEADER ":", sizeof(AUTH_HEADER)) == 0) {
-            *current_headerp = next_header;             // excise element from the list and advance to the next
+        // Does this header need to be removed?
+        for (i = 0; remove_headers[i] != NULL; i++) {
+            const char *const remove_header = remove_headers[i];
+            const size_t remove_header_len = strlen(remove_header);
+
+            if (strncasecmp(header, remove_header, remove_header_len) == 0
+              && header[remove_header_len] == ':')
+                break;
+        }
+
+        // If so, excise header from the list and free it, otherwise proceed to the next header
+        if (remove_headers[i] != NULL) {
+            *current_headerp = current_header->next;
             current_header->next = NULL;
-            curl_slist_free_all(current_header);        // free the removed element
+            curl_slist_free_all(current_header);
         } else
-            current_headerp = &current_header->next;    // advance to the next
+            current_headerp = &current_header->next;
     }
 
     // Add Date header
