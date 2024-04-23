@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.2 released April 23, 2024
 
     - Automatically recreate nbdkit socket's directory if missing (issue #219)
     - Recalculate date and authorization on retry (issue #214)
