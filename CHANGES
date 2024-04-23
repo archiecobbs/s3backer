@@ -1,3 +1,7 @@
+Version Next
+
+    - Implement nbdkit "block_size" callback.
+
 Version 2.1.2 released April 23, 2024
 
     - Automatically recreate nbdkit socket's directory if missing (issue #219)

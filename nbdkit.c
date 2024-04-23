@@ -85,6 +85,8 @@ static int s3b_nbd_plugin_flush(void *handle, uint32_t flags);
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_fua(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
+static int s3b_nbd_plugin_block_size(void *handle, uint32_t *minimum, uint32_t *preferred, uint32_t *maximum);
+
 static void s3b_nbd_plugin_unload(void);
 
 #define PLUGIN_HELP                                                                                                 \
@@ -115,6 +117,7 @@ static struct nbdkit_plugin plugin = {
     .can_fua=               s3b_nbd_plugin_can_fua,
     .can_cache=             s3b_nbd_plugin_can_cache,
     .is_rotational=         NULL,
+    .block_size=            s3b_nbd_plugin_block_size,
 
     // Startup lifecycle callbacks
     .load=                  s3b_nbd_plugin_load,
@@ -493,6 +496,17 @@ static int
 s3b_nbd_plugin_can_multi_conn(void *handle)
 {
     return 1;
+}
+
+static int
+s3b_nbd_plugin_block_size(void *handle, uint32_t *minimum, uint32_t *preferred, uint32_t *maximum)
+{
+    *minimum = 1;
+    *preferred = config->block_size;
+    *maximum = 0xffffffff;
+    if (config->file_size < (off_t)*maximum)
+        *maximum = (uint32_t)config->file_size;
+    return 0;
 }
 
 ////////////// Internal functions
