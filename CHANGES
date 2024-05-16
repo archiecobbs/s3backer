@@ -1,6 +1,7 @@
 Version Next
 
-    - Implement nbdkit "block_size" callback.
+    - Implement nbdkit "block_size" callback
+    - Fix spurious "cache file is truncated" error (issue #222)
 
 Version 2.1.2 released April 23, 2024
 

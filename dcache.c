@@ -565,17 +565,52 @@ s3b_dcache_read_block(struct s3b_dcache *priv, u_int dslot, void *dest, u_int of
 int
 s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_int off, u_int len)
 {
+    const off_t prev_file_size = priv->file_size;
+    int r;
+
+    // Write the data info the block
 #if USE_FALLOCATE
-    return s3b_dcache_write_block_falloc(priv, dslot, src, off, len);
+    r = s3b_dcache_write_block_falloc(priv, dslot, src, off, len);
 #else
-    return s3b_dcache_write_block_simple(priv, dslot, src, off, len);
+    r = s3b_dcache_write_block_simple(priv, dslot, src, off, len);
 #endif
+    if (r != 0)
+        return r;
+
+    // Keep the file size a proper multiple of one full data block (issue #222)
+    if (priv->file_size > prev_file_size) {
+        const off_t dslot_start = DATA_OFFSET(priv, dslot);
+        const off_t dslot_end = DATA_OFFSET(priv, dslot + 1);
+
+        assert(priv->file_size > dslot_start);
+        assert(priv->file_size <= dslot_end);
+        if (priv->file_size < dslot_end) {
+            const u_int padding_len = (u_int)(dslot_end - priv->file_size);
+            const u_int padding_off = priv->block_size - padding_len;
+
+#if USE_FALLOCATE
+            r = s3b_dcache_write_block_falloc(priv, dslot, zero_block, padding_off, padding_len);
+#else
+            r = s3b_dcache_write_block_simple(priv, dslot, zero_block, padding_off, padding_len);
+#endif
+            if (r != 0)
+                return r;
+        }
+        assert(priv->file_size == dslot_end);
+    }
+
+    // Done
+    return 0;
 }
 
 #if USE_FALLOCATE
 
 /*
  * Write data into one dslot using FALLOC_FL_PUNCH_HOLE for zero filesystem blocks where able.
+ *
+ * The complexity here comes from the fact that the disk block size is (likely) smaller than the s3backer
+ * block size, so for some of the underlying disk blocks we may be able to punch a "zero hole" while for
+ * others we may not.
  */
 int
 s3b_dcache_write_block_falloc(struct s3b_dcache *priv, u_int dslot, const char *src, const u_int doff, u_int len)
@@ -607,7 +642,7 @@ s3b_dcache_write_block_falloc(struct s3b_dcache *priv, u_int dslot, const char *
     }
     assert(len == 0 || off == roundup_off);
 
-    // Write intermediate aligned bits, using FALLOC_FL_PUNCH_HOLE for zero blocks
+    // Write intermediate aligned bits, using FALLOC_FL_PUNCH_HOLE for zero disk blocks
     num_zero_blocks = 0;
     while (len >= priv->file_block_size) {
         u_int nonzero_len;
