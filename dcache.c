@@ -579,7 +579,9 @@ s3b_dcache_write_block(struct s3b_dcache *priv, u_int dslot, const void *src, u_
 
     // Keep the file size a proper multiple of one full data block (issue #222)
     if (priv->file_size > prev_file_size) {
+#ifndef NDEBUG
         const off_t dslot_start = DATA_OFFSET(priv, dslot);
+#endif
         const off_t dslot_end = DATA_OFFSET(priv, dslot + 1);
 
         assert(priv->file_size > dslot_start);
