@@ -77,38 +77,42 @@ PKG_CHECK_MODULES([ZSTD], libzstd,
     LDFLAGS="${LDFLAGS} ${ZSTD_LIBS}"],
     [true])
 
-# Check for NBDKit
-PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.24.1],
-    [AC_DEFINE([NBDKIT], [1], [Whether NBDKit is available])
-    NBDKIT_FOUND=true],
-    [NBDKIT_FOUND=false])
-AC_SUBST([NBDKIT_FOUND])
+# Check if NBD support is enabled
+AS_IF([test "x$enable_nbd" != xno], [
+
+    # Check for NBDKit
+    PKG_CHECK_MODULES([NBDKIT], [nbdkit >= 1.24.1],
+        [AC_DEFINE([NBDKIT], [1], [Whether NBDKit is available])
+        NBDKIT_FOUND=true],
+        [NBDKIT_FOUND=false])
+
+    # If NBDKit was found, find the plugin directory and executable
+    AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
+
+        # Find nbdkit plugins directory
+        AC_MSG_CHECKING([NBDKit plugins directory])
+        PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
+        AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
+            [AC_MSG_FAILURE([Unable to identify the NBDKit plugin directory.])],
+            [AC_MSG_RESULT([$NBDKIT_PLUGINDIR])])
+
+        # Find nbdkit(1)
+        AC_PATH_PROGS([NBDKIT_EXECUTABLE], [nbdkit])
+        AS_IF([test "x$NBDKIT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbdkit not found])])
+        AC_DEFINE_UNQUOTED([NBDKIT_EXECUTABLE], ["$NBDKIT_EXECUTABLE"], [path to nbdkit(1) executable])
+
+        # Find nbd-client(8)
+        AC_PATH_PROGS([NBD_CLIENT_EXECUTABLE], [nbd-client])
+        AS_IF([test "x$NBD_CLIENT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbd-client not found])])
+        AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(8) executable])
+
+        # Find modprobe(8) (optional)
+        AC_PATH_PROGS([MODPROBE_EXECUTABLE], [modprobe])
+        AC_DEFINE_UNQUOTED([MODPROBE_EXECUTABLE], ["$MODPROBE_EXECUTABLE"], [path to modprobe(8) executable])
+    ])
+], [NBDKIT_FOUND=false])
 AM_CONDITIONAL([NBDKIT_FOUND], [test "x$NBDKIT_FOUND" = xtrue])
-
-# If NBDKit was found, find the plugin directory and executable
-AS_IF([test "x$NBDKIT_FOUND" = xtrue], [
-
-    # Find nbdkit plugins directory
-    AC_MSG_CHECKING([NBDKit plugins directory])
-    PKG_CHECK_VAR([NBDKIT_PLUGINDIR], [nbdkit], [plugindir])
-    AS_IF([test "x$NBDKIT_PLUGINDIR" = "x"],
-        [AC_MSG_FAILURE([Unable to identify the NBDKit plugin directory.])],
-        [AC_MSG_RESULT([$NBDKIT_PLUGINDIR])])
-
-    # Find nbdkit(1)
-    AC_PATH_PROGS([NBDKIT_EXECUTABLE], [nbdkit])
-    AS_IF([test "x$NBDKIT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbdkit not found])])
-    AC_DEFINE_UNQUOTED([NBDKIT_EXECUTABLE], ["$NBDKIT_EXECUTABLE"], [path to nbdkit(1) executable])
-
-    # Find nbd-client(8)
-    AC_PATH_PROGS([NBD_CLIENT_EXECUTABLE], [nbd-client])
-    AS_IF([test "x$NBD_CLIENT_EXECUTABLE" = x], [AC_MSG_ERROR([required executable nbd-client not found])])
-    AC_DEFINE_UNQUOTED([NBD_CLIENT_EXECUTABLE], ["$NBD_CLIENT_EXECUTABLE"], [path to nbd-client(8) executable])
-
-    # Find modprobe(8) (optional)
-    AC_PATH_PROGS([MODPROBE_EXECUTABLE], [modprobe])
-    AC_DEFINE_UNQUOTED([MODPROBE_EXECUTABLE], ["$MODPROBE_EXECUTABLE"], [path to modprobe(8) executable])
-])
+AC_SUBST([NBDKIT_FOUND])
 
 # Define our directory for nbdkit(1) UNIX socket files, defaulting to /run/s3backer-nbd
 AC_ARG_VAR([S3B_NBD_DIR], [directory containing UNIX socket files used by nbd-client])
@@ -176,6 +180,8 @@ AC_ARG_ENABLE(Werror,
 AC_ARG_ENABLE(sanitize,
     AS_HELP_STRING([--enable-sanitize],[enable compilation with -fsanitize=address and -fsanitize=undefined (default NO)]),
     [test x"$enableval" = "xyes" && CFLAGS="${CFLAGS} -fsanitize=address -fsanitize=undefined"])
+AC_ARG_ENABLE(nbd,
+    AS_HELP_STRING([--enable-nbd],[include NBD support if nbdkit is found (default YES)]))
 
 # Generated files
 AC_CONFIG_FILES(Makefile)
