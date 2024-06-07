@@ -638,7 +638,8 @@ s3b_dcache_write_block_falloc(struct s3b_dcache *priv, u_int dslot, const char *
     if (extra_len > 0) {
         if ((r = s3b_dcache_write(priv, off, src != NULL ? src : zero_block, extra_len)) != 0)
             return r;
-        src += extra_len;
+        if (src != NULL)
+            src += extra_len;
         off += extra_len;
         len -= extra_len;
     }
@@ -665,7 +666,8 @@ s3b_dcache_write_block_falloc(struct s3b_dcache *priv, u_int dslot, const char *
             // "Write" zeros using FALLOC_FL_PUNCH_HOLE
             if (fallocate(priv->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, off, zero_len) != 0)
                 return errno;
-            src += zero_len;
+            if (src != NULL)
+                src += zero_len;
             off += zero_len;
             len -= zero_len;
             num_zero_blocks = 0;
