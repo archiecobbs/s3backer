@@ -1,3 +1,7 @@
+Version Next
+
+    - Conditionalize nbdkit "block_size" callback (issue #226)
+
 Version 2.1.3 released June 12, 2024
 
     - Implement nbdkit "block_size" callback

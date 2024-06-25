@@ -50,6 +50,13 @@
 #define NBDKIT_API_VERSION              2
 #include <nbdkit-plugin.h>
 
+// Checks for newer features
+#if NBDKIT_VERSION_MAJOR > 1 || (NBDKIT_VERSION_MAJOR == 1 && NBDKIT_VERSION_MINOR >= 30)
+#define NDBKIT_PLUGIN_HAS_BLOCK_SIZE    1
+#else
+#define NDBKIT_PLUGIN_HAS_BLOCK_SIZE    0
+#endif
+
 // Concurrent requests are supported
 #define THREAD_MODEL                    NBDKIT_THREAD_MODEL_PARALLEL
 
@@ -85,7 +92,9 @@ static int s3b_nbd_plugin_flush(void *handle, uint32_t flags);
 static int s3b_nbd_plugin_can_multi_conn(void *handle);
 static int s3b_nbd_plugin_can_fua(void *handle);
 static int s3b_nbd_plugin_can_cache(void *handle);
+#if NDBKIT_PLUGIN_HAS_BLOCK_SIZE
 static int s3b_nbd_plugin_block_size(void *handle, uint32_t *minimum, uint32_t *preferred, uint32_t *maximum);
+#endif
 
 static void s3b_nbd_plugin_unload(void);
 
@@ -117,7 +126,9 @@ static struct nbdkit_plugin plugin = {
     .can_fua=               s3b_nbd_plugin_can_fua,
     .can_cache=             s3b_nbd_plugin_can_cache,
     .is_rotational=         NULL,
+#if NDBKIT_PLUGIN_HAS_BLOCK_SIZE
     .block_size=            s3b_nbd_plugin_block_size,
+#endif
 
     // Startup lifecycle callbacks
     .load=                  s3b_nbd_plugin_load,
@@ -498,6 +509,7 @@ s3b_nbd_plugin_can_multi_conn(void *handle)
     return 1;
 }
 
+#if NDBKIT_PLUGIN_HAS_BLOCK_SIZE
 static int
 s3b_nbd_plugin_block_size(void *handle, uint32_t *minimum, uint32_t *preferred, uint32_t *maximum)
 {
@@ -508,6 +520,7 @@ s3b_nbd_plugin_block_size(void *handle, uint32_t *minimum, uint32_t *preferred, 
         *maximum = (uint32_t)config->file_size;
     return 0;
 }
+#endif
 
 ////////////// Internal functions
 
