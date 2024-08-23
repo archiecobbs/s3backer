@@ -1,6 +1,7 @@
 Version Next
 
     - Conditionalize nbdkit "block_size" callback (issue #226)
+    - Skip nbd-client(8) cleanup step if it failed to start properly (#227).
 
 Version 2.1.3 released June 12, 2024
 

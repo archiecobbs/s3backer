@@ -159,6 +159,7 @@ trampoline_to_nbd(int argc, char **argv)
     struct timespec pause;
     const char *bucket_param;
     const char *device_param;
+    int skip_client_cleanup;
     char *unix_socket;
     long elapsed_millis;
     int file_created;
@@ -400,7 +401,9 @@ trampoline_to_nbd(int argc, char **argv)
     }
 
     // Wait for the first child process to exit or a signal to be recieved, but ignore exit of nbd-client
+    skip_client_cleanup = 0;
     while (1) {
+        int abnormal_exit;
 
         // Wait for next child to exit or signal
         exit_pid = wait_for_child_to_exit(config, &exit_proc, !config->foreground, 0);
@@ -409,12 +412,18 @@ trampoline_to_nbd(int argc, char **argv)
         if (exit_pid == (pid_t)0 || exit_pid == (pid_t)-1)
             break;
 
-        // We are expecting nbd-client to exit immediately
-        if (exit_pid == client_pid)
+        // Did the process exited abnormally?
+        abnormal_exit = !WIFEXITED(exit_proc.wstatus) || WEXITSTATUS(exit_proc.wstatus) != 0;
+
+        // We are expecting nbd-client to exit immediately; but if it had an error, skip the corresponding cleanup
+        if (exit_pid == client_pid) {
             client_pid = (pid_t)-2;                                                                     // don't match pid again
+            if (abnormal_exit)
+                skip_client_cleanup = 1;
+        }
 
         // If process exited abnormally, bail out
-        if (!WIFEXITED(exit_proc.wstatus) || WEXITSTATUS(exit_proc.wstatus) != 0)
+        if (abnormal_exit)
             break;
     }
 
@@ -422,12 +431,14 @@ trampoline_to_nbd(int argc, char **argv)
     daemon_debug(config, "shutting down %s NDB server", PACKAGE);
 
     // Run "nbd-client -d" to help clean up
-    if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
-      || add_string(&command_line, "-d") == -1
-      || add_string(&command_line, "%s", device_param) == -1)
-        daemon_err(config, 1, "add_string");
-    client_pid = start_child_process(config, NBD_CLIENT_EXECUTABLE, &command_line);
-    free_strings(&command_line);
+    if (!skip_client_cleanup) {
+        if (add_string(&command_line, "%s", NBD_CLIENT_EXECUTABLE) == -1
+          || add_string(&command_line, "-d") == -1
+          || add_string(&command_line, "%s", device_param) == -1)
+            daemon_err(config, 1, "add_string");
+        client_pid = start_child_process(config, NBD_CLIENT_EXECUTABLE, &command_line);
+        free_strings(&command_line);
+    }
 
     // Kill all other child processes
     kill_remaining_children(config, client_pid, SIGTERM);
