@@ -309,6 +309,7 @@ static http_io_curl_prepper_t http_io_head_prepper;
 static http_io_curl_prepper_t http_io_read_prepper;
 static http_io_curl_prepper_t http_io_write_prepper;
 static http_io_curl_prepper_t http_io_xml_prepper;
+static http_io_curl_prepper_t http_io_iamcreds_token_prepper;
 static http_io_curl_prepper_t http_io_iamcreds_prepper;
 
 // S3 REST API functions
@@ -1353,7 +1354,7 @@ update_iam_credentials(struct http_io_private *const priv)
 
         // Perform operation
         (*config->log)(LOG_INFO, "acquiring EC2 IAM IMDSv2 auth token from %s", io.url);
-        if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
+        if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_token_prepper)) != 0) {
             (*config->log)(LOG_ERR, "failed to acquire EC2 IAM IMDSv2 auth token from %s: %s", io.url, strerror(r));
             return r;
         }
@@ -1453,6 +1454,27 @@ update_iam_credentials_with_token(struct http_io_private *const priv, const char
     return 0;
 }
 
+static int
+http_io_iamcreds_token_prepper(struct http_io_private *const priv, CURL *curl, struct http_io *io)
+{
+    memset(&io->bufs, 0, sizeof(io->bufs));
+    io->bufs.rdremain = io->buf_size;
+    io->bufs.rddata = io->dest;
+    io->bufs.wrremain = 0;                  // We do a "PUT" but we don't actually send anything
+    io->bufs.wrdata = NULL;
+    if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_READFUNCTION, http_io_curl_writer)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_READDATA, io)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
+      || !http_io_curl_setopt_off(priv, curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_CUSTOMREQUEST, io->method)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers)
+      || !http_io_curl_setopt_long(priv, curl, CURLOPT_UPLOAD, 1)
+      || !http_io_curl_setopt_off(priv, curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)0))
+        return 0;
+    return 1;
+}
+
 static void *
 update_iam_credentials_main(void *arg)
 {
@@ -1523,6 +1545,7 @@ http_io_iamcreds_prepper(struct http_io_private *const priv, CURL *curl, struct 
     if (!http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEFUNCTION, http_io_curl_reader)
       || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_WRITEDATA, io)
       || !http_io_curl_setopt_off(priv, curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)io->buf_size)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_HTTPHEADER, io->headers)
       || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_ACCEPT_ENCODING, "")
       || !http_io_curl_setopt_long(priv, curl, CURLOPT_HTTP_CONTENT_DECODING, 0))
         return 0;
