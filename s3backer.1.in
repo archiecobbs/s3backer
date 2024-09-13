@@ -416,6 +416,8 @@ every five minutes.
 This option allows S3 credentials to be provided automatically via the specified IAM role to
 .Nm
 when running on an Amazon EC2 instance.
+.It Fl \-accessEC2IAM-IMDSv2
+Acquire S3 credentials for an Amazon EC2 instance using IMDSv2 instead of IMDSv1.
 .It Fl \-authVersion=TYPE
 Specify how to authenticate requests. There are two supported authentication methods:
 .Ar aws2

@@ -242,6 +242,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, http_io.ec2iam_role),
     },
     {
+        .templ=     "--accessEC2IAM-IMDSv2",
+        .offset=    offsetof(struct s3b_config, http_io.ec2iam_imdsv2),
+        .value=     1
+    },
+    {
         .templ=     "--authVersion=%s",
         .offset=    offsetof(struct s3b_config, http_io.authVersion),
     },
@@ -1906,6 +1911,8 @@ dump_config(const struct s3b_config *const c)
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessFile", c->accessFile);
     (*c->log)(LOG_DEBUG, "%24s: %s", "accessType", c->http_io.accessType);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "ec2iam_role", c->http_io.ec2iam_role != NULL ? c->http_io.ec2iam_role : "");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "ec2iam_mode",
+                                    c->http_io.ec2iam_role == NULL ? "N/A" : c->http_io.ec2iam_imdsv2 ? "IMDSv2" : "IMDSv1");
     (*c->log)(LOG_DEBUG, "%24s: %s", "authVersion", c->http_io.authVersion);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "baseURL", c->http_io.baseURL);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "region", c->http_io.region);
@@ -1993,6 +2000,7 @@ usage(void)
         fprintf(stderr, "%s%s", sptr != s3_auth_types ? ", " : "  ", *sptr);
     fprintf(stderr, "\n");
     fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM=ROLE", "Acquire S3 credentials from EC2 machine via IAM role");
+    fprintf(stderr, "\t--%-27s %s\n", "accessEC2IAM-IMDSv2", "Acquire S3 credentials using IMDSv2 instead of IMDSv1");
     fprintf(stderr, "\t--%-27s %s\n", "baseURL=URL", "Base URL for all requests");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheFile=FILE", "Block cache persistent file");
     fprintf(stderr, "\t--%-27s %s\n", "blockCacheMaxDirty=NUM", "Block cache maximum number of dirty blocks");

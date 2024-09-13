@@ -63,6 +63,7 @@ struct http_io_conf {
     char                    *iam_token;
     const char              *accessType;
     const char              *ec2iam_role;
+    int                     ec2iam_imdsv2;              // use IMDSv2 instead of IMDSv1
     const char              *storage_class;
     const char              *authVersion;
     const char              *baseURL;

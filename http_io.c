@@ -147,8 +147,14 @@
 #define SIGNATURE_TERMINATOR        "aws4_request"
 #define SECURITY_TOKEN_HEADER       "x-amz-security-token"
 
-// EC2 IAM info URL
-#define EC2_IAM_META_DATA_URLBASE   "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+// EC2 IAM stuff
+#define EC2_IAM_TOKEN_REQ_URL           "http://169.254.169.254/latest/api/token"
+#define EC2_IAM_TOKEN_REQ_TTL_HEADER    "X-aws-ec2-metadata-token-ttl-seconds"
+#define EC2_IAM_TOKEN_REQ_TTL_SECONDS   21600
+#define EC2_IAM_META_DATA_URLBASE       "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+#define EC2_IAM_META_DATA_TOKEN_HEADER  "X-aws-ec2-metadata-token"
+
+// EC2 IAM JSON response fields
 #define EC2_IAM_META_DATA_ACCESSID  "AccessKeyId"
 #define EC2_IAM_META_DATA_ACCESSKEY "SecretAccessKey"
 #define EC2_IAM_META_DATA_TOKEN     "Token"
@@ -318,6 +324,7 @@ static char *canonicalize_query_string(const char *query, size_t len);
 // EC2 IAM thread
 static void *update_iam_credentials_main(void *arg);
 static int update_iam_credentials(struct http_io_private *priv);
+static int update_iam_credentials_with_token(struct http_io_private *const priv, const char *token);
 static char *parse_json_field(struct http_io_private *priv, const char *json, const char *field);
 
 // Block survey functions
@@ -1328,6 +1335,51 @@ static int
 update_iam_credentials(struct http_io_private *const priv)
 {
     struct http_io_conf *const config = priv->config;
+
+    // If using IMDSv2, get an auth token first
+    if (config->ec2iam_imdsv2) {
+        struct http_io io;
+        char tokenbuf[1024];
+        size_t buflen;
+        int r;
+
+        // Initialize I/O info
+        http_io_init_io(priv, &io, HTTP_PUT, EC2_IAM_TOKEN_REQ_URL);
+        io.dest = tokenbuf;
+        io.buf_size = sizeof(tokenbuf);
+
+        // Add TTL header
+        http_io_add_header(priv, &io, "%s: %d", EC2_IAM_TOKEN_REQ_TTL_HEADER, EC2_IAM_TOKEN_REQ_TTL_SECONDS);
+
+        // Perform operation
+        (*config->log)(LOG_INFO, "acquiring EC2 IAM IMDSv2 auth token from %s", io.url);
+        if ((r = http_io_perform_io(priv, &io, http_io_iamcreds_prepper)) != 0) {
+            (*config->log)(LOG_ERR, "failed to acquire EC2 IAM IMDSv2 auth token from %s: %s", io.url, strerror(r));
+            return r;
+        }
+
+        // Determine how many bytes we read and NUL-terminate result
+        buflen = io.buf_size - io.bufs.rdremain;
+        if (buflen > sizeof(tokenbuf) - 1)
+            buflen = sizeof(tokenbuf) - 1;
+        tokenbuf[buflen] = '\0';
+
+#if DEBUG_AUTHENTICATION
+        (*config->log)(LOG_DEBUG, "ec2iam_imdsv2: got auth token \"%s\"", tokenbuf);
+#endif
+
+        // Proceed with token (IMDSv2)
+        return update_iam_credentials_with_token(priv, tokenbuf);
+    } else
+
+    // Proceed witout token (IMDSv1)
+    return update_iam_credentials_with_token(priv, NULL);
+}
+
+static int
+update_iam_credentials_with_token(struct http_io_private *const priv, const char *token)
+{
+    struct http_io_conf *const config = priv->config;
     char *urlbuf;
     struct http_io io;
     char buf[2048] = { '\0' };
@@ -1348,6 +1400,10 @@ update_iam_credentials(struct http_io_private *const priv)
     http_io_init_io(priv, &io, HTTP_GET, urlbuf);
     io.dest = buf;
     io.buf_size = sizeof(buf);
+
+    // Add token header, if any
+    if (token != NULL)
+        http_io_add_header(priv, &io, "%s: %s", EC2_IAM_META_DATA_TOKEN_HEADER, token);
 
     // Perform operation
     (*config->log)(LOG_INFO, "acquiring EC2 IAM credentials from %s", io.url);
