@@ -2438,7 +2438,7 @@ http_io_perform_io(struct http_io_private *priv, struct http_io *io, http_io_cur
 
             // Extract content-length (if required)
             if (io->content_lengthp != NULL) {
-                if ((curl_code = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &clen)) == CURLE_OK)
+                if ((curl_code = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &clen)) == CURLE_OK)
                     *io->content_lengthp = (u_int)clen;
                 else {
                     (*config->log)(LOG_ERR, "can't get content-length: %s", curl_easy_strerror(curl_code));
