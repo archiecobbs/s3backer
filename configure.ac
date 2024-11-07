@@ -134,7 +134,8 @@ AC_CHECK_LIB(z, compressBound,,
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <curl/curl.h>
 long x = CURLOPT_TCP_KEEPALIVE;
-]])],, [AC_MSG_ERROR([unable to compile with curl, or curl version is < 7.25.0])])
+int y = CURLINFO_CONTENT_LENGTH_DOWNLOAD_T;
+]])],, [AC_MSG_ERROR([unable to compile with curl, or curl version is < 7.55.0])])
 
 # See if FUSE version is 2.9.2 or later
 AC_MSG_CHECKING([for fallocate() support in fuse])

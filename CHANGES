@@ -1,5 +1,6 @@
 Version Next
 
+    - Fix use of deprecated cURL constant (pr #228)
     - Conditionalize nbdkit "block_size" callback (issue #226)
     - Skip nbd-client(8) cleanup step if it failed to start properly (#227).
     - Add new flag "--accessEC2IAM-IMDSv2" (issue #228)
