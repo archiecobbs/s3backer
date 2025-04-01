@@ -2065,7 +2065,6 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "test-discard", "In test mode, discard data and perform no I/O operations");
     fprintf(stderr, "\t--%-27s %s\n", "test-errors", "In test mode, introduce random I/O errors");
     fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Max time allowed for one HTTP operation");
-    fprintf(stderr, "\t--%-27s %s\n", "timeout=SECONDS", "Specify HTTP operation timeout");
     fprintf(stderr, "\t--%-27s %s\n", "version", "Show version information and exit");
     fprintf(stderr, "\t--%-27s %s\n", "vhost", "Use virtual host bucket style URL for all requests");
     fprintf(stderr, "Default values:\n");
