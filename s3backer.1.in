@@ -983,7 +983,7 @@ flag is used.
 The default region is
 .Pa us-east-1 .
 .It Fl \-reset-mounted-flag
-Reset the 'already mounted' flag on the underlying S3 data store.
+Reset the 'already mounted' flag on the underlying S3 data store and then exit.
 .Pp
 .Nm
 detects simultaneous mounts by checking a special flag.
