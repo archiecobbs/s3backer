@@ -125,14 +125,14 @@ parse_size_string(const char *s, const char *description, u_int max_bytes, uintm
             if (strcasecmp(suffix, ss->suffix) != 0)
                 continue;
             if (ss->bits >= max_bytes * 8) {
-                warnx("%s value `%s' is too big for this build of s3backer", description, s);
+                warnx("%s value \"%s\" is too big for this build of s3backer", description, s);
                 return -1;
             }
             *valp <<= ss->bits;
             return 0;
         }
     }
-    warnx("invalid %s `%s'", description, s);
+    warnx("invalid %s \"%s\"", description, s);
     return -1;
 }
 

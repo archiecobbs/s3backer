@@ -200,7 +200,7 @@ deflate_lparse(const char *string)
     return levelp;
 
 invalid:
-    warnx("invalid deflate compression level `%s'", string);
+    warnx("invalid deflate compression level \"%s\"", string);
     return NULL;
 }
 
@@ -279,7 +279,7 @@ zstd_lparse(const char *string)
     return levelp;
 
 invalid:
-    warnx("invalid zstd compression level `%s'", string);
+    warnx("invalid zstd compression level \"%s\"", string);
     return NULL;
 }
 #endif

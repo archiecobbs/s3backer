@@ -477,14 +477,14 @@ http_io_create(struct http_io_conf *config)
         // Find encryption algorithm
         OpenSSL_add_all_ciphers();
         if ((priv->cipher = EVP_get_cipherbyname(config->encryption)) == NULL) {
-            (*config->log)(LOG_ERR, "unknown encryption cipher `%s'", config->encryption);
+            (*config->log)(LOG_ERR, "unknown encryption cipher \"%s\"", config->encryption);
             r = EINVAL;
             goto fail6;
         }
         cipher_key_len = EVP_CIPHER_key_length(priv->cipher);
         priv->keylen = config->key_length > 0 ? config->key_length : cipher_key_len;
         if (priv->keylen < cipher_key_len || priv->keylen > sizeof(priv->key)) {
-            (*config->log)(LOG_ERR, "key length %u for cipher `%s' is out of range", priv->keylen, config->encryption);
+            (*config->log)(LOG_ERR, "key length %u for cipher \"%s\" is out of range", priv->keylen, config->encryption);
             r = EINVAL;
             goto fail6;
         }
@@ -493,7 +493,7 @@ http_io_create(struct http_io_conf *config)
         cipher_block_size = EVP_CIPHER_block_size(priv->cipher);
         cipher_iv_length = EVP_CIPHER_iv_length(priv->cipher);
         if (cipher_block_size <= 1 || cipher_block_size != cipher_iv_length) {
-            (*config->log)(LOG_ERR, "invalid cipher `%s' (block size %u, IV length %u); only block ciphers are supported",
+            (*config->log)(LOG_ERR, "invalid cipher \"%s\" (block size %u, IV length %u); only block ciphers are supported",
               config->encryption, cipher_block_size, cipher_iv_length);
             r = EINVAL;
             goto fail6;
@@ -1674,7 +1674,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
             // Encryption must be enabled
             if (config->encryption == NULL) {
-                (*config->log)(LOG_ERR, "block %0*jx is encrypted with `%s' but `--encrypt' was not specified",
+                (*config->log)(LOG_ERR, "block %0*jx is encrypted with \"%s\" but \"--encrypt\" was not specified",
                   S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher);
                 r = EIO;
                 break;
@@ -1682,7 +1682,7 @@ http_io_read_block(struct s3backer_store *const s3b, s3b_block_t block_num, void
 
             // Verify encryption type
             if (strcasecmp(block_cipher, EVP_CIPHER_name(priv->cipher)) != 0) {
-                (*config->log)(LOG_ERR, "block %0*jx was encrypted using `%s' but `%s' encryption is configured",
+                (*config->log)(LOG_ERR, "block %0*jx was encrypted using \"%s\" but \"%s\" encryption is configured",
                   S3B_BLOCK_NUM_DIGITS, (uintmax_t)block_num, block_cipher, EVP_CIPHER_name(priv->cipher));
                 r = EIO;
                 break;

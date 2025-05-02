@@ -663,7 +663,7 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
 
         // Check for infinite loops
         if (++num_subst > 100)
-            errx(1, "too many levels of `--configFile' nesting");
+            errx(1, "too many levels of \"--configFile\" nesting");
 
         // Replace the `--configFile' flag with arguments read from file
         read_fuse_args(optfile, i + num_args);
@@ -1201,18 +1201,18 @@ validate_config(int parse_only)
     // If no accessId, only read operations will succeed
     if (!config.test && config.http_io.accessId == NULL
       && !config.fuse_ops.read_only && !customBaseURL && config.http_io.ec2iam_role == NULL) {
-        warnx("warning: no `accessId' specified; only read operations will succeed");
-        warnx("you can eliminate this warning by providing the `--readOnly' flag");
+        warnx("warning: no \"accessId\" specified; only read operations will succeed");
+        warnx("you can eliminate this warning by providing the \"--readOnly\" flag");
     }
 
     // Read accessKey from environment variable if specified
     if (config.accessKeyEnv != NULL) {
         if (config.http_io.accessKey != NULL) {
-            warnx("flags `accessKey' and `accessKeyEnv' are mutually exclusive");
+            warnx("flags \"accessKey\" and \"accessKeyEnv\" are mutually exclusive");
             return -1;
         }
         if ((p = getenv(config.accessKeyEnv)) == NULL) {
-            warnx("`accessKeyEnv' environment variable `%s' not found", config.accessKeyEnv);
+            warnx("\"accessKeyEnv\" environment variable \"%s\" not found", config.accessKeyEnv);
             return -1;
         }
         if ((config.http_io.accessKey = strdup(p)) == NULL)
@@ -1221,27 +1221,27 @@ validate_config(int parse_only)
 
     // Find key in file if not specified explicitly
     if (config.http_io.accessId == NULL && config.http_io.accessKey != NULL) {
-        warnx("an `accessKey' was specified but no `accessId' was specified");
+        warnx("an \"accessKey\" was specified but no \"accessId\" was specified");
         return -1;
     }
     if (config.http_io.accessId != NULL) {
         if (config.http_io.accessKey == NULL && config.accessFile != NULL)
             search_access_for(config.accessFile, config.http_io.accessId, NULL, &config.http_io.accessKey);
         if (config.http_io.accessKey == NULL) {
-            warnx("no `accessKey' specified");
+            warnx("no \"accessKey\" specified");
             return -1;
         }
     }
 
     // Check for conflict between explicit accessId and EC2 IAM role
     if (config.http_io.accessId != NULL && config.http_io.ec2iam_role != NULL) {
-        warnx("an `accessKey' must not be specified when an `accessEC2IAM' role is specified");
+        warnx("an \"accessKey\" must not be specified when an \"accessEC2IAM\" role is specified");
         return -1;
     }
 
     // Check auth version
     if (!find_string_in_table(s3_auth_types, config.http_io.authVersion)) {
-        warnx("illegal authentication version `%s'", config.http_io.authVersion);
+        warnx("illegal authentication version \"%s\"", config.http_io.authVersion);
         return -1;
     }
 
@@ -1252,21 +1252,21 @@ validate_config(int parse_only)
             return -1;
         }
         if (*config.bucket == '\0' || *config.bucket == '/') {
-            warnx("invalid S3 bucket `%s'", config.bucket);
+            warnx("invalid S3 bucket \"%s\"", config.bucket);
             return -1;
         }
         if ((p = strchr(config.bucket, '/')) != NULL) {
 
             // Can't use bucket+prefix and --prefix at the same time
             if (*config.prefix != '\0') {
-                warnx("S3 bucket/prefix `%s' conflicts with `--prefix' flag", config.bucket);
+                warnx("S3 bucket/prefix \"%s\" conflicts with \"--prefix\" flag", config.bucket);
                 return -1;
             }
 
             // Disallow empty string, or initial, trailing, or duplicate slashes in directory name
             p++;
             if (*p == '\0' || *p == '/' || p[strlen(p) - 1] == '/' || strstr(p, "//") != NULL) {
-                warnx("invalid S3 bucket/prefix `%s'", config.bucket);
+                warnx("invalid S3 bucket/prefix \"%s\"", config.bucket);
                 return -1;
             }
 
@@ -1287,7 +1287,7 @@ validate_config(int parse_only)
             return -1;
         }
         if (!config.nbd && !config.foreground && *config.bucket != '/') {
-            warnx("%s: absolute pathname required for test mode directory unless `-f' flag is used", config.bucket);
+            warnx("%s: absolute pathname required for test mode directory unless \"-f\" flag is used", config.bucket);
             return -1;
         }
         if (stat(config.bucket, &sb) == -1) {
@@ -1303,7 +1303,7 @@ validate_config(int parse_only)
 
     // Check storage class
     if (config.http_io.storage_class != NULL && !find_string_in_table(s3_storage_classes, config.http_io.storage_class)) {
-        warnx("invalid storage class `%s'", config.http_io.storage_class);
+        warnx("invalid storage class \"%s\"", config.http_io.storage_class);
         return -1;
     }
 
@@ -1311,11 +1311,11 @@ validate_config(int parse_only)
     if (config.http_io.sse != NULL) {
         if (strcmp(config.http_io.sse, SSE_AWS_KMS) == 0) {
             if (config.http_io.sse_key_id == NULL) {
-                warnx("`--sse-key-id' flag is required when `--sse' flag is used");
+                warnx("\"--sse-key-id\" flag is required when \"--sse\" flag is used");
                 return -1;
             }
         } else if (strcmp(config.http_io.sse, SSE_AES256) != 0) {
-            warnx("unknown sse type `%s'", config.http_io.sse);
+            warnx("unknown sse type \"%s\"", config.http_io.sse);
             return -1;
         }
     }
@@ -1359,11 +1359,11 @@ validate_config(int parse_only)
         s = NULL;
     }
     if (s == NULL) {
-        warnx("invalid base URL `%s'", config.http_io.baseURL);
+        warnx("invalid base URL \"%s\"", config.http_io.baseURL);
         return -1;
     }
     if (config.ssl && customBaseURL && strncmp(config.http_io.baseURL, "https", 5) != 0) {
-        warnx("non-SSL `--baseURL' conflicts with `--ssl'");
+        warnx("non-SSL \"--baseURL\" conflicts with \"--ssl\"");
         return -1;
     }
 
@@ -1388,17 +1388,17 @@ validate_config(int parse_only)
 
     // Check S3 access privilege
     if (!find_string_in_table(s3_acls, config.http_io.accessType)) {
-        warnx("illegal access type `%s'", config.http_io.accessType);
+        warnx("illegal access type \"%s\"", config.http_io.accessType);
         return -1;
     }
 
     // Check filenames
     if (strchr(config.fuse_ops.filename, '/') != NULL || *config.fuse_ops.filename == '\0') {
-        warnx("illegal filename `%s'", config.fuse_ops.filename);
+        warnx("illegal filename \"%s\"", config.fuse_ops.filename);
         return -1;
     }
     if (strchr(config.fuse_ops.stats_filename, '/') != NULL) {
-        warnx("illegal stats filename `%s'", config.fuse_ops.stats_filename);
+        warnx("illegal stats filename \"%s\"", config.fuse_ops.stats_filename);
         return -1;
     }
 
@@ -1420,7 +1420,7 @@ validate_config(int parse_only)
         FILE *fp;
 
         if (config.password_file != NULL && config.http_io.password != NULL) {
-            warnx("specify only one of `--password' or `--passwordFile'");
+            warnx("specify only one of \"--password\" or \"--passwordFile\"");
             return -1;
         }
         if (config.password_file == NULL && config.http_io.password == NULL) {
@@ -1430,11 +1430,11 @@ validate_config(int parse_only)
         if (config.password_file != NULL) {
             assert(config.http_io.password == NULL);
             if ((fp = fopen(config.password_file, "r")) == NULL) {
-                warn("can't open encryption key file `%s'", config.password_file);
+                warn("can't open encryption key file \"%s\"", config.password_file);
                 return -1;
             }
             if (fgets(pwbuf, sizeof(pwbuf), fp) == NULL || *pwbuf == '\0') {
-                warnx("can't read encryption key from file `%s'", config.password_file);
+                warnx("can't read encryption key from file \"%s\"", config.password_file);
                 fclose(fp);
                 return -1;
             }
@@ -1446,21 +1446,21 @@ validate_config(int parse_only)
         if (config.http_io.password == NULL && (config.http_io.password = strdup(s)) == NULL)
             err(1, "strdup()");
         if (config.http_io.key_length > EVP_MAX_KEY_LENGTH) {
-            warnx("`--keyLength' value must be positive and at most %u", EVP_MAX_KEY_LENGTH);
+            warnx("\"--keyLength\" value must be positive and at most %u", EVP_MAX_KEY_LENGTH);
             return -1;
         }
     } else {
         if (config.http_io.password != NULL)
-            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--password");
+            warnx("unexpected flag \"%s\" (\"--encrypt\" was not specified)", "--password");
         else if (config.password_file != NULL)
-            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--passwordFile");
+            warnx("unexpected flag \"%s\" (\"--encrypt\" was not specified)", "--passwordFile");
         if (config.http_io.key_length != 0)
-            warnx("unexpected flag `%s' (`--encrypt' was not specified)", "--keyLength");
+            warnx("unexpected flag \"%s\" (\"--encrypt\" was not specified)", "--keyLength");
     }
 
     // Disallow "--compress-level" without "--compress"
     if (config.compress_alg == NULL && config.compress_level != NULL) {
-        warnx("the `--compress-level' flag requires the `--compress' flag");
+        warnx("the \"--compress-level\" flag requires the \"--compress\" flag");
         return -1;
     }
 
@@ -1487,7 +1487,7 @@ validate_config(int parse_only)
 
         // Find the compression algorithm
         if ((calg = comp_find(config.compress_alg)) == NULL) {
-            warnx("unknown compression algorithm `%s'", config.compress_alg);
+            warnx("unknown compression algorithm \"%s\"", config.compress_alg);
             return -1;
         }
 
@@ -1509,20 +1509,20 @@ validate_config(int parse_only)
 
     // Check time/cache values
     if (config.ec_protect.cache_size == 0 && config.ec_protect.cache_time > 0) {
-        warnx("`md5CacheTime' must zero when MD5 cache is disabled");
+        warnx("\"md5CacheTime\" must zero when MD5 cache is disabled");
         return -1;
     }
     if (config.ec_protect.cache_size == 0 && config.ec_protect.min_write_delay > 0) {
-        warnx("`minWriteDelay' must zero when MD5 cache is disabled");
+        warnx("\"minWriteDelay\" must zero when MD5 cache is disabled");
         return -1;
     }
     if (config.ec_protect.cache_time > 0
       && config.ec_protect.cache_time < config.ec_protect.min_write_delay) {
-        warnx("`md5CacheTime' must be at least `minWriteDelay'");
+        warnx("\"md5CacheTime\" must be at least \"minWriteDelay\"");
         return -1;
     }
     if (config.http_io.initial_retry_pause > config.http_io.max_retry_pause) {
-        warnx("`maxRetryPause' must be at least `initialRetryPause'");
+        warnx("\"maxRetryPause\" must be at least \"initialRetryPause\"");
         return -1;
     }
 
@@ -1547,7 +1547,7 @@ validate_config(int parse_only)
             if (parse_size_string(config.max_speed_str[i], speed_desc, sizeof(uintmax_t), &value) == -1)
                 return -1;
             if ((curl_off_t)(value / 8) != (value / 8)) {
-                warnx("%s `%s' is too big", speed_desc, config.max_speed_str[i]);
+                warnx("%s \"%s\" is too big", speed_desc, config.max_speed_str[i]);
                 return -1;
             }
             config.http_io.max_speed[i] = value;
@@ -1565,7 +1565,7 @@ validate_config(int parse_only)
         return -1;
     }
     if (config.block_cache.write_delay > 0 && config.block_cache.synchronous) {
-        warnx("`--blockCacheSync' requires setting `--blockCacheWriteDelay=0'");
+        warnx("\"--blockCacheSync\" requires setting \"--blockCacheWriteDelay=0\"");
         return -1;
     }
     if (config.block_cache.cache_size > 0 && config.block_cache.cache_file != NULL) {
@@ -1579,11 +1579,11 @@ validate_config(int parse_only)
         }
     }
     if (config.block_cache.cache_file == NULL && config.block_cache.recover_dirty_blocks) {
-        warnx("`--blockCacheRecoverDirtyBlocks' requires specifying `--blockCacheFile'");
+        warnx("\"--blockCacheRecoverDirtyBlocks\" requires specifying \"--blockCacheFile\"");
         return -1;
     }
     if (config.block_cache.num_protected > config.block_cache.cache_size)
-        warnx("`--blockCacheNumProtected' is larger than cache size; this may cause performance problems");
+        warnx("\"--blockCacheNumProtected\" is larger than cache size; this may cause performance problems");
 
     // Check mount point, flag combinations
     if (config.nbd) {
@@ -1593,7 +1593,7 @@ validate_config(int parse_only)
         }
     } else if (config.erase || config.reset) {
         if (config.mount != NULL) {
-            warnx("no mount point should be specified with `--erase' or `--reset-mounted-flag'");
+            warnx("no mount point should be specified with \"--erase\" or \"--reset-mounted-flag\"");
             return -1;
         }
     } else if (config.mount == NULL) {
@@ -1662,7 +1662,7 @@ validate_config(int parse_only)
             if (config.force) {
                 if (!config.quiet) {
                     warnx("warning: configured block size %s != filesystem block size %s,\n"
-                      "but you said `--force' so I'll proceed anyway even though your data will\n"
+                      "but you said \"--force\" so I'll proceed anyway even though your data will\n"
                       "probably not read back correctly.", buf, blockSizeBuf);
                 }
             } else
@@ -1677,7 +1677,7 @@ validate_config(int parse_only)
             if (config.force) {
                 if (!config.quiet) {
                     warnx("warning: configured file size %s != filesystem file size %s,\n"
-                      "but you said `--force' so I'll proceed anyway even though your data will\n"
+                      "but you said \"--force\" so I'll proceed anyway even though your data will\n"
                       "probably not read back correctly.", buf, fileSizeBuf);
                 }
             } else
@@ -1690,7 +1690,7 @@ validate_config(int parse_only)
         int config_block_size = config.block_size;
 
         if (config.file_size == 0)
-            errx(1, "error: auto-detection of filesystem size %s; please specify `--size'", why);
+            errx(1, "error: auto-detection of filesystem size %s; please specify \"--size\"", why);
         if (config.block_size == 0)
             config.block_size = S3BACKER_DEFAULT_BLOCKSIZE;
         unparse_size_string(blockSizeBuf, sizeof(blockSizeBuf), (uintmax_t)config.block_size);
@@ -1743,7 +1743,8 @@ validate_config(int parse_only)
     if (config.ec_protect.cache_size > 0
       && config.ec_protect.cache_time == 0
       && config.ec_protect.cache_size < config.num_blocks) {
-        warnx("`md5CacheTime' is infinite but `md5CacheSize' is less than the number of blocks, so eventual deadlock will result");
+        warnx("\"md5CacheTime\" is infinite but \"md5CacheSize\" is less than the number of blocks,"
+          " so eventual deadlock will result");
         return -1;
     }
 
@@ -1786,7 +1787,7 @@ validate_config(int parse_only)
         // Warn if exceeding MacFUSE limit
         if (total_time >= FUSE_MAX_DAEMON_TIMEOUT && !config.quiet) {
             warnx("warning: maximum possible I/O delay (%us) >= MacFUSE limit (%us);", total_time, FUSE_MAX_DAEMON_TIMEOUT);
-            warnx("consider lower settings for `--maxRetryPause' and/or `--timeout'.");
+            warnx("consider lower settings for \"--maxRetryPause\" and/or \"--timeout\".");
         }
     }
 #endif  // __APPLE__
@@ -1856,12 +1857,12 @@ validate_config(int parse_only)
             // Open disk cache file, if any, and read the mount token therein, if any
             if (stat(config.block_cache.cache_file, &cache_file_stat) == -1) {
                 if (errno != ENOENT)
-                    err(1, "can't open cache file `%s'", config.block_cache.cache_file);
+                    err(1, "can't open cache file \"%s\"", config.block_cache.cache_file);
             } else {
                 if ((r = s3b_dcache_open(&dcache, &config.block_cache, NULL, NULL, 0)) != 0)
-                    errx(1, "error opening cache file `%s': %s", config.block_cache.cache_file, strerror(r));
+                    errx(1, "error opening cache file \"%s\": %s", config.block_cache.cache_file, strerror(r));
                 if (s3b_dcache_has_mount_token(dcache) && (r = s3b_dcache_set_mount_token(dcache, &cache_mount_token, -1)) != 0)
-                    errx(1, "error reading mount token from `%s': %s", config.block_cache.cache_file, strerror(r));
+                    errx(1, "error reading mount token from \"%s\": %s", config.block_cache.cache_file, strerror(r));
                 s3b_dcache_close(dcache);
             }
 
@@ -1870,7 +1871,7 @@ validate_config(int parse_only)
 
                 // If tokens do not agree, bail out, otherwise enable write-back of dirty blocks if tokens are non-zero
                 if (cache_mount_token != mount_token) {
-                    warnx("cache file `%s' mount token mismatch (disk:0x%08x != s3:0x%08x)",
+                    warnx("cache file \"%s\" mount token mismatch (disk:0x%08x != s3:0x%08x)",
                       config.block_cache.cache_file, cache_mount_token, mount_token);
                 } else if (config.block_cache.recover_dirty_blocks) {
                     if (!config.quiet)
@@ -1885,10 +1886,10 @@ validate_config(int parse_only)
         if (conflict) {
             if (!config.force) {
                 warnx("%s appears to be already mounted (using mount token 0x%08x)", config.description, (int)mount_token);
-                errx(1, "reset mount token with `--reset-mounted-flag', or use `--force' to override");
+                errx(1, "reset mount token with \"--reset-mounted-flag\", or use \"--force\" to override");
             }
             if (!config.quiet) {
-                warnx("warning: filesystem appears already mounted but you said `--force'\n"
+                warnx("warning: filesystem appears already mounted but you said \"--force\"\n"
                   " so I'll proceed anyway even though your data may get corrupted.\n");
             }
         }
@@ -1985,7 +1986,7 @@ usage(void)
     fprintf(stderr, "\ts3backer --erase [options] bucket[/subdir]\n");
     fprintf(stderr, "\ts3backer --reset-mounted-flag [options] bucket[/subdir]\n");
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing `accessID:accessKey' pairs");
+    fprintf(stderr, "\t--%-27s %s\n", "accessFile=FILE", "File containing \"accessID:accessKey\" pairs");
     fprintf(stderr, "\t--%-27s %s\n", "accessId=ID", "S3 access key ID");
     fprintf(stderr, "\t--%-27s %s\n", "accessKey=KEY", "S3 secret access key");
     fprintf(stderr, "\t--%-27s %s\n", "accessKeyEnv=VARNAME", "S3 secret access key from environment variable");
@@ -2021,7 +2022,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "debug", "Enable logging of debug messages");
     fprintf(stderr, "\t--%-27s %s\n", "debug-http", "Print HTTP headers to standard output");
     fprintf(stderr, "\t--%-27s %s\n", "directIO", "Disable kernel caching of the backed file");
-    fprintf(stderr, "\t--%-27s %s\n", "encrypt[=CIPHER]", "Enable encryption (implies `--compress')");
+    fprintf(stderr, "\t--%-27s %s\n", "encrypt[=CIPHER]", "Enable encryption (implies \"--compress\")");
     fprintf(stderr, "\t--%-27s %s\n", "erase", "Erase all blocks in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "fileMode=MODE", "Permissions of backed file in filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "filename=NAME", "Name of backed file in filesystem");
@@ -2051,9 +2052,9 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "quiet", "Omit progress output at startup");
     fprintf(stderr, "\t--%-27s %s\n", "readAhead=NUM", "Number of blocks to read-ahead");
     fprintf(stderr, "\t--%-27s %s\n", "readAheadTrigger=NUM", "# of sequentially read blocks to trigger read-ahead");
-    fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return `Read-only file system' error for write attempts");
+    fprintf(stderr, "\t--%-27s %s\n", "readOnly", "Return \"Read-only file system\" error for write attempts");
     fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
-    fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset `already mounted' flag in the filesystem");
+    fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset \"already mounted\" flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
     fprintf(stderr, "\t--%-27s %s\n", "sse=TYPE", "Specify server side encryption ('" SSE_AES256 "' or '" SSE_AWS_KMS "')");
     fprintf(stderr, "\t--%-27s %s\n", "ss-key-id=ID", "Specify server side encryption customer key ID");
@@ -2069,7 +2070,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "vhost", "Use virtual host bucket style URL for all requests");
     fprintf(stderr, "Default values:\n");
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessFile", "$HOME/" S3BACKER_DEFAULT_PWD_FILE);
-    fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in `accessFile'");
+    fprintf(stderr, "\t--%-27s %s\n", "accessId", "The first one listed in \"accessFile\"");
     fprintf(stderr, "\t--%-27s \"%s\"\n", "accessType", S3BACKER_DEFAULT_ACCESS_TYPE);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "authVersion", S3BACKER_DEFAULT_AUTH_VERSION);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "baseURL", "http://s3." S3_DOMAIN "/");
@@ -2083,7 +2084,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "listBlocksThreads", S3BACKER_DEFAULT_LIST_BLOCKS_THREADS);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheTime", S3BACKER_DEFAULT_MD5_CACHE_TIME);
-    fprintf(stderr, "\t--%-27s 0%03o (0%03o if `--readOnly')\n", "fileMode",
+    fprintf(stderr, "\t--%-27s 0%03o (0%03o if \"--readOnly\")\n", "fileMode",
       S3BACKER_DEFAULT_FILE_MODE, S3BACKER_DEFAULT_FILE_MODE_READ_ONLY);
     fprintf(stderr, "\t--%-27s %u\n", "maxRetryPause", S3BACKER_DEFAULT_MAX_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "minWriteDelay", S3BACKER_DEFAULT_MIN_WRITE_DELAY);

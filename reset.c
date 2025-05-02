@@ -74,14 +74,14 @@ s3backer_reset(struct s3b_config *config)
     if (config->block_cache.cache_file != NULL) {
         if (stat(config->block_cache.cache_file, &cache_file_stat) == -1) {
             if (errno != ENOENT) {
-                warnx("error opening cache file `%s'", config->block_cache.cache_file);
+                warnx("error opening cache file \"%s\"", config->block_cache.cache_file);
                 goto fail;
             }
         } else {
             if ((r = s3b_dcache_open(&dcache, &config->block_cache, NULL, NULL, 0)) != 0)
-                warnx("error opening cache file `%s': %s", config->block_cache.cache_file, strerror(r));
+                warnx("error opening cache file \"%s\": %s", config->block_cache.cache_file, strerror(r));
             if ((r = s3b_dcache_set_mount_token(dcache, NULL, 0)) != 0)
-                warnx("error reading mount token from `%s': %s", config->block_cache.cache_file, strerror(r));
+                warnx("error reading mount token from \"%s\": %s", config->block_cache.cache_file, strerror(r));
         }
     }
 
