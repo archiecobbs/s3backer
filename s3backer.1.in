@@ -992,7 +992,7 @@ If a previous invocation of
 was not shut down cleanly, the flag may not have been cleared.
 Running
 .Nm
-.Fl \-erase
+.Fl \-reset-mounted-flag
 will clear it manually.
 But see also BUGS below.
 .It Fl \-size=SIZE
