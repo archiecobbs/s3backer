@@ -137,6 +137,14 @@ long x = CURLOPT_TCP_KEEPALIVE;
 int y = CURLINFO_CONTENT_LENGTH_DOWNLOAD_T;
 ]])],, [AC_MSG_ERROR([unable to compile with curl, or curl version is < 7.55.0])])
 
+# Avoid libcurl 8.11.0. Ref: https://github.com/archiecobbs/s3backer/issues/232
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <curl/curl.h>
+#if LIBCURL_VERSION_MAJOR == 8 && LIBCURL_VERSION_MINOR == 11 && LIBCURL_VERSION_PATCH == 0
+#error
+#endif
+]])],, [AC_MSG_ERROR([curl 8.11.0 is broken; upgrade/downgrade to another version. See issue 232 for details.])])
+
 # See if FUSE version is 2.9.2 or later
 AC_MSG_CHECKING([for fallocate() support in fuse])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
