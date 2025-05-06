@@ -2009,6 +2009,7 @@ dump_config(const struct s3b_config *const c)
 
     (*c->log)(LOG_DEBUG, "s3backer config:");
     (*c->log)(LOG_DEBUG, "%24s: %s", "test mode", c->test ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "shared disk mode", c->shared_disk_mode ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: %s", "directIO", c->fuse_ops.direct_io ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessId", c->http_io.accessId != NULL ? c->http_io.accessId : "");
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "accessKey", c->http_io.accessKey != NULL ? "****" : "");
@@ -2159,6 +2160,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "region=region", "Specify AWS region");
     fprintf(stderr, "\t--%-27s %s\n", "reset-mounted-flag", "Reset \"already mounted\" flag in the filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "size=SIZE", "File size (with optional suffix 'K', 'M', 'G', etc.)");
+    fprintf(stderr, "\t--%-27s %s\n", "sharedDiskMode", "Disable all caching assuming clustered upper layer filesystem");
     fprintf(stderr, "\t--%-27s %s\n", "sse=TYPE", "Specify server side encryption ('" SSE_AES256 "' or '" SSE_AWS_KMS "')");
     fprintf(stderr, "\t--%-27s %s\n", "ss-key-id=ID", "Specify server side encryption customer key ID");
     fprintf(stderr, "\t--%-27s %s\n", "ssl", "Enable SSL");
@@ -2207,4 +2209,3 @@ usage(void)
     fprintf(stderr, "\t%-29s %s\n", "-d", "Debug mode (implies -f)");
     fprintf(stderr, "\t%-29s %s\n", "-s", "Run in single-threaded mode");
 }
-
