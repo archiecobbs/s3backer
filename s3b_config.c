@@ -106,6 +106,7 @@
 static print_stats_t s3b_config_print_stats;
 static clear_stats_t s3b_config_clear_stats;
 
+static int option_flag_appears(const char *option_flag);
 static void insert_fuse_arg(int pos, const char *arg);
 static void append_fuse_arg(const char *arg);
 static void remove_fuse_arg(int pos);
@@ -213,8 +214,8 @@ static struct s3b_config config = {
 /*
  * Command line flags
  *
- * Note: each entry here is listed twice, so both version "--foo=X" and "-o foo=X" work.
- * See http://code.google.com/p/s3backer/issues/detail?id=7
+ * Note: each entry here is copied and modified, allowing both "--fooBar=X" and "-o fooBar=X" to work.
+ * See "dup_option_list" in s3backer_get_config2().
  */
 static const struct fuse_opt option_list[] = {
     {
@@ -533,6 +534,11 @@ static const struct fuse_opt option_list[] = {
         .offset=    offsetof(struct s3b_config, fuse_ops.direct_io),
         .value=     1
     },
+    {
+        .templ=     "--sharedDiskMode",
+        .offset=    offsetof(struct s3b_config, shared_disk_mode),
+        .value=     1
+    },
 };
 static const int num_options = sizeof(option_list) / sizeof(*option_list);
 
@@ -679,6 +685,38 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
         dup_option_list[i].templ += 2;
     dup_option_list[2 * num_options].templ = NULL;
 
+    // If we see "--sharedDiskMode" then disallow other caching-related flags
+    if (option_flag_appears("sharedDiskMode")) {
+        static const char *const disallowed[] = {
+            "listBlocks",
+            "listBlocksThreads",
+            "blockCacheSize",
+            "blockCacheSync",
+            "blockCacheThreads",
+            "blockCacheTimeout",
+            "blockCacheWriteDelay",
+            "blockCacheMaxDirty",
+            "blockCacheRecoverDirtyBlocks",
+            "readAhead",
+            "readAheadTrigger",
+            "blockCacheNumProtected",
+            "blockCacheFile",
+            "blockCacheNoVerify",
+            "blockCacheFileAdvise",
+            "minWriteDelay",
+            "md5CacheSize",
+            "md5CacheTime",
+        };
+        static const int num_disallowed = sizeof(disallowed) / sizeof(*disallowed);
+
+        for (i = 0; i < num_disallowed; i++) {
+            if (option_flag_appears(disallowed[i])) {
+                errx(1, "in \"sharedDiskMode\" the flag \"%s\" must not be used", disallowed[i]);
+                return NULL;
+            }
+        }
+    }
+
     // Parse command line flags
     if (fuse_opt_parse(&config.fuse_args, &config, dup_option_list, unknown_handler) != 0)
         return NULL;
@@ -727,6 +765,42 @@ is_valid_s3b_flag(const char *flag)
     return result;
 }
 
+// Determine if the given flag appears
+static int
+option_flag_appears(const char *option_flag)
+{
+    char namebuf[64];
+    int i;
+
+    snprintf(namebuf, sizeof(namebuf), "--%s", option_flag);
+    for (i = 1; i < config.fuse_args.argc; i++) {
+        const char *arg = config.fuse_args.argv[i];
+        const char *flag = namebuf;
+        size_t flen = strlen(flag);
+
+        // Check for "--fooBar=xxx" variant
+        if (strncmp(arg, flag, flen) == 0 && (arg[flen] == '=' || arg[flen] == '\0'))
+            return 1;
+
+        // Check for "-o blah,fooBar=xxx,blah" variant
+        if (strcmp(arg, "-o") == 0 && ++i < config.fuse_args.argc) {
+            arg = config.fuse_args.argv[i];
+            flag += 2;
+            flen -= 2;
+            while (1) {
+                if (strncmp(arg, flag, flen) == 0 && (arg[flen] == '=' || arg[flen] == ',' || arg[flen] == '\0'))
+                    return 1;
+                if ((arg = strchr(arg, ',')) == NULL)
+                    break;
+                arg++;
+            }
+        }
+    }
+
+    // Not found
+    return 0;
+}
+
 /*
  * Create the s3backer_store used at runtime.
  */
@@ -770,32 +844,47 @@ s3backer_create_store(struct s3b_config *conf)
     }
 
     // Create zero block cache
-    if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store)) == NULL)
-        goto fail_with_errno;
-    store = zero_cache_store;
+    if (!config.shared_disk_mode) {
+        if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store)) == NULL)
+            goto fail_with_errno;
+        store = zero_cache_store;
+    }
 
     // Set mount token and check previous value one last time
     new_mount_token = -1;
     if (!conf->fuse_ops.read_only) {
-        srandom((long)time(NULL) ^ (long)&old_mount_token);
-        do
-            new_mount_token = random();
-        while (new_mount_token <= 0);
+        if (config.shared_disk_mode)
+            new_mount_token = SHARED_DISK_MOUNT_TOKEN;
+        else {
+            srandom((long)time(NULL) ^ (long)&old_mount_token);
+            do
+                new_mount_token = random();
+            while (new_mount_token <= 0 || new_mount_token == SHARED_DISK_MOUNT_TOKEN);
+        }
     }
     if ((r = (*store->set_mount_token)(store, &old_mount_token, new_mount_token)) != 0) {
         (*conf->log)(LOG_ERR, "error reading mount token on %s: %s", conf->description, strerror(r));
         goto fail;
     }
-    if (old_mount_token != 0) {
+    int shared_token_already_set = config.shared_disk_mode && old_mount_token == SHARED_DISK_MOUNT_TOKEN;
+    if (old_mount_token != 0 && !shared_token_already_set) {
         if (!conf->force && !conf->block_cache.perform_flush) {
-            (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process (using mount token 0x%08x)",
-              config.description, (int)old_mount_token);
+            if (old_mount_token == SHARED_DISK_MOUNT_TOKEN)
+                (*conf->log)(LOG_ERR, "%s appears to be configured for shared disk mode", config.description);
+            else {
+                (*conf->log)(LOG_ERR, "%s appears to be mounted by another s3backer process (using mount token 0x%08x)",
+                  config.description, (int)old_mount_token);
+            }
             r = EBUSY;
             goto fail;
         }
     }
-    if (new_mount_token != -1)
-        (*conf->log)(LOG_INFO, "established new mount token 0x%08x", (int)new_mount_token);
+    if (new_mount_token != -1 && !shared_token_already_set) {
+        if (new_mount_token == SHARED_DISK_MOUNT_TOKEN)
+            (*conf->log)(LOG_INFO, "established new mount token for shared disk mode");
+        else
+            (*conf->log)(LOG_INFO, "established new mount token 0x%08x", (int)new_mount_token);
+    }
 
     // Done
     return store;
@@ -1184,6 +1273,16 @@ validate_config(int parse_only)
             if ((config.accessFile = strdup(buf)) == NULL)
                 err(1, "strdup");
         }
+    }
+
+    // In "shared disk" mode, zero out all caching settings
+    if (config.shared_disk_mode) {
+        config.list_blocks = 0;
+        config.ec_protect.cache_size = 0;
+        config.ec_protect.cache_time = 0;
+        config.ec_protect.min_write_delay = 0;
+        config.block_cache.cache_size = 0;
+        config.fuse_ops.direct_io = 1;
     }
 
     // Auto-set file mode in read_only if not explicitly set
@@ -1881,6 +1980,10 @@ validate_config(int parse_only)
                 }
             }
         }
+
+        // Handle shared disk mode
+        if (conflict && config.shared_disk_mode && mount_token == SHARED_DISK_MOUNT_TOKEN)
+            conflict = 0;
 
         // If there is a conflicting mount, additional `--force' is required
         if (conflict) {

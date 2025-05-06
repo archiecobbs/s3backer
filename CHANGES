@@ -1,5 +1,6 @@
 Version Next
 
+    - Add new flag "--sharedDiskMode" (issue #236)
     - Fix use of deprecated cURL constant (pr #228)
     - Conditionalize nbdkit "block_size" callback (issue #226)
     - Skip nbd-client(8) cleanup step if it failed to start properly (#227).

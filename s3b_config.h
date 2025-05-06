@@ -65,6 +65,7 @@ struct s3b_config {
     int                         test;
     int                         ssl;
     int                         nbd;
+    int                         shared_disk_mode;
     int                         no_auto_detect;
     int                         list_blocks;
     struct fuse_args            fuse_args;

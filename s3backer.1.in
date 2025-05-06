@@ -293,19 +293,30 @@ This mode of operation facilitates the creation of public, read-only filesystems
 .Ss Simultaneous Mounts
 Although it functions over the network, the
 .Nm
-filesystem is not a distributed filesystem and does not support simultaneous read/write mounts.
-(This is not something you would normally do with a hard-disk partition either.)
+filesystem is not a distributed virtual disk and does not support synchronization across multiple mounts of the same data
+(that's not something you would normally do with a real hard-disk partition either).
 As a safety measure,
 .Nm
-attempts to detect this situation using an 'already mounted' flag
+attempts to detect simultaneous mounts using an 'already mounted' flag
 in the data store, and will fail to start if it does.
 .Pp
 This detection may produce a false positive if a former
 .Nm
 process was not shutdown cleanly; if so, the
 .Fl \-reset-mounted-flag
-flag can be used to reset the 'already mounted' flag.
-But see also BUGS below.
+flag can be used to reset the 'already mounted' flag (but see also BUGS below).
+.Pp
+However,
+.Nm
+does include a "shared disk mode" for use with shared-disk upper layer filesystems such as GFS2.
+In this mode all caching is disabled and simultaneous mounts are allowed through the use of a
+special mount token value.
+Use
+.Fl \-sharedDiskMode
+to enable it.
+.Pp
+Warning: this will fail horribly if used with normal filesystems.
+Do not use this mode unless you know what you are doing.
 .Ss Statistics File
 .Nm
 populates the filesystem with a human-readable statistics file.
@@ -995,6 +1006,14 @@ Running
 .Fl \-reset-mounted-flag
 will clear it manually.
 But see also BUGS below.
+.It Fl \-sharedDiskMode
+Enable shared disk mode for use with shared-disk upper layer filesystems such as GFS2.
+All caching will be disabled and simultaneous mounts are allowed.
+This flag is incompatible with all other flags relating to the MD5 cache, the block cache, read-ahead, and
+.Fl \-listBlocks .
+.Pp
+Warning: this will fail horribly if used with a normal filesystem.
+Do not use this mode unless you know what you are doing.
 .It Fl \-size=SIZE
 Specify the size (in bytes) of the backed file to be exported by the filesystem.
 The size may have an optional suffix 'K' for kilobytes, 'M' for megabytes, 'G' for gigabytes, 'T' for terabytes, 'E' for exabytes, 'Z' for zettabytes (if supported), or 'Y' for yottabytes (if supported).

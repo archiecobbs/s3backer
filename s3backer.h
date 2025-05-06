@@ -116,6 +116,9 @@ extern char **environ;
 #define FALLOC_FL_PUNCH_HOLE    0x02
 #endif
 
+// Special mount token value for shared disk mode
+#define SHARED_DISK_MOUNT_TOKEN ((int32_t)0x7fffffff)
+
 // Integral type for holding a block number
 typedef uint32_t    s3b_block_t;
 
@@ -179,7 +182,8 @@ struct s3backer_store {
     int         (*meta_data)(struct s3backer_store *s3b, off_t *file_sizep, u_int *block_sizep);
 
     /*
-     * Read and (optionally) set the mount token. The mount token is any 32 bit integer value greater than zero.
+     * Read and (optionally) set the mount token. The mount token is any 32 bit integer value greater than zero,
+     * where the special value 0x7fffffff means shared disk mode.
      *
      * Previous value, if any, is returned in *old_valuep (if not NULL). A returned value of zero means there was
      * no previous value.

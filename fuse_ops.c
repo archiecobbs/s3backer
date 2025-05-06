@@ -223,8 +223,8 @@ fuse_op_destroy(void *data)
     if ((r = (*s3b->shutdown)(s3b)) != 0)
         (*config->log)(LOG_ERR, "unmount %s: filesystem shutdown failed: %s", s3bconf->mount, strerror(r));
 
-    // Clear mount token
-    if (!config->read_only) {
+    // Clear mount token (non-shared disk mode only)
+    if (!config->read_only && !s3bconf->shared_disk_mode) {
         (*config->log)(LOG_INFO, "unmount %s: clearing mount token", s3bconf->mount);
         if ((r = (*s3b->set_mount_token)(s3b, NULL, 0)) != 0)
             (*config->log)(LOG_ERR, "unmount %s: clearing mount token failed: %s", s3bconf->mount, strerror(r));
