@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.4 released May 10, 2025
 
     - Add new flag "--sharedDiskMode" (issue #236)
     - Fix use of deprecated cURL constant (pr #228)
