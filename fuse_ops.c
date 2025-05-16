@@ -95,6 +95,8 @@ static void fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_fil
 static struct stat_file *fuse_op_stats_create(struct fuse_ops_private *priv);
 static void fuse_op_stats_destroy(struct stat_file *sfile);
 static printer_t fuse_op_stats_printer;
+static printer_t stats_mirror_printer;
+static void *stats_mirror_thread(void *arg);
 
 /****************************************************************************
  *                          VARIABLE DEFINITIONS                            *
@@ -194,11 +196,27 @@ fuse_op_init(struct fuse_conn_info *conn)
     // Apply process tweaks
     apply_process_tweaks();
 
-    // Startup background threads now that we have fork()'d
-    if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
-        (*config->log)(LOG_ERR, "fuse_op_init(): can't create threads: %s", strerror(errno));
+    // Start up stats mirror thread
+    priv->stats_mirror_state = STATS_MIRROR_INITIAL;
+    if (config->stats_mirror_path != NULL
+      && (r = pthread_create(&priv->stats_mirror_thread, NULL, stats_mirror_thread, priv)) != 0) {
+        (*config->log)(LOG_ERR, "failed to create stats mirror thread: %s", strerror(r));
         return NULL;
     }
+
+    // Startup other background threads
+    if ((r = (*priv->s3b->create_threads)(priv->s3b)) != 0) {
+        (*config->log)(LOG_ERR, "fuse_op_init(): can't create threads: %s", strerror(errno));
+        if (config->stats_mirror_path != NULL) {
+            (void)pthread_cancel(priv->stats_mirror_thread);
+            (void)pthread_join(priv->stats_mirror_thread, NULL);
+        }
+        return NULL;
+    }
+
+    // Allow stats mirror thread to start writing
+    if (config->stats_mirror_path != NULL)
+        priv->stats_mirror_state = STATS_MIRROR_RUNNING;
 
     // Done
     (*config->log)(LOG_INFO, "mounting %s", s3bconf->mount);
@@ -218,7 +236,15 @@ fuse_op_destroy(void *data)
         return;
     (*config->log)(LOG_INFO, "unmount %s: initiated", s3bconf->mount);
 
-    // Shutdown (flush dirty data)
+    // Shutdown stats mirror thread, if any
+    if (priv->stats_mirror_state == STATS_MIRROR_RUNNING) {
+        priv->stats_mirror_state = STATS_MIRROR_SHUTDOWN;
+        (void)pthread_cancel(priv->stats_mirror_thread);
+        (void)pthread_join(priv->stats_mirror_thread, NULL);
+        priv->stats_mirror_state = STATS_MIRROR_INITIAL;
+    }
+
+    // Shutdown S3 statck (flush dirty data)
     (*config->log)(LOG_INFO, "unmount %s: shutting down filesystem", s3bconf->mount);
     if ((r = (*s3b->shutdown)(s3b)) != 0)
         (*config->log)(LOG_ERR, "unmount %s: filesystem shutdown failed: %s", s3bconf->mount, strerror(r));
@@ -650,3 +676,84 @@ again:
     goto again;
 }
 
+// Stats mirror thread
+static void *
+stats_mirror_thread(void *arg)
+{
+    struct fuse_ops_private *const priv = the_priv;
+    int file_was_there = 0;
+
+    while (1) {
+
+        // Time to leave?
+        if (priv->stats_mirror_state == STATS_MIRROR_SHUTDOWN)
+            break;
+
+        // If system is up & running, update the stats file
+        if (priv->stats_mirror_state == STATS_MIRROR_RUNNING) {
+            struct stat sb;
+            char *temp_path;
+            FILE *fp;
+
+            // If file existed before but was since deleted, reset stats
+            if (file_was_there && stat(config->stats_mirror_path, &sb) == -1) {
+                if (errno != ENOENT) {
+                    (*config->log)(LOG_ERR, "error %s stats mirror file %s (mirroring stopped): %s",
+                      "accessing", config->stats_mirror_path, strerror(errno));
+                    break;
+                }
+                (*config->clear_stats)();
+                file_was_there = 0;
+            }
+
+            // Format temporary name string
+            if (asprintf(&temp_path, "%s.new", config->stats_mirror_path) == -1) {
+                (*config->log)(LOG_ERR, "error %s stats mirror file %s (mirroring stopped): %s",
+                  "updating", config->stats_mirror_path, strerror(errno));
+                break;
+            }
+
+            // Write into temporary file
+            if ((fp = fopen(temp_path, "w")) == NULL) {
+                (*config->log)(LOG_ERR, "error %s stats mirror file %s (mirroring stopped): %s",
+                  "creating", temp_path, strerror(errno));
+                free(temp_path);
+                break;
+            }
+            (*config->print_stats)(fp, stats_mirror_printer);
+            if (fclose(fp) == EOF) {
+                (*config->log)(LOG_ERR, "error %s stats mirror file %s (mirroring stopped): %s",
+                  "writing", config->stats_mirror_path, strerror(errno));
+                unlink(temp_path);
+                free(temp_path);
+                break;
+            }
+            if (rename(temp_path, config->stats_mirror_path) == -1) {
+                (*config->log)(LOG_ERR, "error %s stats mirror file %s (mirroring stopped): %s",
+                  "updating", config->stats_mirror_path, strerror(errno));
+                unlink(temp_path);
+                free(temp_path);
+                break;
+            }
+            free(temp_path);
+            file_was_there = 1;
+        }
+
+        // Sleep for a while
+        usleep(config->stats_mirror_interval * 1000);
+    }
+
+    // Done
+    return NULL;
+}
+
+static void
+stats_mirror_printer(void *prarg, const char *fmt, ...)
+{
+    FILE *const fp = prarg;
+    va_list args;
+
+    va_start(args, fmt);
+    vfprintf(fp, fmt, args);
+    va_end(args);
+}

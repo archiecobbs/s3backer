@@ -39,6 +39,11 @@ struct s3b_config;
 struct s3backer_store;
 struct block_part;
 
+// Stats mirror state values
+#define STATS_MIRROR_INITIAL        0
+#define STATS_MIRROR_RUNNING        1
+#define STATS_MIRROR_SHUTDOWN       2
+
 // Function types
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 typedef void print_stats_t(void *prarg, printer_t *printer);
@@ -53,6 +58,8 @@ struct fuse_ops_conf {
     int                     direct_io;
     const char              *filename;
     const char              *stats_filename;
+    const char              *stats_mirror_path;
+    u_int                   stats_mirror_interval;
     uid_t                   uid;
     gid_t                   gid;
     u_int                   block_size;
@@ -71,6 +78,10 @@ struct fuse_ops_private {
     time_t                  file_atime;
     time_t                  file_mtime;
     time_t                  stats_atime;
+
+    // Stats mirror
+    pthread_t               stats_mirror_thread;
+    volatile int            stats_mirror_state;
 };
 
 // fuse_ops.c

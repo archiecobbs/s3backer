@@ -67,6 +67,7 @@
 #define S3BACKER_DEFAULT_PREFIX                     ""
 #define S3BACKER_DEFAULT_FILENAME                   "file"
 #define S3BACKER_DEFAULT_STATS_FILENAME             "stats"
+#define S3BACKER_DEFAULT_STATS_MIRROR_INTERVAL      1000            // 1s
 #define S3BACKER_DEFAULT_BLOCKSIZE                  4096
 #define S3BACKER_DEFAULT_TIMEOUT                    30              // 30s
 #define S3BACKER_DEFAULT_FILE_MODE                  0600
@@ -194,6 +195,7 @@ static struct s3b_config config = {
     .fuse_ops= {
         .filename=              S3BACKER_DEFAULT_FILENAME,
         .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
+        .stats_mirror_interval= S3BACKER_DEFAULT_STATS_MIRROR_INTERVAL,
         .file_mode=             -1,             // default depends on 'read_only'
     },
 
@@ -452,6 +454,14 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--statsFilename=%s",
         .offset=    offsetof(struct s3b_config, fuse_ops.stats_filename),
+    },
+    {
+        .templ=     "--statsFileMirror=%s",
+        .offset=    offsetof(struct s3b_config, fuse_ops.stats_mirror_path),
+    },
+    {
+        .templ=     "--statsFileMirrorInterval=%u",
+        .offset=    offsetof(struct s3b_config, fuse_ops.stats_mirror_interval),
     },
     {
         .templ=     "--storageClass=%s",
@@ -939,6 +949,7 @@ s3b_cleanup(void)
     FORCE_FREE(config.file_size_str);
     FORCE_FREE2(config.fuse_ops.filename, S3BACKER_DEFAULT_FILENAME);
     FORCE_FREE2(config.fuse_ops.stats_filename, S3BACKER_DEFAULT_STATS_FILENAME);
+    FORCE_FREE(config.fuse_ops.stats_mirror_path);
     FORCE_FREE(config.http_io.storage_class);
     FORCE_FREE(config.http_io.cacert);
     FORCE_FREE2(config.compress_alg, S3BACKER_DEFAULT_COMPRESSION);
@@ -2031,6 +2042,8 @@ dump_config(const struct s3b_config *const c)
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "mount", c->mount);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "filename", c->fuse_ops.filename);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "stats_filename", c->fuse_ops.stats_filename);
+    (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "stats_mirror_path", c->fuse_ops.stats_mirror_path != NULL ? c->fuse_ops.stats_mirror_path : "");
+    (*c->log)(LOG_DEBUG, "%24s: %ums", "stats_mirror_interval", c->fuse_ops.stats_mirror_interval);
     (*c->log)(LOG_DEBUG, "%24s: %s (%u)", "block_size", c->block_size_str != NULL ? c->block_size_str : "-", c->block_size);
     (*c->log)(LOG_DEBUG, "%24s: %s (%jd)", "file_size", c->file_size_str != NULL ? c->file_size_str : "-", (intmax_t)c->file_size);
     (*c->log)(LOG_DEBUG, "%24s: %jd", "num_blocks", (intmax_t)c->num_blocks);

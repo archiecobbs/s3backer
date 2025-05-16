@@ -1,3 +1,7 @@
+Version Next
+
+    - Add new flag "--statsFileMirror" (issue #237)
+
 Version 2.1.4 released May 10, 2025
 
     - Add new flag "--sharedDiskMode" (issue #236)

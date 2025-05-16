@@ -358,6 +358,18 @@ directly, the
 flag causes
 .Nm
 to function as a wrapper process for managing an NBD session; see below.
+.Pp
+When running in NBD mode, no
+.Nm
+filesystem is created and therefore no statistics file automatically appears.
+You can use
+.Fl \-statsFileMirror
+to specify a regular file for
+.Nm
+to periodically update instead.
+Statistics can be reset by removing the file, although because
+.Nm
+is also periodically regenerating the file there is a small race window during which such a removal is ignored.
 .Ss Logging
 In normal operation
 .Nm
@@ -1058,6 +1070,16 @@ Specify the name of the human-readable statistics file that appears in the
 filesystem.
 A value of empty string disables the appearance of this file.
 Default is `stats'.
+This setting is ignored in NBD mode.
+.It Fl \-statsFileMirror=PATH
+Specify a file that should be periodically updated with a copy of the statistics file.
+This option is primarily intended for NBD mode but works in FUSE mode as well.
+.It Fl \-statsFileMirrorInterval=MILLIS
+Specify the update interval for the stats file mirror.
+Default value is every 1000ms.
+Ignored unless
+.Fl \-statsFileMirror
+is specified.
 .It Fl \-storageClass=TYPE
 Specify storage class.
 .Pp
