@@ -66,12 +66,11 @@ struct stat_file {
  ****************************************************************************/
 
 // FUSE functions
-static void *fuse_op_init(struct fuse_conn_info *conn);
+static void *fuse_op_init(struct fuse_conn_info *conn, struct fuse_config *cfg);
 static void fuse_op_destroy(void *data);
-static int fuse_op_getattr(const char *path, struct stat *st);
-static int fuse_op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *);
+static int fuse_op_getattr(const char *path, struct stat *st, struct fuse_file_info *fi);
 static int fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-    off_t offset, struct fuse_file_info *fi);
+    off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags);
 static int fuse_op_open(const char *path, struct fuse_file_info *fi);
 static int fuse_op_release(const char *path, struct fuse_file_info *fi);
 static int fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
@@ -79,13 +78,11 @@ static int fuse_op_read(const char *path, char *buf, size_t size, off_t offset,
 static int fuse_op_write(const char *path, const char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi);
 static int fuse_op_statfs(const char *path, struct statvfs *st);
-static int fuse_op_truncate(const char *path, off_t size);
+static int fuse_op_truncate(const char *path, off_t size, struct fuse_file_info *fi);
 static int fuse_op_flush(const char *path, struct fuse_file_info *fi);
 static int fuse_op_fsync(const char *path, int isdatasync, struct fuse_file_info *fi);
 static int fuse_op_unlink(const char *path);
-#if FUSE_FALLOCATE
 static int fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi);
-#endif
 
 // Attribute functions
 static void fuse_op_getattr_file(struct fuse_ops_private *priv, struct stat *st);
@@ -107,7 +104,6 @@ const struct fuse_operations s3backer_fuse_ops = {
     .init       = fuse_op_init,
     .destroy    = fuse_op_destroy,
     .getattr    = fuse_op_getattr,
-    .fgetattr   = fuse_op_fgetattr,
     .readdir    = fuse_op_readdir,
     .open       = fuse_op_open,
     .read       = fuse_op_read,
@@ -118,9 +114,7 @@ const struct fuse_operations s3backer_fuse_ops = {
     .fsync      = fuse_op_fsync,
     .release    = fuse_op_release,
     .unlink     = fuse_op_unlink,
-#if FUSE_FALLOCATE
     .fallocate  = fuse_op_fallocate,
-#endif
 };
 
 // Configuration and underlying s3backer_store
@@ -164,10 +158,12 @@ fuse_ops_create(struct fuse_ops_conf *config0, struct s3backer_store *s3b)
 void
 fuse_ops_destroy(void)
 {
-    struct fuse_ops_private *const priv = the_priv;
-
-    block_part_destroy(&priv->block_part);
-    fuse_op_destroy(priv);
+    if (the_priv == NULL)
+        return;
+    block_part_destroy(&the_priv->block_part);
+    fuse_op_destroy(the_priv);
+    free(the_priv);
+    the_priv = NULL;
 }
 
 /****************************************************************************
@@ -175,7 +171,7 @@ fuse_ops_destroy(void)
  ****************************************************************************/
 
 static void *
-fuse_op_init(struct fuse_conn_info *conn)
+fuse_op_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 {
     struct s3b_config *const s3bconf = config->s3bconf;
     struct fuse_ops_private *const priv = the_priv;
@@ -258,12 +254,12 @@ fuse_op_destroy(void *data)
 
     // Destroy
     (*s3b->destroy)(s3b);
+    priv->s3b = NULL;
     (*config->log)(LOG_INFO, "unmount %s: completed", s3bconf->mount);
-    free(priv);
 }
 
 static int
-fuse_op_getattr(const char *path, struct stat *st)
+fuse_op_getattr(const char *path, struct stat *st, struct fuse_file_info *fi)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
@@ -297,20 +293,6 @@ fuse_op_getattr(const char *path, struct stat *st)
         return 0;
     }
     return -ENOENT;
-}
-
-static int
-fuse_op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *fi)
-{
-    struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
-
-    if (fi->fh != 0) {
-        struct stat_file *const sfile = (struct stat_file *)(uintptr_t)fi->fh;
-
-        fuse_op_getattr_stats(priv, sfile, st);
-    } else
-        fuse_op_getattr_file(priv, st);
-    return 0;
 }
 
 static void
@@ -347,7 +329,7 @@ fuse_op_getattr_stats(struct fuse_ops_private *priv, struct stat_file *sfile, st
 
 static int
 fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-    off_t offset, struct fuse_file_info *fi)
+    off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
 {
     struct fuse_ops_private *const priv = (struct fuse_ops_private *)fuse_get_context()->private_data;
 
@@ -355,15 +337,15 @@ fuse_op_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     (void)fi;
     if (strcmp(path, "/") != 0)
         return -ENOENT;
-    if (filler(buf, ".", NULL, 0) != 0)
+    if (filler(buf, ".", NULL, 0, 0) != 0)
         return -ENOMEM;
-    if (filler(buf, "..", NULL, 0) != 0)
+    if (filler(buf, "..", NULL, 0, 0) != 0)
         return -ENOMEM;
     if (priv != NULL) {
-        if (filler(buf, config->filename, NULL, 0) != 0)
+        if (filler(buf, config->filename, NULL, 0, 0) != 0)
             return -ENOMEM;
         if (config->print_stats != NULL && config->stats_filename != NULL) {
-            if (filler(buf, config->stats_filename, NULL, 0) != 0)
+            if (filler(buf, config->stats_filename, NULL, 0, 0) != 0)
                 return -ENOMEM;
         }
     }
@@ -525,7 +507,7 @@ fuse_op_statfs(const char *path, struct statvfs *st)
 }
 
 static int
-fuse_op_truncate(const char *path, off_t size)
+fuse_op_truncate(const char *path, off_t size, struct fuse_file_info *fi)
 {
     return 0;
 }
@@ -570,7 +552,6 @@ fuse_op_unlink(const char *path)
 }
 
 
-#if FUSE_FALLOCATE
 static int
 fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fuse_file_info *fi)
 {
@@ -612,7 +593,6 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
     priv->file_mtime = time(NULL);
     return 0;
 }
-#endif
 
 /****************************************************************************
  *                    OTHER INTERNAL FUNCTIONS                              *

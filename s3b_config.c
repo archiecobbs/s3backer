@@ -556,8 +556,6 @@ static const int num_options = sizeof(option_list) / sizeof(*option_list);
 static const char *const s3backer_fuse_defaults[] = {
     "-okernel_cache",
     "-oallow_other",
-    "-ouse_ino",
-    "-omax_readahead=0",
     "-osubtype=s3backer",
     "-oentry_timeout=31536000",
     "-onegative_timeout=31536000",
@@ -2217,7 +2215,6 @@ usage(void)
     fprintf(stderr, "\t%-29s %s\n", "-o uid=UID", "Set user ID");
     fprintf(stderr, "\t%-29s %s\n", "-o gid=GID", "Set group ID");
     fprintf(stderr, "\t%-29s %s\n", "-o sync_read", "Do synchronous reads");
-    fprintf(stderr, "\t%-29s %s\n", "-o max_readahead=NUM", "Set maximum read-ahead (bytes)");
     fprintf(stderr, "\t%-29s %s\n", "-f", "Run in the foreground (do not fork)");
     fprintf(stderr, "\t%-29s %s\n", "-d", "Debug mode (implies -f)");
     fprintf(stderr, "\t%-29s %s\n", "-s", "Run in single-threaded mode");

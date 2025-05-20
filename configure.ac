@@ -56,8 +56,7 @@ AC_DEFINE(_DEFAULT_SOURCE, 1, Default functions)
 AC_DEFINE(_DARWIN_C_SOURCE, 1, MacOS functions)
 
 # Compile flags for FUSE
-AC_DEFINE(FUSE_USE_VERSION, 26, FUSE API version)
-AC_DEFINE(FUSE_FALLOCATE, 0, FUSE fallocate() support)
+AC_DEFINE(FUSE_USE_VERSION, 35, FUSE API version)
 
 # Check for required programs
 AC_PROG_INSTALL
@@ -65,10 +64,10 @@ AC_PROG_CC
 
 # Check for required pkg-config'd stuff
 PKG_PROG_PKG_CONFIG(0.19)
-PKG_CHECK_MODULES(FUSE, fuse,
+PKG_CHECK_MODULES(FUSE, fuse3,
     [CFLAGS="${CFLAGS} ${FUSE_CFLAGS}"
     LDFLAGS="${LDFLAGS} ${FUSE_LIBS}"],
-    [AC_MSG_ERROR(["fuse" not found in pkg-config])])
+    [AC_MSG_ERROR(["fuse3" not found in pkg-config])])
 
 # Check for zstd (optional)
 PKG_CHECK_MODULES([ZSTD], libzstd,
@@ -127,8 +126,8 @@ AC_CHECK_LIB(crypto, BIO_new,,
 	[AC_MSG_ERROR([required library libcrypto missing])])
 AC_CHECK_LIB(expat, XML_ParserCreate,,
 	[AC_MSG_ERROR([required library expat missing])])
-AC_CHECK_LIB(fuse, fuse_version,,
-	[AC_MSG_ERROR([required library libfuse missing])])
+AC_CHECK_LIB(fuse3, fuse_version,,
+	[AC_MSG_ERROR([required library libfuse3 missing])])
 AC_CHECK_LIB(z, compressBound,,
 	[AC_MSG_ERROR([required library zlib missing])])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
@@ -144,13 +143,6 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #error
 #endif
 ]])],, [AC_MSG_ERROR([curl 8.11.0 is broken; upgrade/downgrade to another version. See issue 232 for details.])])
-
-# See if FUSE version is 2.9.2 or later
-AC_MSG_CHECKING([for fallocate() support in fuse])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <fuse/fuse.h>
-struct fuse_operations x = { fallocate: (void*)1 };
-]])],[AC_MSG_RESULT([yes]); AC_DEFINE(FUSE_FALLOCATE)],AC_MSG_RESULT([no]))
 
 # Set some O/S specific stuff
 case `uname -s` in

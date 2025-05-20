@@ -91,6 +91,8 @@ block_part_destroy(struct block_part **block_partp)
 {
     struct block_part *const priv = *block_partp;
 
+    if (priv == NULL)
+        return;
     *block_partp = NULL;
     pthread_cond_destroy(&priv->wakeup);
     pthread_mutex_destroy(&priv->mutex);

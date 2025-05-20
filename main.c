@@ -75,6 +75,7 @@ main(int argc, char **argv)
     struct s3backer_store *s3b;
     int nbd = 0;
     int i;
+    int r;
 
     // Look for "--nbd" flag
     for (i = 1; i < argc; i++) {
@@ -90,11 +91,11 @@ main(int argc, char **argv)
     // Handle `--nbd' flag
     if (nbd) {
 #if NBDKIT
-        if ((i = trampoline_to_nbd(argc, argv)) == 2) {
+        if ((r = trampoline_to_nbd(argc, argv)) == 2) {
             usage();
-            i = 1;
+            r = 1;
         }
-        return i;
+        return r;
 #else
         errx(1, "invalid flag \"--nbd\": %s was not built with NBD support", PACKAGE);
 #endif
@@ -137,14 +138,12 @@ main(int argc, char **argv)
 
     // Start
     (*config->log)(LOG_INFO, "s3backer process %lu for %s started", (u_long)getpid(), config->mount);
-    if (fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL) != 0) {
-        (*config->log)(LOG_ERR, "error starting FUSE");
-        fuse_ops_destroy();
-        return 1;
-    }
+    if ((r = fuse_main(config->fuse_args.argc, config->fuse_args.argv, fuse_ops, NULL)) != 0)
+        (*config->log)(LOG_ERR, "error %s FUSE: fuse_main() returned %d", r < 7 ? "starting" : "running", r);
 
     // Done
-    return 0;
+    fuse_ops_destroy();
+    return r;
 }
 
 #if NBDKIT

@@ -320,15 +320,18 @@ s3b_nbd_plugin_after_fork(void)
         set_config_log(config, s3b_nbd_logger);
 
     // Startup threads etc.
-    fuse_priv = (*fuse_ops->init)(NULL);
+    fuse_priv = (*fuse_ops->init)(NULL, NULL);
     return 0;
 }
 
 static void
 s3b_nbd_plugin_unload(void)
 {
-    if (fuse_priv != NULL)
-        (*fuse_ops->destroy)(fuse_priv);
+    if (fuse_ops != NULL) {
+        fuse_ops_destroy();
+        fuse_ops = NULL;
+    }
+    fuse_priv = NULL;
     free_strings(&params);
     s3b_cleanup();
 }
