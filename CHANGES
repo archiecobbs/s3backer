@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.5 released May 22, 2025
 
     - Add new flag "--statsFileMirror" (issue #237)
     - Update to FUSE 3.x (#239)
