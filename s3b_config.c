@@ -164,8 +164,8 @@ static struct s3b_config config = {
         .region=                NULL,
         .sse=                   NULL,
         .sse_key_id=            NULL,
-        .accessType=            S3BACKER_DEFAULT_ACCESS_TYPE,
-        .authVersion=           S3BACKER_DEFAULT_AUTH_VERSION,
+        .accessType=            NULL,           // default S3BACKER_DEFAULT_ACCESS_TYPE
+        .authVersion=           NULL,           // default S3BACKER_DEFAULT_AUTH_VERSION
         .user_agent=            user_agent_buf,
         .timeout=               S3BACKER_DEFAULT_TIMEOUT,
         .initial_retry_pause=   S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE,
@@ -193,8 +193,8 @@ static struct s3b_config config = {
 
     // FUSE operations config
     .fuse_ops= {
-        .filename=              S3BACKER_DEFAULT_FILENAME,
-        .stats_filename=        S3BACKER_DEFAULT_STATS_FILENAME,
+        .filename=              NULL,           // default S3BACKER_DEFAULT_FILENAME
+        .stats_filename=        NULL,           // default S3BACKER_DEFAULT_STATS_FILENAME
         .stats_mirror_interval= S3BACKER_DEFAULT_STATS_MIRROR_INTERVAL,
         .file_mode=             -1,             // default depends on 'read_only'
     },
@@ -203,7 +203,7 @@ static struct s3b_config config = {
     .block_size=            0,
     .file_size=             0,
     .bucket=                NULL,
-    .prefix=                S3BACKER_DEFAULT_PREFIX,
+    .prefix=                NULL,               // default S3BACKER_DEFAULT_PREFIX
     .accessKeyEnv=          NULL,
     .blockHashPrefix=       0,
     .quiet=                 0,
@@ -596,6 +596,14 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
     char buf[1024];
     int i;
 
+    // Apply default string values using malloc() so that fuse_opt_parse() may realloc them
+    if ((config.http_io.accessType = strdup(S3BACKER_DEFAULT_ACCESS_TYPE)) == NULL
+      || (config.http_io.authVersion = strdup(S3BACKER_DEFAULT_AUTH_VERSION)) == NULL
+      || (config.prefix = strdup(S3BACKER_DEFAULT_PREFIX)) == NULL
+      || (config.fuse_ops.filename = strdup(S3BACKER_DEFAULT_FILENAME)) == NULL
+      || (config.fuse_ops.stats_filename = strdup(S3BACKER_DEFAULT_STATS_FILENAME)) == NULL)
+        err(1, "strdup");
+
     // NBDKit adjustments
     if (nbd)
         config.nbd = nbd;
@@ -913,55 +921,54 @@ fail:
     return NULL;
 }
 
-#define FORCE_FREE2(p, def) do {                                        \
-                                if ((p) != NULL && (p) != (def)) {      \
-                                    free((void *)(intptr_t)(p));        \
-                                    (p) = NULL;                         \
-                                }                                       \
-                            } while (0)
-#define FORCE_FREE(p)       FORCE_FREE2(p, NULL)
+#define FREE_NULL(p)    do {                                    \
+                            if ((p) != NULL) {                  \
+                                free((void *)(intptr_t)(p));    \
+                                (p) = NULL;                     \
+                            }                                   \
+                        } while (0)
 
 // Free memory prior to unload/exit. This is mainly to make valgrind happy.
 void
 s3b_cleanup(void)
 {
     // Config flags
-    FORCE_FREE(config.accessFile);
-    FORCE_FREE(config.http_io.accessId);
-    FORCE_FREE(config.http_io.accessKey);
-    FORCE_FREE(config.accessKeyEnv);
-    FORCE_FREE2(config.http_io.accessType, S3BACKER_DEFAULT_ACCESS_TYPE);
-    FORCE_FREE(config.http_io.ec2iam_role);
-    FORCE_FREE2(config.http_io.authVersion, S3BACKER_DEFAULT_AUTH_VERSION);
-    FORCE_FREE(config.http_io.baseURL);
-    FORCE_FREE2(config.http_io.region, S3BACKER_DEFAULT_REGION);
-    FORCE_FREE(config.http_io.sse);
-    FORCE_FREE(config.http_io.sse_key_id);
-    FORCE_FREE(config.block_cache.cache_file);
-    FORCE_FREE(config.block_size_str);
-    FORCE_FREE(config.max_speed_str[HTTP_UPLOAD]);
-    FORCE_FREE(config.max_speed_str[HTTP_DOWNLOAD]);
-    FORCE_FREE2(config.prefix, S3BACKER_DEFAULT_PREFIX);
-    FORCE_FREE(config.http_io.default_ce);
-    FORCE_FREE(config.http_io.vhostURL);
-    FORCE_FREE(config.file_size_str);
-    FORCE_FREE2(config.fuse_ops.filename, S3BACKER_DEFAULT_FILENAME);
-    FORCE_FREE2(config.fuse_ops.stats_filename, S3BACKER_DEFAULT_STATS_FILENAME);
-    FORCE_FREE(config.fuse_ops.stats_mirror_path);
-    FORCE_FREE(config.http_io.storage_class);
-    FORCE_FREE(config.http_io.cacert);
-    FORCE_FREE2(config.compress_alg, S3BACKER_DEFAULT_COMPRESSION);
-    FORCE_FREE(config.compress_level);
-    FORCE_FREE(config.http_io.encryption);
-    FORCE_FREE(config.http_io.password);
-    FORCE_FREE(config.password_file);
+    FREE_NULL(config.accessFile);
+    FREE_NULL(config.http_io.accessId);
+    FREE_NULL(config.http_io.accessKey);
+    FREE_NULL(config.accessKeyEnv);
+    FREE_NULL(config.http_io.accessType);
+    FREE_NULL(config.http_io.ec2iam_role);
+    FREE_NULL(config.http_io.authVersion);
+    FREE_NULL(config.http_io.baseURL);
+    FREE_NULL(config.http_io.region);
+    FREE_NULL(config.http_io.sse);
+    FREE_NULL(config.http_io.sse_key_id);
+    FREE_NULL(config.block_cache.cache_file);
+    FREE_NULL(config.block_size_str);
+    FREE_NULL(config.max_speed_str[HTTP_UPLOAD]);
+    FREE_NULL(config.max_speed_str[HTTP_DOWNLOAD]);
+    FREE_NULL(config.prefix);
+    FREE_NULL(config.http_io.default_ce);
+    FREE_NULL(config.http_io.vhostURL);
+    FREE_NULL(config.file_size_str);
+    FREE_NULL(config.fuse_ops.filename);
+    FREE_NULL(config.fuse_ops.stats_filename);
+    FREE_NULL(config.fuse_ops.stats_mirror_path);
+    FREE_NULL(config.http_io.storage_class);
+    FREE_NULL(config.http_io.cacert);
+    FREE_NULL(config.compress_alg);
+    FREE_NULL(config.compress_level);
+    FREE_NULL(config.http_io.encryption);
+    FREE_NULL(config.http_io.password);
+    FREE_NULL(config.password_file);
 
     // Config params
-    FORCE_FREE(config.bucket);
-    FORCE_FREE(config.mount);
+    FREE_NULL(config.bucket);
+    FREE_NULL(config.mount);
 
     // Misc
-    FORCE_FREE(zero_block);
+    FREE_NULL(zero_block);
     fuse_opt_free_args(&config.fuse_args);
     if (config.http_io.compress_alg != NULL) {
         (*config.http_io.compress_alg->lfree)(config.http_io.compress_level);
@@ -1267,7 +1274,6 @@ validate_config(int parse_only)
     char fileSizeBuf[64];
     struct stat sb;
     char urlbuf[512];
-    char *pbuf;
     char *p;
     int i;
     int r;
@@ -1364,6 +1370,7 @@ validate_config(int parse_only)
             return -1;
         }
         if ((p = strchr(config.bucket, '/')) != NULL) {
+            char *pbuf;
 
             // Can't use bucket+prefix and --prefix at the same time
             if (*config.prefix != '\0') {
@@ -1429,8 +1436,10 @@ validate_config(int parse_only)
     }
 
     // Set default or custom region
-    if (config.http_io.region == NULL)
-        config.http_io.region = S3BACKER_DEFAULT_REGION;
+    if (config.http_io.region == NULL) {
+        if ((config.http_io.region = strdup(S3BACKER_DEFAULT_REGION)) == NULL)
+            err(1, "strdup");
+    }
     if (customRegion && config.http_io.vhost != -1)
         config.http_io.vhost = 1;
 
@@ -1574,19 +1583,20 @@ validate_config(int parse_only)
 
     // Apply backwards-compatibility for "--compress" flag
     if (config.compress_alg == NULL && config.compress_level == NULL && config.compress_flag) {
-        static char buf[16];
-
-        snvprintf(buf, sizeof(buf), "%d", Z_DEFAULT_COMPRESSION);
-        config.compress_alg = buf;
+        if (asprintf(&config.compress_alg, "%d", Z_DEFAULT_COMPRESSION) == -1)
+            err(1, "asprintf");
     }
     if (config.compress_alg != NULL && config.compress_level == NULL && sscanf(config.compress_alg, "%d", &i) == 1) {
         config.compress_level = config.compress_alg;
-        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+        if ((config.compress_alg = strdup(S3BACKER_DEFAULT_COMPRESSION)) == NULL)
+            err(1, "strdup()");
     }
 
     // We always want to compress if we are encrypting
-    if (config.http_io.encryption != NULL && config.compress_alg == NULL)
-        config.compress_alg = S3BACKER_DEFAULT_COMPRESSION;
+    if (config.http_io.encryption != NULL && config.compress_alg == NULL) {
+        if ((config.compress_alg = strdup(S3BACKER_DEFAULT_COMPRESSION)) == NULL)
+            err(1, "strdup");
+    }
 
     // Parse compression, if any, and compression level, if any
     if (config.compress_alg != NULL) {

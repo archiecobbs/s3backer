@@ -1,3 +1,7 @@
+Version Next
+
+    - Fix realloc() crash with newer libfuse when "--filename" is used.
+
 Version 2.1.5 released May 22, 2025
 
     - Add new flag "--statsFileMirror" (issue #237)
