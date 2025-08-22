@@ -1,4 +1,4 @@
-Version Next
+Version 2.1.6 released August 22, 2025
 
     - Fix realloc() crash with newer libfuse when "--filename" is used.
 
