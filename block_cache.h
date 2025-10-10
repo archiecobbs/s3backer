@@ -61,8 +61,10 @@ struct block_cache_stats {
     double              dirty_ratio;
     u_int               read_hits;
     u_int               read_misses;
-    u_int               write_hits;
-    u_int               write_misses;
+    u_int               write_hits_fullblock;
+    u_int               write_hits_partialblock;
+    u_int               write_misses_fullblock;
+    u_int               write_misses_partialblock;
     u_int               verified;
     u_int               mismatch;
     u_int               out_of_memory_errors;

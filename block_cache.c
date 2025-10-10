@@ -1106,8 +1106,12 @@ again:
             if ((r = block_cache_write_data(priv, entry, src, off, len)) != 0)
                 (*config->log)(LOG_ERR, "error updating dirty block! %s", strerror(r));
             entry->dirty = 1;
-            if (!partial_miss)
-                priv->stats.write_hits++;
+            if (!partial_miss) {
+                if (off != 0 || len != config->block_size)
+                    priv->stats.write_hits_partialblock++;
+                else
+                    priv->stats.write_hits_fullblock++;
+            }
             break;
         default:
             assert(0);
@@ -1128,7 +1132,7 @@ again:
         if ((r = block_cache_do_read(priv, block_num, 0, 0, NULL, 0)) != 0)
             goto fail;
         if (partial_miss++ == 0)
-            priv->stats.write_misses++;
+            priv->stats.write_misses_partialblock++;
         goto again;
     }
 
@@ -1154,7 +1158,7 @@ again:
         (*config->log)(LOG_ERR, "error updating dirty block! %s", strerror(r));
 
     // Initialize a new DIRTY cache entry
-    priv->stats.write_misses++;
+    priv->stats.write_misses_fullblock++;
     entry->block_num = block_num;
     entry->timeout = block_cache_get_time(priv) + priv->dirty_timeout;
     entry->dirty = 1;
