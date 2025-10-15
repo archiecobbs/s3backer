@@ -106,6 +106,7 @@
 
 static print_stats_t s3b_config_print_stats;
 static clear_stats_t s3b_config_clear_stats;
+static ops_stats_record_t ops_stats_record;
 
 static int option_flag_appears(const char *option_flag);
 static void insert_fuse_arg(int pos, const char *arg);
@@ -150,6 +151,333 @@ static const char *const s3_storage_classes[] = {
     STORAGE_CLASS_DEEP_ARCHIVE,
     STORAGE_CLASS_OUTPOSTS,
     NULL
+};
+
+// Detailed operations histograms
+struct histogram_bin_t {
+    ssize_t topvalue;
+    u_int count;
+};
+
+static struct histogram_bin_t ops_stats_read_requestbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = (1 << 25) - 1 },
+    { .topvalue = (1 << 26) - 1 },
+    { .topvalue = (1 << 27) - 1 },
+    { .topvalue = (1 << 28) - 1 },
+    { .topvalue = (1 << 29) - 1 },
+    { .topvalue = (1 << 30) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_read_requestalign[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 << 8 },
+    { .topvalue = 1 << 9 },
+    { .topvalue = 1 << 10 },
+    { .topvalue = 1 << 11 },
+    { .topvalue = 1 << 12 },
+    { .topvalue = 1 << 13 },
+    { .topvalue = 1 << 14 },
+    { .topvalue = 1 << 15 },
+    { .topvalue = 1 << 16 },
+    { .topvalue = 1 << 17 },
+    { .topvalue = 1 << 18 },
+    { .topvalue = 1 << 19 },
+    { .topvalue = 1 << 20 },
+    { .topvalue = 1 << 21 },
+    { .topvalue = 1 << 22 },
+    { .topvalue = 1 << 23 },
+    { .topvalue = 1 << 24 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_read_fullblocks[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 },
+    { .topvalue = 2 },
+    { .topvalue = 3 },
+    { .topvalue = 4 },
+    { .topvalue = 5 },
+    { .topvalue = 6 },
+    { .topvalue = (1 << 3) - 1 },
+    { .topvalue = (1 << 4) - 1 },
+    { .topvalue = (1 << 5) - 1 },
+    { .topvalue = (1 << 6) - 1 },
+    { .topvalue = (1 << 7) - 1 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_read_trailerbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_write_requestbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = (1 << 25) - 1 },
+    { .topvalue = (1 << 26) - 1 },
+    { .topvalue = (1 << 27) - 1 },
+    { .topvalue = (1 << 28) - 1 },
+    { .topvalue = (1 << 29) - 1 },
+    { .topvalue = (1 << 30) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_write_requestalign[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 << 8 },
+    { .topvalue = 1 << 9 },
+    { .topvalue = 1 << 10 },
+    { .topvalue = 1 << 11 },
+    { .topvalue = 1 << 12 },
+    { .topvalue = 1 << 13 },
+    { .topvalue = 1 << 14 },
+    { .topvalue = 1 << 15 },
+    { .topvalue = 1 << 16 },
+    { .topvalue = 1 << 17 },
+    { .topvalue = 1 << 18 },
+    { .topvalue = 1 << 19 },
+    { .topvalue = 1 << 20 },
+    { .topvalue = 1 << 21 },
+    { .topvalue = 1 << 22 },
+    { .topvalue = 1 << 23 },
+    { .topvalue = 1 << 24 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_write_fullblocks[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 },
+    { .topvalue = 2 },
+    { .topvalue = 3 },
+    { .topvalue = 4 },
+    { .topvalue = 5 },
+    { .topvalue = 6 },
+    { .topvalue = (1 << 3) - 1 },
+    { .topvalue = (1 << 4) - 1 },
+    { .topvalue = (1 << 5) - 1 },
+    { .topvalue = (1 << 6) - 1 },
+    { .topvalue = (1 << 7) - 1 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_write_trailerbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_trim_requestbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = (1 << 25) - 1 },
+    { .topvalue = (1 << 26) - 1 },
+    { .topvalue = (1 << 27) - 1 },
+    { .topvalue = (1 << 28) - 1 },
+    { .topvalue = (1 << 29) - 1 },
+    { .topvalue = (1 << 30) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_trim_requestalign[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 << 8 },
+    { .topvalue = 1 << 9 },
+    { .topvalue = 1 << 10 },
+    { .topvalue = 1 << 11 },
+    { .topvalue = 1 << 12 },
+    { .topvalue = 1 << 13 },
+    { .topvalue = 1 << 14 },
+    { .topvalue = 1 << 15 },
+    { .topvalue = 1 << 16 },
+    { .topvalue = 1 << 17 },
+    { .topvalue = 1 << 18 },
+    { .topvalue = 1 << 19 },
+    { .topvalue = 1 << 20 },
+    { .topvalue = 1 << 21 },
+    { .topvalue = 1 << 22 },
+    { .topvalue = 1 << 23 },
+    { .topvalue = 1 << 24 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_trim_fullblocks[] = {
+    { .topvalue = 0 },
+    { .topvalue = 1 },
+    { .topvalue = 2 },
+    { .topvalue = 3 },
+    { .topvalue = 4 },
+    { .topvalue = 5 },
+    { .topvalue = 6 },
+    { .topvalue = (1 << 3) - 1 },
+    { .topvalue = (1 << 4) - 1 },
+    { .topvalue = (1 << 5) - 1 },
+    { .topvalue = (1 << 6) - 1 },
+    { .topvalue = (1 << 7) - 1 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = -1 },
+};
+
+static struct histogram_bin_t ops_stats_trim_trailerbytes[] = {
+    { .topvalue = 0 },
+    { .topvalue = (1 << 8) - 1 },
+    { .topvalue = (1 << 9) - 1 },
+    { .topvalue = (1 << 10) - 1 },
+    { .topvalue = (1 << 11) - 1 },
+    { .topvalue = (1 << 12) - 1 },
+    { .topvalue = (1 << 13) - 1 },
+    { .topvalue = (1 << 14) - 1 },
+    { .topvalue = (1 << 15) - 1 },
+    { .topvalue = (1 << 16) - 1 },
+    { .topvalue = (1 << 17) - 1 },
+    { .topvalue = (1 << 18) - 1 },
+    { .topvalue = (1 << 19) - 1 },
+    { .topvalue = (1 << 20) - 1 },
+    { .topvalue = (1 << 21) - 1 },
+    { .topvalue = (1 << 22) - 1 },
+    { .topvalue = (1 << 23) - 1 },
+    { .topvalue = (1 << 24) - 1 },
+    { .topvalue = -1 },
+};
+
+struct ops_stats_set_t {
+    struct histogram_bin_t  *requestbytes;
+    struct histogram_bin_t  *requestalign;
+    struct histogram_bin_t  *fullblocks;
+    struct histogram_bin_t  *trailerbytes;
+};
+
+struct ops_stats_t {
+    pthread_mutex_t         mutex;
+    struct ops_stats_set_t  read;
+    struct ops_stats_set_t  write;
+    struct ops_stats_set_t  trim;
+};
+
+static struct ops_stats_t ops_stats = {
+    .mutex=		PTHREAD_MUTEX_INITIALIZER,
+    .read= {
+        .requestbytes=  ops_stats_read_requestbytes,
+        .requestalign=  ops_stats_read_requestalign,
+        .fullblocks=    ops_stats_read_fullblocks,
+        .trailerbytes=  ops_stats_read_trailerbytes,
+    },
+    .write= {
+        .requestbytes=  ops_stats_write_requestbytes,
+        .requestalign=  ops_stats_write_requestalign,
+        .fullblocks=    ops_stats_write_fullblocks,
+        .trailerbytes=  ops_stats_write_trailerbytes,
+    },
+    .trim= {
+        .requestbytes=  ops_stats_trim_requestbytes,
+        .requestalign=  ops_stats_trim_requestalign,
+        .fullblocks=    ops_stats_trim_fullblocks,
+        .trailerbytes=  ops_stats_trim_trailerbytes,
+    },
 };
 
 // Configuration structure
@@ -748,6 +1076,7 @@ s3backer_get_config2(int argc, char **argv, int nbd, int parse_only, fuse_opt_pr
     // Set up fuse_ops callbacks
     config.fuse_ops.print_stats = s3b_config_print_stats;
     config.fuse_ops.clear_stats = s3b_config_clear_stats;
+    config.fuse_ops.ops_stats_record = ops_stats_record;
     config.fuse_ops.s3bconf = &config;
 
     // Debug
@@ -984,6 +1313,139 @@ s3b_cleanup(void)
  ****************************************************************************/
 
 static void
+histogram_add(struct histogram_bin_t *bin, size_t value, u_int count)
+{
+    for (; bin->topvalue >= 0; bin++) {
+        if (value <= (size_t) bin->topvalue) {
+            bin->count += count;
+            return;
+        }
+    }
+    bin->count += count; // Top bin
+}
+
+static void
+histogram_add_align(struct histogram_bin_t *bin, size_t value, u_int count)
+{
+    // If bins are 0, 1024, 4096, -1; then we record 512-aligned into the 0 bin,
+    // 2048-aligned into the 1024 bin, and 8192-aligned into the -1 bin.
+
+    struct histogram_bin_t *highestmatch = bin;
+    int higher_than_highest = 0;
+
+    bin++; // Lowest bin should be 0
+    for (; bin->topvalue >= 0; bin++) {
+        if ((value & ((size_t) (bin->topvalue - 1))) == 0) {
+            highestmatch = bin;
+            higher_than_highest = 0;
+            if ((value & ((size_t) bin->topvalue)) == 0)
+                higher_than_highest = 1;
+        } else {
+            break;
+        }
+    }
+    if (bin->topvalue < 0 && higher_than_highest)
+        highestmatch = bin; // Top bin
+
+    highestmatch->count += count;
+}
+
+static void
+histogram_clear(struct histogram_bin_t *bin)
+{
+    for (; bin->topvalue >= 0; bin++) {
+        bin->count = 0;
+    }
+    bin->count = 0; // Top bin
+}
+
+static void
+histogram_print(void *prarg, printer_t *printer, struct histogram_bin_t *bin, const char *operation_name, const char *histogram_name)
+{
+    ssize_t bottomvalue = 0;
+    for (; bin->topvalue >= 0; bin++) {
+        (*printer)(prarg, "ops_histogram %s %s %zd-%zd\t%u\n", operation_name, histogram_name, bottomvalue, bin->topvalue, bin->count);
+        bottomvalue = bin->topvalue + 1;
+    }
+    (*printer)(prarg, "ops_histogram %s %s %zd+\t%u\n", operation_name, histogram_name, bottomvalue, bin->count);
+}
+
+static void
+histogram_print_align(void *prarg, printer_t *printer, struct histogram_bin_t *bin, const char *operation_name, const char *histogram_name)
+{
+    ssize_t lastvalue = 0;
+    for (; bin->topvalue >= 0; bin++) {
+        (*printer)(prarg, "ops_histogram %s %s %zd\t%u\n", operation_name, histogram_name, bin->topvalue, bin->count);
+        lastvalue = bin->topvalue;
+    }
+    (*printer)(prarg, "ops_histogram %s %s %zd+\t%u\n", operation_name, histogram_name, lastvalue << 1, bin->count);
+}
+
+static void
+ops_stats_record_operation(struct ops_stats_set_t *stats_set, size_t requestbytes, off_t requestoffset, size_t fullblocks, size_t trailerbytes)
+{
+    pthread_mutex_lock(&ops_stats.mutex);
+
+    histogram_add(stats_set->requestbytes, requestbytes, 1);
+    histogram_add_align(stats_set->requestalign, requestoffset, 1);
+    histogram_add(stats_set->fullblocks, fullblocks, 1);
+    histogram_add(stats_set->trailerbytes, trailerbytes, 1);
+
+    CHECK_RETURN(pthread_mutex_unlock(&ops_stats.mutex));
+}
+
+static void
+ops_stats_clear_operation_locked(struct ops_stats_set_t *stats_set)
+{
+    histogram_clear(stats_set->requestbytes);
+    histogram_clear(stats_set->requestalign);
+    histogram_clear(stats_set->fullblocks);
+    histogram_clear(stats_set->trailerbytes);
+}
+
+static void
+ops_stats_print_operation(void *prarg, printer_t *printer, struct ops_stats_set_t *stats_set, const char *operation_name)
+{
+    histogram_print(prarg, printer, stats_set->requestbytes, operation_name,       "requestbytes");
+    histogram_print_align(prarg, printer, stats_set->requestalign, operation_name, "requestalign");
+    histogram_print(prarg, printer, stats_set->fullblocks, operation_name,         "fullblocks  ");
+    histogram_print(prarg, printer, stats_set->trailerbytes, operation_name,       "trailerbytes");
+}
+
+static void
+ops_stats_record(int operation, size_t requestbytes, off_t requestoffset, size_t fullblocks, size_t trailerbytes)
+{
+    struct ops_stats_set_t *stats_set = &ops_stats.read;
+    if (operation == OPS_STATS_OPERATION_READ)
+        stats_set = &ops_stats.read;
+    else if (operation == OPS_STATS_OPERATION_WRITE)
+        stats_set = &ops_stats.write;
+    else if (operation == OPS_STATS_OPERATION_TRIM)
+        stats_set = &ops_stats.trim;
+    ops_stats_record_operation(stats_set, requestbytes, requestoffset, fullblocks, trailerbytes);
+}
+
+static void
+ops_stats_allclear(void)
+{
+    pthread_mutex_lock(&ops_stats.mutex);
+    ops_stats_clear_operation_locked(&ops_stats.read);
+    ops_stats_clear_operation_locked(&ops_stats.write);
+    ops_stats_clear_operation_locked(&ops_stats.trim);
+    CHECK_RETURN(pthread_mutex_unlock(&ops_stats.mutex));
+}
+
+static void
+ops_stats_print(void *prarg, printer_t *printer)
+{
+    // No locking here; should always be valid value, just at slightly different times
+    ops_stats_print_operation(prarg, printer, &ops_stats.read,  "read ");
+    ops_stats_print_operation(prarg, printer, &ops_stats.write, "write");
+    if (config.nbd)
+        ops_stats_print_operation(prarg, printer, &ops_stats.trim,  "trim ");
+}
+
+static void
 s3b_config_print_stats(void *prarg, printer_t *printer)
 {
     struct http_io_stats http_io_stats;
@@ -1012,46 +1474,46 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
 
     // Print stats in human-readable form
     if (http_io_store != NULL) {
-        (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_read", http_io_stats.normal_blocks_read);
-        (*printer)(prarg, "%-28s %u\n", "http_normal_blocks_written", http_io_stats.normal_blocks_written);
-        (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_read", http_io_stats.zero_blocks_read);
-        (*printer)(prarg, "%-28s %u\n", "http_zero_blocks_written", http_io_stats.zero_blocks_written);
+        (*printer)(prarg, "%-39s %u\n", "http_normal_blocks_read", http_io_stats.normal_blocks_read);
+        (*printer)(prarg, "%-39s %u\n", "http_normal_blocks_written", http_io_stats.normal_blocks_written);
+        (*printer)(prarg, "%-39s %u\n", "http_zero_blocks_read", http_io_stats.zero_blocks_read);
+        (*printer)(prarg, "%-39s %u\n", "http_zero_blocks_written", http_io_stats.zero_blocks_written);
         if (config.list_blocks) {
-            (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_read", http_io_stats.empty_blocks_read);
-            (*printer)(prarg, "%-28s %u\n", "http_empty_blocks_written", http_io_stats.empty_blocks_written);
+            (*printer)(prarg, "%-39s %u\n", "http_empty_blocks_read", http_io_stats.empty_blocks_read);
+            (*printer)(prarg, "%-39s %u\n", "http_empty_blocks_written", http_io_stats.empty_blocks_written);
         }
-        (*printer)(prarg, "%-28s %u\n", "http_gets", http_io_stats.http_gets.count);
-        (*printer)(prarg, "%-28s %u\n", "http_puts", http_io_stats.http_puts.count);
-        (*printer)(prarg, "%-28s %u\n", "http_deletes", http_io_stats.http_deletes.count);
-        (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_get_time", http_io_stats.http_gets.count > 0 ?
+        (*printer)(prarg, "%-39s %u\n", "http_gets", http_io_stats.http_gets.count);
+        (*printer)(prarg, "%-39s %u\n", "http_puts", http_io_stats.http_puts.count);
+        (*printer)(prarg, "%-39s %u\n", "http_deletes", http_io_stats.http_deletes.count);
+        (*printer)(prarg, "%-39s %.3f sec\n", "http_avg_get_time", http_io_stats.http_gets.count > 0 ?
           http_io_stats.http_gets.time / http_io_stats.http_gets.count : 0.0);
-        (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_put_time", http_io_stats.http_puts.count > 0 ?
+        (*printer)(prarg, "%-39s %.3f sec\n", "http_avg_put_time", http_io_stats.http_puts.count > 0 ?
           http_io_stats.http_puts.time / http_io_stats.http_puts.count : 0.0);
-        (*printer)(prarg, "%-28s %.3f sec\n", "http_avg_delete_time", http_io_stats.http_deletes.count > 0 ?
+        (*printer)(prarg, "%-39s %.3f sec\n", "http_avg_delete_time", http_io_stats.http_deletes.count > 0 ?
           http_io_stats.http_deletes.time / http_io_stats.http_deletes.count : 0.0);
-        (*printer)(prarg, "%-28s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
-        (*printer)(prarg, "%-28s %u\n", "http_forbidden", http_io_stats.http_forbidden);
-        (*printer)(prarg, "%-28s %u\n", "http_stale", http_io_stats.http_stale);
-        (*printer)(prarg, "%-28s %u\n", "http_redirect", http_io_stats.http_redirect);
-        (*printer)(prarg, "%-28s %u\n", "http_verified", http_io_stats.http_verified);
-        (*printer)(prarg, "%-28s %u\n", "http_mismatch", http_io_stats.http_mismatch);
-        (*printer)(prarg, "%-28s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
-        (*printer)(prarg, "%-28s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
-        (*printer)(prarg, "%-28s %u\n", "http_3xx_error", http_io_stats.http_3xx_error);
-        (*printer)(prarg, "%-28s %u\n", "http_other_error", http_io_stats.http_other_error);
-        (*printer)(prarg, "%-28s %u\n", "http_canceled_writes", http_io_stats.http_canceled_writes);
-        (*printer)(prarg, "%-28s %u\n", "http_num_retries", http_io_stats.num_retries);
-        (*printer)(prarg, "%-28s %ju.%03u sec\n", "http_total_retry_delay",
+        (*printer)(prarg, "%-39s %u\n", "http_unauthorized", http_io_stats.http_unauthorized);
+        (*printer)(prarg, "%-39s %u\n", "http_forbidden", http_io_stats.http_forbidden);
+        (*printer)(prarg, "%-39s %u\n", "http_stale", http_io_stats.http_stale);
+        (*printer)(prarg, "%-39s %u\n", "http_redirect", http_io_stats.http_redirect);
+        (*printer)(prarg, "%-39s %u\n", "http_verified", http_io_stats.http_verified);
+        (*printer)(prarg, "%-39s %u\n", "http_mismatch", http_io_stats.http_mismatch);
+        (*printer)(prarg, "%-39s %u\n", "http_5xx_error", http_io_stats.http_5xx_error);
+        (*printer)(prarg, "%-39s %u\n", "http_4xx_error", http_io_stats.http_4xx_error);
+        (*printer)(prarg, "%-39s %u\n", "http_3xx_error", http_io_stats.http_3xx_error);
+        (*printer)(prarg, "%-39s %u\n", "http_other_error", http_io_stats.http_other_error);
+        (*printer)(prarg, "%-39s %u\n", "http_canceled_writes", http_io_stats.http_canceled_writes);
+        (*printer)(prarg, "%-39s %u\n", "http_num_retries", http_io_stats.num_retries);
+        (*printer)(prarg, "%-39s %ju.%03u sec\n", "http_total_retry_delay",
           (uintmax_t)(http_io_stats.retry_delay / 1000), (u_int)(http_io_stats.retry_delay % 1000));
         total_curls = http_io_stats.curl_handles_created + http_io_stats.curl_handles_reused;
         if (total_curls > 0)
             curl_reuse_ratio = (double)http_io_stats.curl_handles_reused / (double)total_curls;
-        (*printer)(prarg, "%-28s %.4f\n", "curl_handle_reuse_ratio", curl_reuse_ratio);
-        (*printer)(prarg, "%-28s %u\n", "curl_timeouts", http_io_stats.curl_timeouts);
-        (*printer)(prarg, "%-28s %u\n", "curl_connect_failed", http_io_stats.curl_connect_failed);
-        (*printer)(prarg, "%-28s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
-        (*printer)(prarg, "%-28s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
-        (*printer)(prarg, "%-28s %u\n", "curl_other_error", http_io_stats.curl_other_error);
+        (*printer)(prarg, "%-39s %.4f\n", "curl_handle_reuse_ratio", curl_reuse_ratio);
+        (*printer)(prarg, "%-39s %u\n", "curl_timeouts", http_io_stats.curl_timeouts);
+        (*printer)(prarg, "%-39s %u\n", "curl_connect_failed", http_io_stats.curl_connect_failed);
+        (*printer)(prarg, "%-39s %u\n", "curl_host_unknown", http_io_stats.curl_host_unknown);
+        (*printer)(prarg, "%-39s %u\n", "curl_out_of_memory", http_io_stats.curl_out_of_memory);
+        (*printer)(prarg, "%-39s %u\n", "curl_other_error", http_io_stats.curl_other_error);
         total_oom += http_io_stats.out_of_memory_errors;
     }
     if (block_cache_store != NULL) {
@@ -1068,36 +1530,37 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         if (total_writes != 0)
             write_hit_ratio = (double)(block_cache_stats.write_hits_fullblock + block_cache_stats.write_hits_partialblock)
                               / (double)total_writes;
-        (*printer)(prarg, "%-28s %u blocks\n", "block_cache_current_size", block_cache_stats.current_size);
-        (*printer)(prarg, "%-28s %u blocks\n", "block_cache_initial_size", block_cache_stats.initial_size);
-        (*printer)(prarg, "%-28s %.8f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
-        (*printer)(prarg, "%-28s %.8f\n", "block_cache_read_hit_ratio", read_hit_ratio);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits_fullblock", block_cache_stats.write_hits_fullblock);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_write_hits_partialblock", block_cache_stats.write_hits_partialblock);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses_fullblock", block_cache_stats.write_misses_fullblock);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_write_misses_partialblock", block_cache_stats.write_misses_partialblock);
-        (*printer)(prarg, "%-28s %.8f\n", "block_cache_write_hit_ratio", write_hit_ratio);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_verified", block_cache_stats.verified);
-        (*printer)(prarg, "%-28s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
+        (*printer)(prarg, "%-39s %u blocks\n", "block_cache_current_size", block_cache_stats.current_size);
+        (*printer)(prarg, "%-39s %u blocks\n", "block_cache_initial_size", block_cache_stats.initial_size);
+        (*printer)(prarg, "%-39s %.8f\n", "block_cache_dirty_ratio", block_cache_stats.dirty_ratio);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_read_hits", block_cache_stats.read_hits);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_read_misses", block_cache_stats.read_misses);
+        (*printer)(prarg, "%-39s %.8f\n", "block_cache_read_hit_ratio", read_hit_ratio);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_write_hits_fullblock", block_cache_stats.write_hits_fullblock);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_write_hits_partialblock", block_cache_stats.write_hits_partialblock);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_write_misses_fullblock", block_cache_stats.write_misses_fullblock);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_write_misses_partialblock", block_cache_stats.write_misses_partialblock);
+        (*printer)(prarg, "%-39s %.8f\n", "block_cache_write_hit_ratio", write_hit_ratio);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_verified", block_cache_stats.verified);
+        (*printer)(prarg, "%-39s %u\n", "block_cache_mismatch", block_cache_stats.mismatch);
         total_oom += block_cache_stats.out_of_memory_errors;
     }
     if (zero_cache_store != NULL) {
-        (*printer)(prarg, "%-28s %ju blocks\n", "zero_block_cache_size", (uintmax_t)zero_cache_stats.current_cache_size);
-        (*printer)(prarg, "%-28s %u\n", "zero_block_cache_read_hits", zero_cache_stats.read_hits);
-        (*printer)(prarg, "%-28s %u\n", "zero_block_cache_write_hits", zero_cache_stats.write_hits);
+        (*printer)(prarg, "%-39s %ju blocks\n", "zero_block_cache_size", (uintmax_t)zero_cache_stats.current_cache_size);
+        (*printer)(prarg, "%-39s %u\n", "zero_block_cache_read_hits", zero_cache_stats.read_hits);
+        (*printer)(prarg, "%-39s %u\n", "zero_block_cache_write_hits", zero_cache_stats.write_hits);
     }
     if (ec_protect_store != NULL) {
-        (*printer)(prarg, "%-28s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
-        (*printer)(prarg, "%-28s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
-        (*printer)(prarg, "%-28s %ju.%03u sec\n", "md5_cache_full_delays",
+        (*printer)(prarg, "%-39s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
+        (*printer)(prarg, "%-39s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
+        (*printer)(prarg, "%-39s %ju.%03u sec\n", "md5_cache_full_delays",
           (uintmax_t)(ec_protect_stats.cache_full_delay / 1000), (u_int)(ec_protect_stats.cache_full_delay % 1000));
-        (*printer)(prarg, "%-28s %ju.%03u sec\n", "md5_cache_write_delays",
+        (*printer)(prarg, "%-39s %ju.%03u sec\n", "md5_cache_write_delays",
           (uintmax_t)(ec_protect_stats.repeated_write_delay / 1000), (u_int)(ec_protect_stats.repeated_write_delay % 1000));
         total_oom += ec_protect_stats.out_of_memory_errors;
     }
-    (*printer)(prarg, "%-28s %u\n", "out_of_memory_errors", total_oom);
+    (*printer)(prarg, "%-39s %u\n", "out_of_memory_errors", total_oom);
+    ops_stats_print(prarg, printer);
 }
 
 static void
@@ -1118,6 +1581,9 @@ s3b_config_clear_stats(void)
     // Clear block cache stats
     if (block_cache_store != NULL)
         block_cache_clear_stats(block_cache_store);
+
+    // Clear operations histograms
+    ops_stats_allclear();
 }
 
 static void

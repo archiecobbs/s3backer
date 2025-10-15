@@ -39,6 +39,11 @@ struct s3b_config;
 struct s3backer_store;
 struct block_part;
 
+// Operations statistics definitions
+#define OPS_STATS_OPERATION_READ    1
+#define OPS_STATS_OPERATION_WRITE   2
+#define OPS_STATS_OPERATION_TRIM    3
+
 // Stats mirror state values
 #define STATS_MIRROR_INITIAL        0
 #define STATS_MIRROR_RUNNING        1
@@ -48,6 +53,7 @@ struct block_part;
 typedef void printer_t(void *prarg, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 typedef void print_stats_t(void *prarg, printer_t *printer);
 typedef void clear_stats_t(void);
+typedef void ops_stats_record_t(int operation, size_t requestbytes, off_t requestoffset, size_t fullblocks, size_t trailerbytes);
 
 // Configuration info structure for fuse_ops
 struct fuse_ops_conf {
@@ -66,6 +72,7 @@ struct fuse_ops_conf {
     s3b_block_t             num_blocks;
     int                     file_mode;
     log_func_t              *log;
+    ops_stats_record_t      *ops_stats_record;
 };
 
 // Private information
