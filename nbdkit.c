@@ -358,6 +358,8 @@ s3b_nbd_plugin_pread(void *handle, void *buf, uint32_t size, uint64_t offset, ui
 
     // Calculate what bits to read, then read them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (config->fuse_ops.ops_stats_record != NULL)
+        (*config->fuse_ops.ops_stats_record)(OPS_STATS_OPERATION_READ, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_read_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
         nbdkit_error("error reading block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         nbdkit_set_error(r);
@@ -391,6 +393,8 @@ s3b_nbd_plugin_pwrite(void *handle, const void *buf, uint32_t size, uint64_t off
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (config->fuse_ops.ops_stats_record != NULL)
+        (*config->fuse_ops.ops_stats_record)(OPS_STATS_OPERATION_WRITE, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
         nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         goto fail;
@@ -430,6 +434,8 @@ s3b_nbd_plugin_trim(void *handle, uint32_t size, uint64_t offset, uint32_t flags
 
     // Calculate what bits to trim, then trim them
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
+    if (config->fuse_ops.ops_stats_record != NULL)
+        (*config->fuse_ops.ops_stats_record)(OPS_STATS_OPERATION_TRIM, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_write_block_part(fuse_priv->s3b, fuse_priv->block_part, &info.header)) != 0) {
         nbdkit_error("error writing block %0*jx: %s", S3B_BLOCK_NUM_DIGITS, (uintmax_t)info.header.block, strerror(r));
         goto fail;

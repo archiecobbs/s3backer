@@ -430,6 +430,8 @@ fuse_op_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
 
     // Calculate what bits to read, then read them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (config->ops_stats_record != NULL)
+        (*config->ops_stats_record)(OPS_STATS_OPERATION_READ, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_read_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
@@ -477,6 +479,8 @@ fuse_op_write(const char *path, const char *buf, size_t size, off_t offset, stru
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, buf, size, offset);
+    if (config->ops_stats_record != NULL)
+        (*config->ops_stats_record)(OPS_STATS_OPERATION_WRITE, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
@@ -570,7 +574,7 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
     if (offset + len > priv->file_size)
         return -ENOSPC;
 
-    // Handle request
+    // Handle request -- anything except TRIM pass-through is no-op
     if ((mode & FALLOC_FL_PUNCH_HOLE) == 0)
         return 0;
 /*
@@ -580,6 +584,8 @@ fuse_op_fallocate(const char *path, int mode, off_t offset, off_t len, struct fu
 
     // Calculate what bits to write, then write them
     calculate_boundary_info(&info, config->block_size, NULL, size, offset);
+    if (config->ops_stats_record != NULL)
+        (*config->ops_stats_record)(OPS_STATS_OPERATION_TRIM, size, offset, info.mid_block_count, info.footer.length);
     if (info.header.length > 0 && (r = block_part_write_block_part(priv->s3b, priv->block_part, &info.header)) != 0)
         return -r;
     while (info.mid_block_count-- > 0) {
