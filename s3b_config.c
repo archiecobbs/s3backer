@@ -572,8 +572,9 @@ static const char *const s3backer_fuse_defaults[] = {
 };
 
 // s3backer_store layers
-struct s3backer_store *block_cache_store;
 struct s3backer_store *zero_cache_store;
+struct s3backer_store *block_cache_store;
+struct s3backer_store *lower_zero_cache_store;
 struct s3backer_store *ec_protect_store;
 struct s3backer_store *http_io_store;
 struct s3backer_store *test_io_store;
@@ -854,6 +855,14 @@ s3backer_create_store(struct s3b_config *conf)
 
     // Create block cache layer (if desired)
     if (conf->block_cache.cache_size > 0) {
+
+        // Create an extra zero block cache below the block cache
+        assert(!config.shared_disk_mode);
+        if ((lower_zero_cache_store = zero_cache_create(&conf->lower_zero_cache, store)) == NULL)
+            goto fail_with_errno;
+        store = lower_zero_cache_store;
+
+        // Create block cache layer
         if ((block_cache_store = block_cache_create(&conf->block_cache, store)) == NULL)
             goto fail_with_errno;
         store = block_cache_store;
@@ -914,6 +923,7 @@ fail:
     }
     block_cache_store = NULL;
     zero_cache_store = NULL;
+    lower_zero_cache_store = NULL;
     ec_protect_store = NULL;
     http_io_store = NULL;
     test_io_store = NULL;
@@ -989,6 +999,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
     struct http_io_stats http_io_stats;
     struct ec_protect_stats ec_protect_stats;
     struct zero_cache_stats zero_cache_stats;
+    struct zero_cache_stats lower_zero_cache_stats;
     struct block_cache_stats block_cache_stats;
     double curl_reuse_ratio = 0.0;
     u_int total_oom = 0;
@@ -1001,6 +1012,8 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
     // Get zero cache stats
     if (zero_cache_store != NULL)
         zero_cache_get_stats(zero_cache_store, &zero_cache_stats);
+    if (lower_zero_cache_store != NULL)
+        zero_cache_get_stats(zero_cache_store, &lower_zero_cache_stats);
 
     // Get EC protection stats
     if (ec_protect_store != NULL)
@@ -1084,6 +1097,12 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
         (*printer)(prarg, "%-28s %u\n", "zero_block_cache_read_hits", zero_cache_stats.read_hits);
         (*printer)(prarg, "%-28s %u\n", "zero_block_cache_write_hits", zero_cache_stats.write_hits);
     }
+    if (lower_zero_cache_store != NULL) {
+        (*printer)(prarg, "%-28s %ju blocks\n", "lower_zero_block_cache_size",
+          (uintmax_t)lower_zero_cache_stats.current_cache_size);
+        (*printer)(prarg, "%-28s %u\n", "lower_zero_block_cache_read_hits", lower_zero_cache_stats.read_hits);
+        (*printer)(prarg, "%-28s %u\n", "lower_zero_block_cache_write_hits", lower_zero_cache_stats.write_hits);
+    }
     if (ec_protect_store != NULL) {
         (*printer)(prarg, "%-28s %u blocks\n", "md5_cache_current_size", ec_protect_stats.current_cache_size);
         (*printer)(prarg, "%-28s %u\n", "md5_cache_data_hits", ec_protect_stats.cache_data_hits);
@@ -1110,6 +1129,8 @@ s3b_config_clear_stats(void)
     // Clear zero block cache stats
     if (zero_cache_store != NULL)
         zero_cache_clear_stats(zero_cache_store);
+    if (lower_zero_cache_store != NULL)
+        zero_cache_clear_stats(lower_zero_cache_store);
 
     // Clear block cache stats
     if (block_cache_store != NULL)
@@ -1922,7 +1943,8 @@ validate_config(int parse_only)
     config.http_io.num_blocks = config.num_blocks;
     config.zero_cache.block_size = config.block_size;
     config.zero_cache.num_blocks = config.num_blocks;
-    config.zero_cache.list_blocks = config.list_blocks;
+    config.lower_zero_cache.block_size = config.block_size;
+    config.lower_zero_cache.num_blocks = config.num_blocks;
     config.ec_protect.block_size = config.block_size;
     config.fuse_ops.block_size = config.block_size;
     config.fuse_ops.num_blocks = config.num_blocks;
@@ -1932,6 +1954,12 @@ validate_config(int parse_only)
     config.test_io.prefix = config.prefix;
     config.test_io.bucket = config.bucket;
     config.test_io.blockHashPrefix = config.blockHashPrefix;
+
+    // Only the lower of the two possible zero caches performs the list blocks operation
+    if (config.block_cache.cache_size > 0)
+        config.lower_zero_cache.list_blocks = config.list_blocks;
+    else
+        config.zero_cache.list_blocks = config.list_blocks;
 
     // Check whether already mounted, and if so, compare mount token against on-disk cache (if any)
     if (!config.test && !config.erase && !config.reset) {
