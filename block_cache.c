@@ -1452,6 +1452,17 @@ block_cache_worker_main(void *arg)
                 if (s3b_hash_get(priv->hashtable, ra_block) != NULL)
                     continue;
 
+                // If we have nowhere to store the block, cancel the entire read-ahead to avoid deadlock
+                if (s3b_hash_size(priv->hashtable) >= config->cache_size && priv->num_cleans < 1) {
+                    priv->seq_count = 0;
+                    priv->ra_count = 0;
+                    break;
+                }
+
+                // If still more read-ahead can be done, a sibling may do it in parallel
+                if (priv->ra_count < config->read_ahead)
+                    pthread_cond_signal(&priv->worker_work);
+
                 // Perform a speculative read of the block so it will get stored in the cache
                 (void)block_cache_do_read(priv, ra_block, 0, 0, NULL, 0);
                 break;
