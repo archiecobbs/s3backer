@@ -94,24 +94,24 @@
  * One cache entry. In order to keep this structure as small as possible, we do
  * two size optimizations:
  *
- *  1. We use the low-order bit of '_data' as the dirty flag (we assume all valid
- *     pointers are aligned to an even address).
+ *  1. We use the bitfields for dirty and verify flags, packed with 30 bits timeout value.
  *  2. When not linked into either list (i.e., in WRITING state), we set link.tqe_prev
  *     to NULL to indicate this; this is safe because link.tqe_prev is always non-NULL
  *     when the structure is linked into a list.
  *
- * Invariants:
+ * Invariants are used to implicitly define state:
  *
- *  State       ENTRY_IN_LIST()?    dirty?   timeout == -1  verify  dcache
- *  -----       ----------------    ------   -------------  ------  ------
+ *                                           timeout ==
+ *  State       ENTRY_IN_LIST()?    dirty?   READING_TIMEOUT  verify  dcache
+ *  -----       ----------------    ------   ---------------  ------  ------
  *
- *  CLEAN       YES: priv->cleans   NO       ?                0     recorded
- *  CLEAN2      YES: priv->cleans   NO       ?                1     recorded
- *  READING     NO                  NO       YES              0     allocated
- *  READING2    NO                  NO       YES              1     allocated
- *  DIRTY       YES: priv->dirties  YES      ?                ?     allocated
- *  WRITING     NO                  NO       NO               ?     allocated
- *  WRITING2    NO                  YES      NO               ?     allocated
+ *  CLEAN       YES: priv->cleans   NO       ?                0       recorded
+ *  CLEAN2      YES: priv->cleans   NO       ?                1       recorded
+ *  READING     NO                  NO       YES              0       allocated
+ *  READING2    NO                  NO       YES              1       allocated
+ *  DIRTY       YES: priv->dirties  YES      ?                ?       allocated
+ *  WRITING     NO                  NO       NO               ?       allocated
+ *  WRITING2    NO                  YES      NO               ?       allocated
  *
  * Timeouts: we track time in units of TIME_UNIT_MILLIS milliseconds from when we start.
  * This is so we can jam them into 30 bits instead of 64. It's possible for the time value
@@ -1405,7 +1405,7 @@ block_cache_worker_main(void *arg)
             // Sanity checks
             assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
 
-            // If write attempt failed (or we canceled it), go back to the DIRTY state and try again later
+            // If write attempt failed (or we canceled it), go back to the DIRTY state and try again immediately
             if (r != 0) {
                 entry->dirty = 1;
                 TAILQ_INSERT_HEAD(&priv->dirties, entry, link);
