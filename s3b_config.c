@@ -82,6 +82,7 @@
 #define S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY    250             // 250ms
 #define S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT        0
 #define S3BACKER_DEFAULT_BLOCK_CACHE_MAX_DIRTY      0
+#define S3BACKER_DEFAULT_NO_ABORT_DIRTY_WRITE       0
 #define S3BACKER_DEFAULT_READ_AHEAD                 4
 #define S3BACKER_DEFAULT_READ_AHEAD_TRIGGER         2
 #define S3BACKER_DEFAULT_COMPRESSION                "deflate"
@@ -189,6 +190,7 @@ static struct s3b_config config = {
         .timeout=               S3BACKER_DEFAULT_BLOCK_CACHE_TIMEOUT,
         .read_ahead=            S3BACKER_DEFAULT_READ_AHEAD,
         .read_ahead_trigger=    S3BACKER_DEFAULT_READ_AHEAD_TRIGGER,
+        .no_abort_dirty_write=  S3BACKER_DEFAULT_NO_ABORT_DIRTY_WRITE,
     },
 
     // FUSE operations config
@@ -327,6 +329,11 @@ static const struct fuse_opt option_list[] = {
     {
         .templ=     "--blockCacheNoVerify",
         .offset=    offsetof(struct s3b_config, block_cache.no_verify),
+        .value=     1
+    },
+    {
+        .templ=     "--blockCacheNoAbortDirtyWrite",
+        .offset=    offsetof(struct s3b_config, block_cache.no_abort_dirty_write),
         .value=     1
     },
     {
@@ -858,7 +865,7 @@ s3backer_create_store(struct s3b_config *conf)
 
         // Create an extra zero block cache below the block cache
         assert(!config.shared_disk_mode);
-        if ((lower_zero_cache_store = zero_cache_create(&conf->lower_zero_cache, store)) == NULL)
+        if ((lower_zero_cache_store = zero_cache_create(&conf->lower_zero_cache, store, 1)) == NULL)
             goto fail_with_errno;
         store = lower_zero_cache_store;
 
@@ -868,9 +875,9 @@ s3backer_create_store(struct s3b_config *conf)
         store = block_cache_store;
     }
 
-    // Create zero block cache
+    // Create zero block cache (above the block cache)
     if (!config.shared_disk_mode) {
-        if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store)) == NULL)
+      if ((zero_cache_store = zero_cache_create(&conf->zero_cache, store, 0)) == NULL)
             goto fail_with_errno;
         store = zero_cache_store;
     }
@@ -1956,10 +1963,13 @@ validate_config(int parse_only)
     config.test_io.blockHashPrefix = config.blockHashPrefix;
 
     // Only the lower of the two possible zero caches performs the list blocks operation
+    // actually, shouldnt it be the upper of the two, since the survey_non_zero function
+    // invokes the lower layer?
     if (config.block_cache.cache_size > 0)
+      {
+        config.zero_cache.list_blocks = config.list_blocks ;
         config.lower_zero_cache.list_blocks = config.list_blocks;
-    else
-        config.zero_cache.list_blocks = config.list_blocks;
+      }
 
     // Check whether already mounted, and if so, compare mount token against on-disk cache (if any)
     if (!config.test && !config.erase && !config.reset) {
@@ -2114,6 +2124,7 @@ dump_config(const struct s3b_config *const c)
     (*c->log)(LOG_DEBUG, "%24s: %s", "recover_dirty_blocks", c->block_cache.recover_dirty_blocks ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead", c->block_cache.read_ahead);
     (*c->log)(LOG_DEBUG, "%24s: %u blocks", "read_ahead_trigger", c->block_cache.read_ahead_trigger);
+    (*c->log)(LOG_DEBUG, "%24s: %u", "no_abort_dirty_write", c->block_cache.no_abort_dirty_write);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "block_cache_cache_file",
       c->block_cache.cache_file != NULL ? c->block_cache.cache_file : "");
     (*c->log)(LOG_DEBUG, "%24s: %s", "block_cache_no_verify", c->block_cache.no_verify ? "true" : "false");
@@ -2234,6 +2245,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %u\n", "blockCacheWriteDelay", S3BACKER_DEFAULT_BLOCK_CACHE_WRITE_DELAY);
     fprintf(stderr, "\t--%-27s %d\n", "blockSize", S3BACKER_DEFAULT_BLOCKSIZE);
     fprintf(stderr, "\t--%-27s \"%s\"\n", "filename", S3BACKER_DEFAULT_FILENAME);
+    fprintf(stderr, "\t--%-27s \"%u\"\n", "blockCacheNoAbortDirtyWrite", S3BACKER_DEFAULT_NO_ABORT_DIRTY_WRITE);
     fprintf(stderr, "\t--%-27s %u\n", "initialRetryPause", S3BACKER_DEFAULT_INITIAL_RETRY_PAUSE);
     fprintf(stderr, "\t--%-27s %u\n", "listBlocksThreads", S3BACKER_DEFAULT_LIST_BLOCKS_THREADS);
     fprintf(stderr, "\t--%-27s %u\n", "md5CacheSize", S3BACKER_DEFAULT_MD5_CACHE_SIZE);

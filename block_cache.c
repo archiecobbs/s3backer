@@ -1483,26 +1483,30 @@ static int
 block_cache_check_cancel(void *arg, s3b_block_t block_num)
 {
     struct block_cache_private *const priv = arg;
+    struct block_cache_conf *const config = priv->config;
     struct cache_entry *entry;
-    int r;
+    int r=0;
 
-    // Lock mutex
-    pthread_mutex_lock(&priv->mutex);
-    S3BCACHE_CHECK_INVARIANTS(priv, 1);
+    if(!config->no_abort_dirty_write)
+      {
+	// Lock mutex
+	pthread_mutex_lock(&priv->mutex);
+	S3BCACHE_CHECK_INVARIANTS(priv, 1);
 
-    // Find cache entry
-    entry = s3b_hash_get(priv->hashtable, block_num);
+	// Find cache entry
+	entry = s3b_hash_get(priv->hashtable, block_num);
 
-    // Sanity check
-    assert(entry != NULL);
-    assert(entry->block_num == block_num);
-    assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
+	// Sanity check
+	assert(entry != NULL);
+	assert(entry->block_num == block_num);
+	assert(ENTRY_GET_STATE(entry) == WRITING || ENTRY_GET_STATE(entry) == WRITING2);
 
-    // If block is in the WRITING2 state, cancel the current (obsolete) write operation
-    r = entry->dirty;
+	// If block is in the WRITING2 state, cancel the current (obsolete) write operation
+	r = entry->dirty;
 
-    // Unlock mutex
-    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+	// Unlock mutex
+	CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
+      }
     return r;
 }
 

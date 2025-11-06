@@ -42,7 +42,7 @@
  * Cache for "known zero" blocks.
  *
  * If a process reads or writes a bunch of zero blocks (for whatever reason), the regular
- * block cache can get blown out. This layer sits "on top" of the block cach layer and
+ * block cache can get blown out. This layer sits "on top" of the block cache layer and
  * caches zero blocks so the regular block cache doesn't have to deal with them as much.
  * Because only one bit is used for each block, we can cover the entire s3backer file.
  *
@@ -73,6 +73,9 @@ struct zero_cache_private {
     struct zero_cache_conf      *config;
     struct s3backer_store       *inner;         // underlying s3backer store
     bitmap_t                    *zeros;         // 1 = known to be zero, 0 = unknown
+    int                         is_lower;       // 1=below block cache, 0=above block cache
+    block_list_func_t           *upper_survey_callback;  //remember the upper layer callback when we have hooked our own callback
+    void                        *upper_survey_arg;  //remember the upper layer callback arg
     pthread_mutex_t             mutex;
     struct zero_cache_stats     stats;
     volatile int                stopping;
@@ -82,6 +85,7 @@ struct zero_cache_private {
     bitmap_t                    *survey_zeros;  // 1 = might still be zero, 0 = might not be zero; NULL if no survey running
     pthread_t                   survey_thread;  // the survey thread
     pthread_mutex_t             survey_mutex;   // this protects "survey_zeros" during the survey
+    pthread_mutex_t             survey_signal;  // this unblocks a waiting thread when the survey is done
     uintmax_t                   survey_count;
 };
 
@@ -115,7 +119,7 @@ static const u_char zero_etag[MD5_DIGEST_LENGTH];
  * On error, returns NULL and sets `errno'.
  */
 struct s3backer_store *
-zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
+zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner, int is_lower)
 {
     struct s3backer_store *s3b;
     struct zero_cache_private *priv;
@@ -148,10 +152,14 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     }
     priv->config = config;
     priv->inner = inner;
+    priv->is_lower = is_lower;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
-    if ((r = pthread_mutex_init(&priv->survey_mutex, NULL)) != 0)
+    if (((r = pthread_mutex_init(&priv->survey_mutex, NULL)) != 0) ||
+        ((r = pthread_mutex_init(&priv->survey_signal, NULL)) != 0))
         goto fail3;
+
+    pthread_mutex_lock(&priv->survey_signal);  // start off "taken"
 
     // Initialize bit map
     if ((priv->zeros = bitmap_init(config->num_blocks, 0)) == NULL) {
@@ -166,6 +174,7 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
 
 fail4:
     pthread_mutex_destroy(&priv->survey_mutex);
+    pthread_mutex_destroy(&priv->survey_signal);
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
@@ -233,8 +242,15 @@ zero_cache_survey_main(void *arg)
     uintmax_t survey_count;
     int r;
 
-    // Perform survey
-    r = (*priv->inner->survey_non_zero)(priv->inner, zero_cache_survey_callback, priv);
+    // Perform survey (if upper layer)
+    if(priv->is_lower)
+      {
+        // wait for my own survey_non_zero to complete
+        pthread_mutex_lock(&priv->survey_signal);
+        r=0 ;
+      }
+    else  // upper layer zero cache
+      r = (*priv->inner->survey_non_zero)(priv->inner, zero_cache_survey_callback, priv);
 
     // Lock main mutex
     pthread_mutex_lock(&priv->mutex);
@@ -253,15 +269,17 @@ zero_cache_survey_main(void *arg)
     CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     // Done
-    (*config->log)(LOG_INFO, "non-zero block survey %s (%ju non-zero blocks reported)",
-      r == 0 ? "completed" : r == ECANCELED ? "canceled" : "failed", survey_count);
+    (*config->log)(LOG_INFO, "non-zero block survey %s (result %d) (%ju non-zero blocks reported) (is_lower=%d)",
+                   r == 0 ? "completed" : r == ECANCELED ? "canceled" : "failed", r, survey_count, priv->is_lower);
     return NULL;
 }
 
 static int
-zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_blocks)
+zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums_param, u_int num_blocks_param)
 {
     struct zero_cache_private *const priv = arg;
+    const s3b_block_t *block_nums=block_nums_param ;
+    u_int num_blocks=num_blocks_param ;
 
     // Check for shutdown
     if (priv->stopping)
@@ -279,6 +297,10 @@ zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_b
         priv->survey_count++;
     }
     CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
+
+    // piggyback on the original callback from the layer above
+    if(priv->upper_survey_callback)
+      priv->upper_survey_callback(priv->upper_survey_arg,block_nums_param,num_blocks_param) ;
 
     // Done
     return 0;
@@ -353,7 +375,23 @@ zero_cache_destroy(struct s3backer_store *const s3b)
 static int
 zero_cache_survey_non_zero(struct s3backer_store *s3b, block_list_func_t *callback, void *arg)
 {
-    return ENOTSUP;
+  int result=ENOTSUP ;
+  struct zero_cache_private *const priv = s3b->data;
+
+  if(priv->is_lower)
+    {
+      // hook our own callback, remember the original callback
+      priv->upper_survey_callback = callback ;
+      priv->upper_survey_arg = arg ;
+
+      // Invoke lower layer
+      result = (*priv->inner->survey_non_zero)(priv->inner, zero_cache_survey_callback, priv);
+
+      // release our own survey_main thread
+      CHECK_RETURN(pthread_mutex_unlock(&priv->survey_signal));
+    }
+
+  return(result) ;
 }
 
 static int

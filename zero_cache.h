@@ -50,7 +50,7 @@ struct zero_cache_stats {
 };
 
 // zero_cache.c
-extern struct s3backer_store *zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner);
+extern struct s3backer_store *zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner, int is_lower);
 extern void zero_cache_init_nonzero(struct s3backer_store *s3b, const u_int *non_zero);
 extern void zero_cache_get_stats(struct s3backer_store *s3b, struct zero_cache_stats *stats);
 extern void zero_cache_clear_stats(struct s3backer_store *s3b);

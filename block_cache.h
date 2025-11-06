@@ -45,6 +45,7 @@ struct block_cache_conf {
     u_int               num_threads;
     u_int               read_ahead;
     u_int               read_ahead_trigger;
+    u_int               no_abort_dirty_write;
     u_int               no_verify;
     u_int               fadvise;
     u_int               recover_dirty_blocks;
