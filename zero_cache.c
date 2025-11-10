@@ -81,7 +81,6 @@ struct zero_cache_private {
     int                         thread_started; // the survey thread was started
     bitmap_t                    *survey_zeros;  // 1 = might still be zero, 0 = might not be zero; NULL if no survey running
     pthread_t                   survey_thread;  // the survey thread
-    pthread_mutex_t             survey_mutex;   // this protects "survey_zeros" during the survey
     uintmax_t                   survey_count;
 };
 
@@ -150,22 +149,18 @@ zero_cache_create(struct zero_cache_conf *config, struct s3backer_store *inner)
     priv->inner = inner;
     if ((r = pthread_mutex_init(&priv->mutex, NULL)) != 0)
         goto fail2;
-    if ((r = pthread_mutex_init(&priv->survey_mutex, NULL)) != 0)
-        goto fail3;
 
     // Initialize bit map
     if ((priv->zeros = bitmap_init(config->num_blocks, 0)) == NULL) {
         r = errno;
         (*config->log)(LOG_ERR, "calloc(): %s", strerror(r));
-        goto fail4;
+        goto fail3;
     }
     s3b->data = priv;
 
     // Done
     return s3b;
 
-fail4:
-    pthread_mutex_destroy(&priv->survey_mutex);
 fail3:
     pthread_mutex_destroy(&priv->mutex);
 fail2:
@@ -240,11 +235,9 @@ zero_cache_survey_main(void *arg)
     pthread_mutex_lock(&priv->mutex);
 
     // Apply results (only if we completed the survey with no error)
-    pthread_mutex_lock(&priv->survey_mutex);
     if (r == 0)
         priv->stats.current_cache_size = bitmap_or2(priv->zeros, priv->survey_zeros, config->num_blocks);
     survey_count = priv->survey_count;
-    CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
 
     // Finish up
     bitmap_free(&priv->survey_zeros);
@@ -268,7 +261,7 @@ zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_b
         return ECANCELED;
 
     // Reset bits corresponding to non-zero blocks
-    pthread_mutex_lock(&priv->survey_mutex);
+    pthread_mutex_lock(&priv->mutex);
     assert(priv->survey_zeros != NULL);
     while (num_blocks-- > 0) {
         const s3b_block_t block_num = *block_nums++;
@@ -278,7 +271,7 @@ zero_cache_survey_callback(void *arg, const s3b_block_t *block_nums, u_int num_b
         bitmap_set(priv->survey_zeros, block_num, 0);
         priv->survey_count++;
     }
-    CHECK_RETURN(pthread_mutex_unlock(&priv->survey_mutex));
+    CHECK_RETURN(pthread_mutex_unlock(&priv->mutex));
 
     // Done
     return 0;
