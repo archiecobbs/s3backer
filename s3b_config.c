@@ -2009,11 +2009,9 @@ validate_config(int parse_only)
     config.test_io.bucket = config.bucket;
     config.test_io.blockHashPrefix = config.blockHashPrefix;
 
-    // Only the lower of the two possible zero caches performs the list blocks operation
-    if (config.block_cache.cache_size > 0)
-        config.lower_zero_cache.list_blocks = config.list_blocks;
-    else
-        config.zero_cache.list_blocks = config.list_blocks;
+    // Only the upper zero cache caches initiates the list blocks operation
+    config.zero_cache.list_blocks = config.list_blocks;
+    config.lower_zero_cache.list_blocks = 0;
 
     // Check whether already mounted, and if so, compare mount token against on-disk cache (if any)
     if (!config.test && !config.erase && !config.reset) {
