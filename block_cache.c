@@ -555,7 +555,7 @@ block_cache_flush_blocks2(struct s3backer_store *s3b, const s3b_block_t *const b
         need_signal = 1;
     }
     if (need_signal)
-        pthread_cond_signal(&priv->worker_work);
+        pthread_cond_broadcast(&priv->worker_work);
 
     // Wait for each block in our list to become clean
     for (i = 0; i < num_blocks; ) {
