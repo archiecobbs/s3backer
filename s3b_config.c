@@ -1056,7 +1056,7 @@ s3b_config_print_stats(void *prarg, printer_t *printer)
     if (zero_cache_store != NULL)
         zero_cache_get_stats(zero_cache_store, &zero_cache_stats);
     if (lower_zero_cache_store != NULL)
-        zero_cache_get_stats(zero_cache_store, &lower_zero_cache_stats);
+        zero_cache_get_stats(lower_zero_cache_store, &lower_zero_cache_stats);
 
     // Get EC protection stats
     if (ec_protect_store != NULL)
