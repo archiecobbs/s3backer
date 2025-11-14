@@ -806,6 +806,10 @@ Equivalent to the
 .Fl \-insecure
 flag documented in
 .Xr curl 1 .
+.It Fl \-ipTOS=VALUE
+Set specified Type Of Service byte value in all outgoing IP packet headers.
+This could be useful for network traffic routing purposes.
+Default is to set no specific value, so that the Operating System default value will be used.
 .It Fl \-keyLength
 Override the length of the generated block encryption key.
 .Pp

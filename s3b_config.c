@@ -370,6 +370,10 @@ static const struct fuse_opt option_list[] = {
         .value=     1
     },
     {
+        .templ=     "--ipTOS=%d",
+        .offset=    offsetof(struct s3b_config, http_io.ip_tos),
+    },
+    {
         .templ=     "--noCurlCache",
         .offset=    offsetof(struct s3b_config, http_io.no_curl_cache),
         .value=     1
@@ -2068,6 +2072,7 @@ dump_config(const struct s3b_config *const c)
       c->max_speed_str[HTTP_DOWNLOAD] != NULL ? c->max_speed_str[HTTP_DOWNLOAD] : "-",
       c->http_io.max_speed[HTTP_DOWNLOAD]);
     (*c->log)(LOG_DEBUG, "%24s: %s", "http_11", c->http_io.http_11 ? "true" : "false");
+    (*c->log)(LOG_DEBUG, "%24s: %d", "ip_tos", c->http_io.ip_tos);
     (*c->log)(LOG_DEBUG, "%24s: %s", "noCurlCache", c->http_io.no_curl_cache ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: %us", "timeout", c->http_io.timeout);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "sse", c->http_io.sse);
