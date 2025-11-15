@@ -2162,6 +2162,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "noCurlCache", "Disable caching of cURL handles");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Initial retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
+    fprintf(stderr, "\t--%-27s %s\n", "ipTOS=VALUE", "Set Type Of Service byte value of outgoing IP packets");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocksThreads", "List blocks in parallel using this many threads");
