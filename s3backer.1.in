@@ -806,6 +806,9 @@ Equivalent to the
 .Fl \-insecure
 flag documented in
 .Xr curl 1 .
+.It Fl \-ipTOS=VALUE
+Configure the IP type-of-service value on the HTTP socket.
+This one byte value is specified either numerically or as a recognized string such as "lowdelay".
 .It Fl \-keyLength
 Override the length of the generated block encryption key.
 .Pp

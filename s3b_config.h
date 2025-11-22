@@ -76,6 +76,7 @@ struct s3b_config {
     const char                  *block_size_str;
     const char                  *password_file;
     const char                  *max_speed_str[2];
+    const char                  *ip_tos;
     char                        *compress_alg;
     char                        *compress_level;
     int                         compress_flag;

@@ -3301,7 +3301,8 @@ http_io_acquire_curl(struct http_io_private *priv, struct http_io *io)
       || !http_io_curl_setopt_long(priv, curl, CURLOPT_TIMEOUT, config->timeout)
       || !http_io_curl_setopt_long(priv, curl, CURLOPT_NOPROGRESS, 1)
       || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_USERAGENT, config->user_agent)
-      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_SOCKOPTFUNCTION, http_io_sockopt_callback))
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_SOCKOPTFUNCTION, http_io_sockopt_callback)
+      || !http_io_curl_setopt_ptr(priv, curl, CURLOPT_SOCKOPTDATA, priv))
         goto optfail;
     if (config->max_speed[HTTP_UPLOAD] != 0
       && !http_io_curl_setopt_off(priv, curl, CURLOPT_MAX_SEND_SPEED_LARGE, (curl_off_t)(config->max_speed[HTTP_UPLOAD] / 8)))
@@ -3475,7 +3476,19 @@ http_io_curl_setopt_off(struct http_io_private *priv, CURL *curl, CURLoption opt
 static int
 http_io_sockopt_callback(void *cookie, curl_socket_t fd, curlsocktype purpose)
 {
+    struct http_io_private *const priv = cookie;
+    struct http_io_conf *const config = priv->config;
+
+    // Close socket on exec
     (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+
+    // Configure socket
+    if (config->ip_tos != -1) {
+        if (setsockopt(fd, IPPROTO_IP, IP_TOS, &config->ip_tos, sizeof(config->ip_tos)) != 0)
+            (*priv->config->log)(LOG_ERR, "setsockopt(TOS, %d): %s", config->ip_tos, strerror(errno));
+    }
+
+    // Done
     return CURL_SOCKOPT_OK;
 }
 

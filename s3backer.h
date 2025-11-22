@@ -46,6 +46,8 @@
 #if HAVE_DECL_PRCTL
 #include <sys/prctl.h>
 #endif
+#include <sys/socket.h>
+#include <netinet/ip.h>
 
 // Add some queue.h definitions missing on Linux
 #ifndef LIST_FIRST

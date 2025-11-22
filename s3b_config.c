@@ -152,6 +152,44 @@ static const char *const s3_storage_classes[] = {
     NULL
 };
 
+// Known TOS values
+static const struct name_value ip_tos_values[] = {
+#ifdef IPTOS_LOWDELAY
+    {
+        .name=                  "lowdelay",
+        .value=                 (long)IPTOS_LOWDELAY
+    },
+#endif
+#ifdef IPTOS_THROUGHPUT
+    {
+        .name=                  "throughput",
+        .value=                 (long)IPTOS_THROUGHPUT
+    },
+#endif
+#ifdef IPTOS_RELIABILITY
+    {
+        .name=                  "reliability",
+        .value=                 (long)IPTOS_RELIABILITY
+    },
+#endif
+#ifdef IPTOS_LOWCOST
+    {
+        .name=                  "lowcost",
+        .value=                 (long)IPTOS_LOWCOST
+    },
+#endif
+#ifdef IPTOS_MINCOST
+    {
+        .name=                  "mincost",
+        .value=                 (long)IPTOS_MINCOST
+    },
+#endif
+    {
+        .name=                  NULL,
+        .value=                 0
+    },
+};
+
 // Configuration structure
 static char user_agent_buf[64];
 static struct s3b_config config = {
@@ -548,6 +586,10 @@ static const struct fuse_opt option_list[] = {
         .templ=     "--sharedDiskMode",
         .offset=    offsetof(struct s3b_config, shared_disk_mode),
         .value=     1
+    },
+    {
+        .templ=     "--ipTOS=%s",
+        .offset=    offsetof(struct s3b_config, ip_tos),
     },
 };
 static const int num_options = sizeof(option_list) / sizeof(*option_list);
@@ -962,6 +1004,7 @@ s3b_cleanup(void)
     FREE_NULL(config.http_io.encryption);
     FREE_NULL(config.http_io.password);
     FREE_NULL(config.password_file);
+    FREE_NULL(config.ip_tos);
 
     // Config params
     FREE_NULL(config.bucket);
@@ -1618,6 +1661,17 @@ validate_config(int parse_only)
         config.http_io.compress_level = level;
     }
 
+    // IP TOS
+    config.http_io.ip_tos = -1;     // none by default
+    if (config.ip_tos != NULL) {
+        long tos;
+        if (parse_name_value(ip_tos_values, config.ip_tos, 0x00, 0xff, &tos) != 0) {
+            warnx("invalid \"ipTOS\" value \"%s\"", config.ip_tos);
+            return -1;
+        }
+        config.http_io.ip_tos = (int)tos;
+    }
+
     // Disable md5 cache when in read only mode
     if (config.fuse_ops.read_only) {
         config.ec_protect.cache_size = 0;
@@ -2024,6 +2078,7 @@ validate_config(int parse_only)
 void
 dump_config(const struct s3b_config *const c)
 {
+    char tosbuf[32];
     int i;
 
     (*c->log)(LOG_DEBUG, "s3backer config:");
@@ -2068,6 +2123,11 @@ dump_config(const struct s3b_config *const c)
       c->max_speed_str[HTTP_DOWNLOAD] != NULL ? c->max_speed_str[HTTP_DOWNLOAD] : "-",
       c->http_io.max_speed[HTTP_DOWNLOAD]);
     (*c->log)(LOG_DEBUG, "%24s: %s", "http_11", c->http_io.http_11 ? "true" : "false");
+    if (c->http_io.ip_tos != -1)
+        format_name_value(ip_tos_values, tosbuf, sizeof(tosbuf), "0x%02x", c->http_io.ip_tos);
+    else
+        snprintf(tosbuf, sizeof(tosbuf), "%s", "(none)");
+    (*c->log)(LOG_DEBUG, "%24s: %s", "ip_tos", tosbuf);
     (*c->log)(LOG_DEBUG, "%24s: %s", "noCurlCache", c->http_io.no_curl_cache ? "true" : "false");
     (*c->log)(LOG_DEBUG, "%24s: %us", "timeout", c->http_io.timeout);
     (*c->log)(LOG_DEBUG, "%24s: \"%s\"", "sse", c->http_io.sse);
@@ -2157,6 +2217,7 @@ usage(void)
     fprintf(stderr, "\t--%-27s %s\n", "noCurlCache", "Disable caching of cURL handles");
     fprintf(stderr, "\t--%-27s %s\n", "initialRetryPause=MILLIS", "Initial retry pause after stale data or server error");
     fprintf(stderr, "\t--%-27s %s\n", "insecure", "Don't verify SSL server identity");
+    fprintf(stderr, "\t--%-27s %s\n", "ipTOS=VALUE", "Set IP type-of-service value for outgoing packets");
     fprintf(stderr, "\t--%-27s %s\n", "keyLength", "Override generated cipher key length");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocks", "Auto-detect non-empty blocks at startup");
     fprintf(stderr, "\t--%-27s %s\n", "listBlocksThreads", "List blocks in parallel using this many threads");

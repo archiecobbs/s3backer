@@ -191,6 +191,50 @@ find_string_in_table(const char *const *table, const char *value)
     return 0;
 }
 
+// Returns 0 if found, or -1 if not found or out of range
+int parse_name_value(const struct name_value *nvp, const char *const value, const long min, const long max, long *const resultp)
+{
+    char *endptr;
+    long result;
+
+    // Try names
+    while (nvp->name != NULL) {
+        if (strcmp(value, nvp->name) == 0) {
+            *resultp = nvp->value;
+            return 0;
+        }
+        nvp++;
+    }
+
+    // Try parsing an integral value
+    errno = 0;
+    result = strtol(value, &endptr, 0);
+    if (errno != 0
+      || endptr == value
+      || *endptr != '\0'
+      || result < min
+      || result > max)
+        return -1;
+    *resultp = result;
+    return 0;
+}
+
+// Inverse of parse_name_value()
+void format_name_value(const struct name_value *nvp, char *buf, size_t bufsize, const char *format, long value)
+{
+    // Try names
+    while (nvp->name != NULL) {
+        if (value == nvp->value) {
+            snprintf(buf, bufsize, "%s", nvp->name);
+            return;
+        }
+        nvp++;
+    }
+
+    // Unknown integral value
+    snprintf(buf, bufsize, format, value);
+}
+
 // Returns the number of bitmap_t's in a bitmap big enough to hold num_blocks bits
 size_t
 bitmap_size(s3b_block_t num_blocks)

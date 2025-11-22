@@ -44,6 +44,12 @@ struct block_list {
     s3b_block_t     num_blocks;
 };
 
+// A list of name, value pairs (where value is an integer)
+struct name_value {
+    const char      *name;
+    long            value;
+};
+
 // Block boundary condition handling info
 struct boundary_edge {
     char            *data;
@@ -88,6 +94,8 @@ extern const void *zero_block;
 extern int parse_size_string(const char *s, const char *description, u_int max_bytes, uintmax_t *valp);
 extern void unparse_size_string(char *buf, int bmax, uintmax_t value);
 extern void describe_size(char *buf, int bmax, uintmax_t value);
+extern int parse_name_value(const struct name_value *nvp, const char *value, long min, long max, long *resultp);
+extern void format_name_value(const struct name_value *nvp, char *buf, size_t bufsize, const char *format, long value);
 extern void syslog_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern void stderr_logger(int level, const char *fmt, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 extern int find_string_in_table(const char *const *table, const char *value);
