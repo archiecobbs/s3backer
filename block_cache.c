@@ -1470,6 +1470,13 @@ block_cache_worker_main(void *arg)
                 if (s3b_hash_get(priv->hashtable, ra_block) != NULL)
                     continue;
 
+                // If we wouldn't have anywhere to store the new block we're about to read, cancel read-ahead
+                if (s3b_hash_size(priv->hashtable) >= config->cache_size && priv->num_cleans == 0) {
+                    priv->seq_count = 0;
+                    priv->ra_count = 0;
+                    break;
+                }
+
                 // Perform a speculative read of the block so it will get stored in the cache
                 (void)block_cache_do_read(priv, ra_block, 0, 0, NULL, 0);
                 break;
