@@ -1,5 +1,6 @@
 Version Next
 
+    - Flush dirty writes in parallel when possible (#249)
     - Add "--ipTOS" flag (#251)
 
 Version 2.1.6 released August 22, 2025
