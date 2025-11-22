@@ -907,6 +907,15 @@ again:
     if ((r = block_cache_get_entry(priv, &entry, &data)) != 0)
         return r;
     if (entry == NULL) {                                            // no free entries right now
+        struct cache_entry *dirty_entry = TAILQ_FIRST(&priv->dirties);
+
+        // Write the next dirty block, if any, ahead of schedule to free up space
+        if (dirty_entry != NULL) {
+            dirty_entry->timeout = block_cache_get_time(priv);
+            pthread_cond_signal(&priv->worker_work);
+        }
+
+        // Sleep and try again
         pthread_cond_wait(&priv->space_avail, &priv->mutex);
         goto again;
     }
@@ -1145,6 +1154,15 @@ again:
 
     // If cache is full, wait for an entry to go CLEAN[2] so we can evict it
     if (entry == NULL) {
+        struct cache_entry *dirty_entry = TAILQ_FIRST(&priv->dirties);
+
+        // Write the next dirty block, if any, ahead of schedule to free up space
+        if (dirty_entry != NULL) {
+            dirty_entry->timeout = block_cache_get_time(priv);
+            pthread_cond_signal(&priv->worker_work);
+        }
+
+        // Sleep and try again
         pthread_cond_wait(&priv->space_avail, &priv->mutex);
         goto again;
     }
