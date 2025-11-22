@@ -1477,6 +1477,10 @@ block_cache_worker_main(void *arg)
                     break;
                 }
 
+                // If there is remaining read-ahead to be done, maybe another thread can do it too
+                if (priv->ra_count < config->read_ahead)
+                    pthread_cond_signal(&priv->worker_work);
+
                 // Perform a speculative read of the block so it will get stored in the cache
                 (void)block_cache_do_read(priv, ra_block, 0, 0, NULL, 0);
                 break;

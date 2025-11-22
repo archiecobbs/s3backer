@@ -1,5 +1,6 @@
 Version Next
 
+    - Perform read-ahead in parallel when possible (#248)
     - Flush dirty block early to make space if needed (#250)
     - Flush dirty writes in parallel when possible (#249)
     - Add "--ipTOS" flag (#251)
